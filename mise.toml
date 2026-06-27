@@ -1,6 +1,10 @@
 min_version = "2026.6.14"
 
+[settings]
+task.run_auto_install = false
+
 [tools]
+colima = "0.10.3"
 node = "24.18.0"
 pnpm = "11.9.0"
 
@@ -20,6 +24,33 @@ run = "pnpm install --lockfile-only"
 description = "Run strict TypeScript type checking"
 run = "pnpm exec tsc --noEmit --pretty false"
 
+[tasks."bootstrap:check"]
+description = "Validate bootstrap script syntax and shell launch paths"
+run = '''
+#!/usr/bin/env sh
+set -eu
+
+sh -n scripts/bootstrap
+scripts/bootstrap --help >/dev/null
+scripts/bootstrap '-?' >/dev/null
+
+if command -v bash >/dev/null 2>&1; then
+  bash scripts/bootstrap --help >/dev/null
+fi
+
+if command -v zsh >/dev/null 2>&1; then
+  zsh scripts/bootstrap --help >/dev/null
+fi
+
+if command -v fish >/dev/null 2>&1; then
+  fish -c 'scripts/bootstrap --help >/dev/null'
+fi
+
+if command -v nu >/dev/null 2>&1; then
+  nu -c 'scripts/bootstrap --help | ignore'
+fi
+'''
+
 [tasks.check]
 description = "Run the repository quality gate"
-depends = ["typecheck"]
+depends = ["typecheck", "bootstrap:check"]

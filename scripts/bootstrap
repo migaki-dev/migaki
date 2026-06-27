@@ -3,8 +3,12 @@ set -eu
 
 MISE_MIN_VERSION="2026.6.14"
 MISE_INSTALL_VERSION="v2026.6.14"
+NODE_VERSION="24.18.0"
+PNPM_VERSION="11.9.0"
+COLIMA_VERSION="0.10.3"
 
 force=0
+mise_installed_or_updated=0
 
 usage() {
   cat <<'EOF'
@@ -12,11 +16,17 @@ Usage: scripts/bootstrap [--force]
 
 Bootstraps a Migaki development machine idempotently.
 
-It installs Homebrew when missing, installs mise using the native mise
-installer when missing or below the repository minimum, wires Homebrew and
-mise into the current shell's profile/rc files, refreshes this script's own
-environment, trusts the local mise config, installs and upgrades project
-tools, then runs the setup and check mise tasks.
+The script is POSIX sh and can be launched from sh, bash, zsh, fish, or
+nushell. It supports Unix-like systems across common x86, x64, and ARM
+architectures.
+
+The only system installer it uses is the native mise installer. Node.js, pnpm,
+and Colima are managed by mise from the repository's pinned toolchain. The mise
+and Colima install/update steps ask before changing the system.
+
+After tool setup, the script refreshes its own environment, trusts the local
+mise config, installs the required project tools, then runs `mise run setup`
+and `mise run check`.
 
 Options:
   -f, --force   Re-run installer/update steps even when tools already exist.
@@ -45,7 +55,8 @@ done
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 HOME_DIR=${HOME:?HOME must be set}
-needs_refresh=0
+OS_NAME=$(uname -s 2>/dev/null || printf unknown)
+ARCH_NAME=$(uname -m 2>/dev/null || printf unknown)
 
 log() {
   printf '%s\n' "$*"
@@ -53,6 +64,32 @@ log() {
 
 have() {
   command -v "$1" >/dev/null 2>&1
+}
+
+has_tty() {
+  [ -r /dev/tty ] && [ -w /dev/tty ]
+}
+
+ask_yes_no() {
+  prompt=$1
+
+  if ! has_tty; then
+    log "$prompt [Y/n]"
+    log "No interactive terminal is available; skipping."
+    return 1
+  fi
+
+  printf '%s [Y/n] ' "$prompt" >/dev/tty
+  IFS= read -r answer </dev/tty || answer=
+
+  case "$answer" in
+    ""|Y|y|yes|YES|Yes)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 append_once() {
@@ -89,67 +126,30 @@ version_ge() {
 
 detect_shell_name() {
   shell_path=${SHELL:-}
+  shell_name=
+
   if [ -n "$shell_path" ]; then
-    basename -- "$shell_path"
+    shell_name=$(basename -- "$shell_path")
   else
-    basename -- "${0:-sh}"
-  fi
-}
-
-ensure_homebrew_shellenv() {
-  if ! have brew; then
-    for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
-      if [ -x "$candidate" ]; then
-        PATH="$(dirname -- "$candidate"):$PATH"
-        export PATH
-        break
-      fi
-    done
+    shell_name=$(basename -- "${0:-sh}")
   fi
 
-  if have brew; then
-    brew_prefix=$(brew --prefix)
-    if [ -x "$brew_prefix/bin/brew" ]; then
-      eval "$("$brew_prefix/bin/brew" shellenv)"
-      append_once "$HOME_DIR/.profile" "eval \"\$($brew_prefix/bin/brew shellenv)\""
-
-      case "$(detect_shell_name)" in
-        zsh)
-          append_once "$HOME_DIR/.zprofile" "eval \"\$($brew_prefix/bin/brew shellenv)\""
-          ;;
-        bash)
-          append_once "$HOME_DIR/.bash_profile" "eval \"\$($brew_prefix/bin/brew shellenv)\""
-          ;;
-      esac
-    fi
-  fi
-}
-
-install_homebrew_if_needed() {
-  if have brew && [ "$force" -eq 0 ]; then
-    log "Homebrew already installed; skipping."
-    ensure_homebrew_shellenv
-    return
-  fi
-
-  if have brew; then
-    log "Homebrew already installed; updating because --force was provided."
-    brew update
-    ensure_homebrew_shellenv
-    return
-  fi
-
-  case "$(uname -s)" in
-    Darwin|Linux)
-      log "Installing Homebrew using the official installer."
-      NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-      needs_refresh=1
-      ensure_homebrew_shellenv
-      ;;
-    *)
-      log "Homebrew installation is not supported on this OS; skipping."
-      ;;
+  case "$shell_name" in
+    bash) printf '%s\n' bash ;;
+    zsh) printf '%s\n' zsh ;;
+    fish) printf '%s\n' fish ;;
+    nu|nushell) printf '%s\n' nu ;;
+    sh|dash|ksh|mksh) printf '%s\n' sh ;;
+    *) printf '%s\n' sh ;;
   esac
+}
+
+xdg_config_home() {
+  if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    printf '%s\n' "$XDG_CONFIG_HOME"
+  else
+    printf '%s\n' "$HOME_DIR/.config"
+  fi
 }
 
 find_mise_bin() {
@@ -178,6 +178,35 @@ ensure_mise_on_path() {
   export PATH
 }
 
+configure_mise_for_shell() {
+  mise_bin=$1
+  shell_name=$2
+
+  case "$shell_name" in
+    bash)
+      append_once "$HOME_DIR/.bashrc" "eval \"\$($mise_bin activate bash)\""
+      ;;
+    zsh)
+      append_once "$HOME_DIR/.zshrc" "eval \"\$($mise_bin activate zsh)\""
+      ;;
+    fish)
+      append_once "$(xdg_config_home)/fish/config.fish" "$mise_bin activate fish | source"
+      ;;
+    nu)
+      config_home=$(xdg_config_home)
+      init_dir="$config_home/mise"
+      init_file="$init_dir/init.nu"
+      env_file="$config_home/nushell/env.nu"
+      mkdir -p "$init_dir"
+      "$mise_bin" activate nu > "$init_file"
+      append_once "$env_file" "source '$init_file'"
+      ;;
+    sh|*)
+      append_once "$HOME_DIR/.profile" "export PATH=\"\$HOME/.local/share/mise/shims:\$HOME/.local/bin:\$PATH\""
+      ;;
+  esac
+}
+
 install_mise_if_needed() {
   ensure_mise_on_path
 
@@ -190,54 +219,97 @@ install_mise_if_needed() {
   if [ -n "$mise_bin" ] && version_ge "$mise_version" "$MISE_MIN_VERSION" && [ "$force" -eq 0 ]; then
     log "mise $mise_version already satisfies minimum $MISE_MIN_VERSION; skipping install."
   else
-    log "Installing mise $MISE_INSTALL_VERSION using the native installer."
-    curl -fsSL https://mise.run | MISE_VERSION="$MISE_INSTALL_VERSION" sh
-    needs_refresh=1
-    ensure_mise_on_path
-    mise_bin=$(find_mise_bin)
+    if ask_yes_no "Install or update mise to $MISE_INSTALL_VERSION using the native installer?"; then
+      log "Installing mise $MISE_INSTALL_VERSION using the native installer."
+      curl -fsSL https://mise.run | MISE_VERSION="$MISE_INSTALL_VERSION" sh
+      mise_installed_or_updated=1
+      ensure_mise_on_path
+      mise_bin=$(find_mise_bin)
+    else
+      log "Skipped mise installation."
+    fi
   fi
 
-  case "$(detect_shell_name)" in
-    zsh)
-      append_once "$HOME_DIR/.zshrc" "eval \"\$($mise_bin activate zsh)\""
-      ;;
-    bash)
-      append_once "$HOME_DIR/.bashrc" "eval \"\$($mise_bin activate bash)\""
-      ;;
-    fish)
-      append_once "$HOME_DIR/.config/fish/config.fish" "$mise_bin activate fish | source"
-      ;;
-    *)
-      append_once "$HOME_DIR/.profile" "eval \"\$($mise_bin activate bash)\""
-      ;;
-  esac
+  mise_bin=$(find_mise_bin 2>/dev/null || true)
+  if [ -z "$mise_bin" ]; then
+    log "mise is required to continue bootstrap setup/check tasks."
+    return 1
+  fi
 
-  if "$mise_bin" self-update "$MISE_INSTALL_VERSION" --yes >/dev/null 2>&1; then
-    log "mise self-update checked $MISE_INSTALL_VERSION."
-  else
-    log "mise self-update is unavailable for this installation method; continuing."
+  mise_version=$("$mise_bin" --version | awk '{print $1}')
+  if ! version_ge "$mise_version" "$MISE_MIN_VERSION"; then
+    log "mise $mise_version is below required minimum $MISE_MIN_VERSION."
+    return 1
+  fi
+
+  configure_mise_for_shell "$mise_bin" "$(detect_shell_name)"
+
+  if [ "$mise_installed_or_updated" -eq 1 ]; then
+    if "$mise_bin" self-update "$MISE_INSTALL_VERSION" --yes >/dev/null 2>&1; then
+      log "mise self-update checked $MISE_INSTALL_VERSION."
+    else
+      log "mise self-update is unavailable for this installation method; continuing."
+    fi
   fi
 
   eval "$("$mise_bin" env -s bash -C "$ROOT_DIR")"
 }
 
+install_required_tools() {
+  mise_bin=$1
+
+  if [ "$force" -eq 1 ]; then
+    "$mise_bin" install --force --yes "node@$NODE_VERSION" "pnpm@$PNPM_VERSION"
+  else
+    "$mise_bin" install --yes "node@$NODE_VERSION" "pnpm@$PNPM_VERSION"
+  fi
+}
+
+install_colima_if_requested() {
+  mise_bin=$1
+
+  if "$mise_bin" where "colima@$COLIMA_VERSION" >/dev/null 2>&1 && [ "$force" -eq 0 ]; then
+    log "Colima $COLIMA_VERSION already installed by mise; skipping."
+    return
+  fi
+
+  if ask_yes_no "Install or update Colima $COLIMA_VERSION through mise?"; then
+    if [ "$force" -eq 1 ]; then
+      "$mise_bin" install --force --yes "colima@$COLIMA_VERSION"
+    else
+      "$mise_bin" install --yes "colima@$COLIMA_VERSION"
+    fi
+  else
+    log "Skipped Colima installation/update."
+  fi
+}
+
+run_mise_task() {
+  mise_bin=$1
+  task=$2
+
+  if [ "$force" -eq 1 ]; then
+    "$mise_bin" run --force "$task"
+  else
+    "$mise_bin" run "$task"
+  fi
+}
+
 main() {
   cd "$ROOT_DIR"
 
-  install_homebrew_if_needed
-  install_mise_if_needed
+  log "Bootstrapping Migaki on $OS_NAME/$ARCH_NAME for $(detect_shell_name)."
 
-  if [ "$needs_refresh" -eq 1 ]; then
-    log "Refreshed this bootstrap session after installer changes."
-  fi
+  install_mise_if_needed
 
   mise_bin=$(find_mise_bin)
 
   "$mise_bin" trust "$ROOT_DIR/mise.toml" --yes
-  "$mise_bin" install --yes
-  "$mise_bin" upgrade --local --yes
-  "$mise_bin" run setup
-  "$mise_bin" run check
+  install_required_tools "$mise_bin"
+  install_colima_if_requested "$mise_bin"
+  "$mise_bin" upgrade --local --yes node pnpm
+  run_mise_task "$mise_bin" setup
+  run_mise_task "$mise_bin" check
 
   log "Bootstrap complete."
 }
