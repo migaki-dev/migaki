@@ -1,0 +1,25 @@
+min_version = "2026.6.14"
+
+[tools]
+node = "24.18.0"
+pnpm = "11.9.0"
+
+[tasks.default]
+description = "Run the default project quality gate"
+depends = ["check"]
+
+[tasks.setup]
+description = "Install pnpm workspace dependencies from the lockfile"
+run = "pnpm install --frozen-lockfile"
+
+[tasks."setup:update-lockfile"]
+description = "Update pnpm-lock.yaml after dependency changes"
+run = "pnpm install --lockfile-only"
+
+[tasks.typecheck]
+description = "Run strict TypeScript type checking"
+run = "pnpm exec tsc --noEmit --pretty false"
+
+[tasks.check]
+description = "Run the repository quality gate"
+depends = ["typecheck"]

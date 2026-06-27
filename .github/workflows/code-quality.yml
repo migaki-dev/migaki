@@ -1,0 +1,35 @@
+name: code-quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  code-quality:
+    name: code-quality
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        # actions/checkout v7.0.0, pinned to a full commit SHA because GitHub
+        # recommends SHA pins as the only immutable action reference.
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Install mise toolchain
+        # jdx/mise-action v4.2.0, pinned to the release commit SHA to keep CI
+        # reproducible even if the semver tag is ever moved or compromised.
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d
+        with:
+          version: "2026.6.14"
+          install: true
+          cache: true
+
+      - name: Install workspace dependencies
+        run: mise run setup
+
+      - name: Run code quality gate
+        run: mise run check

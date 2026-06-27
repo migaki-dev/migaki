@@ -19,7 +19,7 @@ Migaki is a TypeScript project using pnpm. Treat this repository as infrastructu
 ## Bootstrap
 
 - Use `pnpm` only. Do not use `npm`, `yarn`, or `bun` for install, script execution, or lockfile updates.
-- Use `mise` for tool versions across modern shells. Keep `.mise.toml` authoritative for Node.js, pnpm, and any other required CLI tools.
+- Use `mise` for tool versions across modern shells. Keep `mise.toml` authoritative for Node.js, pnpm, and any other required CLI tools.
 - Keep bootstrapping simple: a new contributor should be able to run `mise install`, `corepack enable`, `pnpm install --frozen-lockfile`, and then the documented checks.
 - Pin tool versions. Avoid floating versions such as `latest`, broad Docker tags, or unbounded GitHub Actions versions.
 - Prefer package-manager and toolchain pins with integrity/hash support when the ecosystem provides it. Lockfiles are required and must be committed.

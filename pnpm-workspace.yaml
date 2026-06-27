@@ -1,0 +1,9 @@
+packages:
+  - "packages/*"
+  - "examples/*"
+
+engineStrict: true
+strictPeerDependencies: true
+autoInstallPeers: false
+saveExact: true
+managePackageManagerVersions: false
