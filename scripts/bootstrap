@@ -1,0 +1,245 @@
+#!/bin/sh
+set -eu
+
+MISE_MIN_VERSION="2026.6.14"
+MISE_INSTALL_VERSION="v2026.6.14"
+
+force=0
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/bootstrap [--force]
+
+Bootstraps a Migaki development machine idempotently.
+
+It installs Homebrew when missing, installs mise using the native mise
+installer when missing or below the repository minimum, wires Homebrew and
+mise into the current shell's profile/rc files, refreshes this script's own
+environment, trusts the local mise config, installs and upgrades project
+tools, then runs the setup and check mise tasks.
+
+Options:
+  -f, --force   Re-run installer/update steps even when tools already exist.
+  -h, -?, --help
+                Show this help.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -f|--force)
+      force=1
+      ;;
+    -h|-\?|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+HOME_DIR=${HOME:?HOME must be set}
+needs_refresh=0
+
+log() {
+  printf '%s\n' "$*"
+}
+
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+append_once() {
+  file=$1
+  line=$2
+
+  dir=$(dirname -- "$file")
+  [ -d "$dir" ] || mkdir -p "$dir"
+  [ -f "$file" ] || : > "$file"
+
+  if ! grep -Fqx "$line" "$file"; then
+    printf '\n%s\n' "$line" >> "$file"
+    log "Updated $file"
+  fi
+}
+
+version_ge() {
+  actual=$(printf '%s' "$1" | sed 's/^v//')
+  required=$(printf '%s' "$2" | sed 's/^v//')
+  awk -v actual="$actual" -v required="$required" '
+    BEGIN {
+      split(actual, a, ".")
+      split(required, r, ".")
+      for (i = 1; i <= 3; i++) {
+        ai = (a[i] == "" ? 0 : a[i]) + 0
+        ri = (r[i] == "" ? 0 : r[i]) + 0
+        if (ai > ri) exit 0
+        if (ai < ri) exit 1
+      }
+      exit 0
+    }
+  '
+}
+
+detect_shell_name() {
+  shell_path=${SHELL:-}
+  if [ -n "$shell_path" ]; then
+    basename -- "$shell_path"
+  else
+    basename -- "${0:-sh}"
+  fi
+}
+
+ensure_homebrew_shellenv() {
+  if ! have brew; then
+    for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
+      if [ -x "$candidate" ]; then
+        PATH="$(dirname -- "$candidate"):$PATH"
+        export PATH
+        break
+      fi
+    done
+  fi
+
+  if have brew; then
+    brew_prefix=$(brew --prefix)
+    if [ -x "$brew_prefix/bin/brew" ]; then
+      eval "$("$brew_prefix/bin/brew" shellenv)"
+      append_once "$HOME_DIR/.profile" "eval \"\$($brew_prefix/bin/brew shellenv)\""
+
+      case "$(detect_shell_name)" in
+        zsh)
+          append_once "$HOME_DIR/.zprofile" "eval \"\$($brew_prefix/bin/brew shellenv)\""
+          ;;
+        bash)
+          append_once "$HOME_DIR/.bash_profile" "eval \"\$($brew_prefix/bin/brew shellenv)\""
+          ;;
+      esac
+    fi
+  fi
+}
+
+install_homebrew_if_needed() {
+  if have brew && [ "$force" -eq 0 ]; then
+    log "Homebrew already installed; skipping."
+    ensure_homebrew_shellenv
+    return
+  fi
+
+  if have brew; then
+    log "Homebrew already installed; updating because --force was provided."
+    brew update
+    ensure_homebrew_shellenv
+    return
+  fi
+
+  case "$(uname -s)" in
+    Darwin|Linux)
+      log "Installing Homebrew using the official installer."
+      NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      needs_refresh=1
+      ensure_homebrew_shellenv
+      ;;
+    *)
+      log "Homebrew installation is not supported on this OS; skipping."
+      ;;
+  esac
+}
+
+find_mise_bin() {
+  if have mise; then
+    command -v mise
+    return
+  fi
+
+  for candidate in "$HOME_DIR/.local/bin/mise" "$HOME_DIR/.local/share/mise/bin/mise"; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+
+  return 1
+}
+
+ensure_mise_on_path() {
+  for dir in "$HOME_DIR/.local/bin" "$HOME_DIR/.local/share/mise/bin"; do
+    case ":$PATH:" in
+      *":$dir:"*) ;;
+      *) PATH="$dir:$PATH" ;;
+    esac
+  done
+  export PATH
+}
+
+install_mise_if_needed() {
+  ensure_mise_on_path
+
+  mise_bin=$(find_mise_bin 2>/dev/null || true)
+  mise_version=""
+  if [ -n "$mise_bin" ]; then
+    mise_version=$("$mise_bin" --version | awk '{print $1}')
+  fi
+
+  if [ -n "$mise_bin" ] && version_ge "$mise_version" "$MISE_MIN_VERSION" && [ "$force" -eq 0 ]; then
+    log "mise $mise_version already satisfies minimum $MISE_MIN_VERSION; skipping install."
+  else
+    log "Installing mise $MISE_INSTALL_VERSION using the native installer."
+    curl -fsSL https://mise.run | MISE_VERSION="$MISE_INSTALL_VERSION" sh
+    needs_refresh=1
+    ensure_mise_on_path
+    mise_bin=$(find_mise_bin)
+  fi
+
+  case "$(detect_shell_name)" in
+    zsh)
+      append_once "$HOME_DIR/.zshrc" "eval \"\$($mise_bin activate zsh)\""
+      ;;
+    bash)
+      append_once "$HOME_DIR/.bashrc" "eval \"\$($mise_bin activate bash)\""
+      ;;
+    fish)
+      append_once "$HOME_DIR/.config/fish/config.fish" "$mise_bin activate fish | source"
+      ;;
+    *)
+      append_once "$HOME_DIR/.profile" "eval \"\$($mise_bin activate bash)\""
+      ;;
+  esac
+
+  if "$mise_bin" self-update "$MISE_INSTALL_VERSION" --yes >/dev/null 2>&1; then
+    log "mise self-update checked $MISE_INSTALL_VERSION."
+  else
+    log "mise self-update is unavailable for this installation method; continuing."
+  fi
+
+  eval "$("$mise_bin" env -s bash -C "$ROOT_DIR")"
+}
+
+main() {
+  cd "$ROOT_DIR"
+
+  install_homebrew_if_needed
+  install_mise_if_needed
+
+  if [ "$needs_refresh" -eq 1 ]; then
+    log "Refreshed this bootstrap session after installer changes."
+  fi
+
+  mise_bin=$(find_mise_bin)
+
+  "$mise_bin" trust "$ROOT_DIR/mise.toml" --yes
+  "$mise_bin" install --yes
+  "$mise_bin" upgrade --local --yes
+  "$mise_bin" run setup
+  "$mise_bin" run check
+
+  log "Bootstrap complete."
+}
+
+main "$@"
