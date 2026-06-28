@@ -498,7 +498,7 @@ function createOptimizedMockFixture(): MockBackendFixture {
         outputRef: "fixture://rag/ranked-chunks",
         usage: {
           inputTokens: 900,
-          latencyMs: 8,
+          latencyMs: 5,
           outputTokens: rankOutputTokens,
         },
       },
@@ -509,7 +509,7 @@ function createOptimizedMockFixture(): MockBackendFixture {
         usage: {
           costUsd: 0,
           inputTokens: 420,
-          latencyMs: 20,
+          latencyMs: 14,
           outputTokens: synthesisOutputTokens,
         },
       },
