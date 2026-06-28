@@ -3,9 +3,11 @@ set -eu
 
 MISE_MIN_VERSION="2026.6.14"
 MISE_INSTALL_VERSION="v2026.6.14"
+NODE_VERSION="24.18.0"
+PNPM_VERSION="11.9.0"
+COLIMA_VERSION="0.10.3"
 
 force=0
-needs_refresh=0
 mise_installed_or_updated=0
 
 usage() {
@@ -16,18 +18,14 @@ Bootstraps a Migaki development machine idempotently.
 
 The script is POSIX sh and can be launched from sh, bash, zsh, fish, or
 nushell. It supports Unix-like systems across common x86, x64, and ARM
-architectures. Homebrew installation is offered only on macOS. mise is
-installed with the native mise installer. Colima installation is offered when
-Homebrew is available.
+architectures.
 
-Every system installation step asks before installing or updating:
-
-  - Homebrew on macOS
-  - mise
-  - Colima through Homebrew
+The only system installer it uses is the native mise installer. Node.js, pnpm,
+and Colima are managed by mise from the repository's pinned toolchain. The mise
+and Colima install/update steps ask before changing the system.
 
 After tool setup, the script refreshes its own environment, trusts the local
-mise config, installs and upgrades project tools, then runs `mise run setup`
+mise config, installs the required project tools, then runs `mise run setup`
 and `mise run check`.
 
 Options:
@@ -154,99 +152,6 @@ xdg_config_home() {
   fi
 }
 
-single_quote() {
-  printf "%s" "$1" | sed "s/'/'\\\\''/g"
-}
-
-ensure_homebrew_on_path() {
-  if ! have brew; then
-    for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-      if [ -x "$candidate" ]; then
-        PATH="$(dirname -- "$candidate"):$PATH"
-        export PATH
-        break
-      fi
-    done
-  fi
-}
-
-configure_homebrew_for_shell() {
-  brew_prefix=$1
-  shell_name=$2
-  brew_bin="$brew_prefix/bin/brew"
-
-  case "$shell_name" in
-    bash)
-      append_once "$HOME_DIR/.bash_profile" "eval \"\$($brew_bin shellenv)\""
-      append_once "$HOME_DIR/.profile" "eval \"\$($brew_bin shellenv)\""
-      ;;
-    zsh)
-      append_once "$HOME_DIR/.zprofile" "eval \"\$($brew_bin shellenv)\""
-      ;;
-    fish)
-      append_once "$(xdg_config_home)/fish/config.fish" "$brew_bin shellenv fish | source"
-      ;;
-    nu)
-      config_dir="$(xdg_config_home)/nushell"
-      env_file="$config_dir/env.nu"
-      quoted_prefix=$(single_quote "$brew_prefix")
-      append_once "$env_file" "\$env.HOMEBREW_PREFIX = '$quoted_prefix'"
-      append_once "$env_file" "\$env.HOMEBREW_CELLAR = '$quoted_prefix/Cellar'"
-      append_once "$env_file" "\$env.HOMEBREW_REPOSITORY = '$quoted_prefix'"
-      append_once "$env_file" "\$env.PATH = (\$env.PATH | prepend '$quoted_prefix/bin' | prepend '$quoted_prefix/sbin')"
-      ;;
-    sh|*)
-      append_once "$HOME_DIR/.profile" "eval \"\$($brew_bin shellenv)\""
-      ;;
-  esac
-}
-
-ensure_homebrew_shellenv() {
-  ensure_homebrew_on_path
-
-  if have brew; then
-    brew_prefix=$(brew --prefix)
-    if [ -x "$brew_prefix/bin/brew" ]; then
-      eval "$("$brew_prefix/bin/brew" shellenv)"
-      configure_homebrew_for_shell "$brew_prefix" "$(detect_shell_name)"
-    fi
-  fi
-}
-
-install_homebrew_if_needed() {
-  if [ "$OS_NAME" != "Darwin" ]; then
-    log "Homebrew installation is macOS-only in this bootstrap; skipping on $OS_NAME/$ARCH_NAME."
-    ensure_homebrew_shellenv
-    return
-  fi
-
-  if have brew && [ "$force" -eq 0 ]; then
-    log "Homebrew already installed; skipping."
-    ensure_homebrew_shellenv
-    return
-  fi
-
-  if have brew; then
-    if ask_yes_no "Homebrew is already installed. Update it now?"; then
-      brew update
-      needs_refresh=1
-    else
-      log "Skipped Homebrew update."
-    fi
-    ensure_homebrew_shellenv
-    return
-  fi
-
-  if ask_yes_no "Homebrew is not installed. Install Homebrew now?"; then
-    log "Installing Homebrew using the official installer."
-    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    needs_refresh=1
-    ensure_homebrew_shellenv
-  else
-    log "Skipped Homebrew installation."
-  fi
-}
-
 find_mise_bin() {
   if have mise; then
     command -v mise
@@ -317,7 +222,6 @@ install_mise_if_needed() {
     if ask_yes_no "Install or update mise to $MISE_INSTALL_VERSION using the native installer?"; then
       log "Installing mise $MISE_INSTALL_VERSION using the native installer."
       curl -fsSL https://mise.run | MISE_VERSION="$MISE_INSTALL_VERSION" sh
-      needs_refresh=1
       mise_installed_or_updated=1
       ensure_mise_on_path
       mise_bin=$(find_mise_bin)
@@ -351,31 +255,30 @@ install_mise_if_needed() {
   eval "$("$mise_bin" env -s bash -C "$ROOT_DIR")"
 }
 
-install_colima_if_needed() {
-  if have colima && [ "$force" -eq 0 ]; then
-    log "Colima already installed; skipping."
-    return
-  fi
+install_required_tools() {
+  mise_bin=$1
 
-  ensure_homebrew_on_path
-  if ! have brew; then
-    log "Colima automatic installation requires Homebrew; skipping."
-    return
-  fi
-
-  if have colima; then
-    prompt="Colima is already installed. Update it through Homebrew now?"
+  if [ "$force" -eq 1 ]; then
+    "$mise_bin" install --force --yes "node@$NODE_VERSION" "pnpm@$PNPM_VERSION"
   else
-    prompt="Colima is not installed. Install it through Homebrew now?"
+    "$mise_bin" install --yes "node@$NODE_VERSION" "pnpm@$PNPM_VERSION"
+  fi
+}
+
+install_colima_if_requested() {
+  mise_bin=$1
+
+  if "$mise_bin" where "colima@$COLIMA_VERSION" >/dev/null 2>&1 && [ "$force" -eq 0 ]; then
+    log "Colima $COLIMA_VERSION already installed by mise; skipping."
+    return
   fi
 
-  if ask_yes_no "$prompt"; then
-    if brew list --formula colima >/dev/null 2>&1; then
-      brew upgrade colima || true
+  if ask_yes_no "Install or update Colima $COLIMA_VERSION through mise?"; then
+    if [ "$force" -eq 1 ]; then
+      "$mise_bin" install --force --yes "colima@$COLIMA_VERSION"
     else
-      brew install colima
+      "$mise_bin" install --yes "colima@$COLIMA_VERSION"
     fi
-    needs_refresh=1
   else
     log "Skipped Colima installation/update."
   fi
@@ -397,24 +300,14 @@ main() {
 
   log "Bootstrapping Migaki on $OS_NAME/$ARCH_NAME for $(detect_shell_name)."
 
-  install_homebrew_if_needed
   install_mise_if_needed
-  install_colima_if_needed
-
-  if [ "$needs_refresh" -eq 1 ]; then
-    ensure_homebrew_shellenv
-    log "Refreshed this bootstrap session after installer changes."
-  fi
 
   mise_bin=$(find_mise_bin)
 
   "$mise_bin" trust "$ROOT_DIR/mise.toml" --yes
-  if [ "$force" -eq 1 ]; then
-    "$mise_bin" install --force --yes
-  else
-    "$mise_bin" install --yes
-  fi
-  "$mise_bin" upgrade --local --yes
+  install_required_tools "$mise_bin"
+  install_colima_if_requested "$mise_bin"
+  "$mise_bin" upgrade --local --yes node pnpm
   run_mise_task "$mise_bin" setup
   run_mise_task "$mise_bin" check
 

@@ -1,6 +1,10 @@
 min_version = "2026.6.14"
 
+[settings]
+task.run_auto_install = false
+
 [tools]
+colima = "0.10.3"
 node = "24.18.0"
 pnpm = "11.9.0"
 
