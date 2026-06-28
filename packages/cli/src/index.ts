@@ -5,9 +5,11 @@ import {
   MOCK_TRACE_ARTIFACT_VERSION,
   parseEvidenceBundle,
   parseMockExecutionTraceArtifact,
+  replayMockExecutionTrace,
   type EvidenceBundle,
   type EstimateEvidenceEvent,
   type MockExecutionTraceArtifact,
+  type MockExecutionTraceReplayResult,
   type PassWarning,
   type RoutingDecisionEvidenceEvent,
   type ValidatorResultEvidenceEvent,
@@ -18,8 +20,10 @@ export const cliPackageResponsibility =
   "Developer-facing report and replay command surfaces.";
 
 export const CLI_REPORT_VERSION = "migaki.cli-report.v0";
+export const CLI_REPLAY_VERSION = "migaki.cli-replay.v0";
 
 export type CliReportVersion = typeof CLI_REPORT_VERSION;
+export type CliReplayVersion = typeof CLI_REPLAY_VERSION;
 
 export type CliReportFormat = "human" | "json";
 
@@ -83,6 +87,20 @@ interface MockTraceReport {
   readonly version: CliReportVersion;
 }
 
+interface ReplayReport {
+  readonly artifactKind: "mock_trace_replay";
+  readonly backend: MockExecutionTraceArtifact["backend"]["provider"];
+  readonly mismatchCount: number;
+  readonly mismatches: readonly string[];
+  readonly outputCount: number;
+  readonly planId: string;
+  readonly replayStatus: MockExecutionTraceReplayResult["status"];
+  readonly resultStatus: MockExecutionTraceReplayResult["result"]["status"];
+  readonly traceId: string;
+  readonly validatorResults: readonly ValidatorReport[];
+  readonly version: CliReplayVersion;
+}
+
 interface PassReport {
   readonly enabled: boolean;
   readonly name: string;
@@ -118,13 +136,24 @@ export async function runCli(
 ): Promise<CliResult> {
   const command = argv[0];
 
-  if (command !== "report") {
-    return fail(
-      "Usage: migaki report --input <artifact.json> [--format human|json]",
-    );
+  if (command === "report") {
+    return runReportCommand(argv.slice(1), io);
   }
 
-  const args = parseReportArgs(argv.slice(1));
+  if (command === "replay") {
+    return runReplayCommand(argv.slice(1), io);
+  }
+
+  return fail(
+    "Usage: migaki <report|replay> --input <artifact.json> [--format human|json]",
+  );
+}
+
+async function runReportCommand(
+  argv: readonly string[],
+  io: CliIo,
+): Promise<CliResult> {
+  const args = parseReportArgs(argv);
 
   if (typeof args === "string") {
     return fail(args);
@@ -161,6 +190,42 @@ export async function runCli(
   }
 
   return fail("Unsupported input artifact version.");
+}
+
+async function runReplayCommand(
+  argv: readonly string[],
+  io: CliIo,
+): Promise<CliResult> {
+  const args = parseReportArgs(argv);
+
+  if (typeof args === "string") {
+    return fail(args);
+  }
+
+  let artifactText: string;
+
+  try {
+    artifactText = await io.readFile(args.input);
+  } catch (error) {
+    return fail(`Could not read input artifact: ${errorMessage(error)}`);
+  }
+
+  let trace: MockExecutionTraceArtifact;
+
+  try {
+    trace = parseMockExecutionTraceArtifact(artifactText);
+  } catch (error) {
+    return fail(`Invalid input artifact: ${errorMessage(error)}`);
+  }
+
+  const replay = await replayMockExecutionTrace(trace);
+  const report = createReplayReport(trace, replay);
+
+  return {
+    exitCode: replay.status === "matched" ? 0 : 1,
+    stderr: "",
+    stdout: renderReplayReport(report, args.format),
+  };
 }
 
 function parseReportArgs(argv: readonly string[]): ReportArgs | string {
@@ -279,6 +344,25 @@ function createMockTraceReport(
   };
 }
 
+function createReplayReport(
+  trace: MockExecutionTraceArtifact,
+  replay: MockExecutionTraceReplayResult,
+): ReplayReport {
+  return {
+    artifactKind: "mock_trace_replay",
+    backend: trace.backend.provider,
+    mismatchCount: replay.mismatches.length,
+    mismatches: replay.mismatches,
+    outputCount: replay.result.outputs.length,
+    planId: trace.plan.planId,
+    replayStatus: replay.status,
+    resultStatus: replay.result.status,
+    traceId: replay.traceId,
+    validatorResults: replay.result.validatorResults.map(toValidatorReport),
+    version: CLI_REPLAY_VERSION,
+  };
+}
+
 function missingEvidenceSections(input: {
   readonly costEstimates: readonly EstimateReport[];
   readonly replayHandles: readonly string[];
@@ -312,6 +396,17 @@ function renderReport(
   }
 
   return renderMockTraceHumanReport(report);
+}
+
+function renderReplayReport(
+  report: ReplayReport,
+  format: CliReportFormat,
+): string {
+  if (format === "json") {
+    return `${stableStringify(report)}\n`;
+  }
+
+  return renderReplayHumanReport(report);
 }
 
 function renderEvidenceHumanReport(report: EvidenceReport): string {
@@ -358,6 +453,27 @@ function renderEvidenceHumanReport(report: EvidenceReport): string {
       report.replay.handles,
     )}`,
     ...formatReportWarnings(report.reportWarnings),
+  ];
+
+  return `${lines.join("\n")}\n`;
+}
+
+function renderReplayHumanReport(report: ReplayReport): string {
+  const lines = [
+    "Migaki Replay",
+    "Artifact: mock_trace",
+    `Trace: ${report.traceId}`,
+    `Plan: ${report.planId}`,
+    `Backend: ${report.backend}`,
+    `Replay: ${report.replayStatus}`,
+    `Result: ${report.resultStatus}`,
+    "Mismatches:",
+    ...formatList(report.mismatches, (mismatch) => `- ${mismatch}`),
+    "Validators:",
+    ...formatList(
+      report.validatorResults,
+      (result) => `- ${result.validatorId}: ${result.status}`,
+    ),
   ];
 
   return `${lines.join("\n")}\n`;
