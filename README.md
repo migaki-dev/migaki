@@ -75,6 +75,7 @@ mise run check
 ```sh
 mise run setup
 mise run check
+mise run hooks:install
 mise run typecheck
 mise run bootstrap:check
 mise tasks
@@ -86,6 +87,9 @@ Use `mise run setup:update-lockfile` after intentional dependency changes.
 
 - `src/` contains TypeScript source.
 - `scripts/bootstrap` bootstraps a development machine.
+- `CONTRIBUTING.md` defines contribution standards for humans and coding
+  agents.
+- `.githooks/` contains tracked Git hooks installed by `mise run setup`.
 - `mise.toml` defines tool versions and project tasks.
 - `pnpm-workspace.yaml` defines the pnpm workspace.
 - `.agents/AGENTS.md` is the canonical engineering guidance for AI coding
@@ -99,6 +103,7 @@ Read `AGENTS.md` before making non-trivial changes. The short version:
 
 - use test-driven development for behavior changes
 - prefer fakes over mocks and avoid live provider calls in unit tests
+- use injected, time-travel-friendly clocks in testable code
 - keep TypeScript strict and avoid `any`
 - pin tools, actions, and build inputs
 - version public schemas, adapters, evidence formats, and CLI contracts

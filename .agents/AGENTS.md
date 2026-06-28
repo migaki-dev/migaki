@@ -9,6 +9,9 @@ Migaki is a TypeScript project using pnpm. Treat this repository as infrastructu
 
 ## Operating Posture
 
+- Read `CONTRIBUTING.md` before non-trivial implementation work. It defines the
+  shared standards for TDD, invariant testing, fakes, package boundaries,
+  commit hygiene, and handoff.
 - Read the relevant code and existing docs before changing files.
 - Make the smallest coherent change that satisfies the task.
 - Prefer boring, explicit designs over clever abstractions.
@@ -114,6 +117,8 @@ If a command does not exist yet, either add it as part of repository setup work 
 ## Git and Review Hygiene
 
 - Keep commits focused and reviewable.
+- Use the repository Git hooks installed by `mise run setup`; they run the
+  project quality gate before commit and push.
 - Do not rewrite user changes or unrelated files.
 - Include tests with behavior changes.
 - Include docs when changing setup, public APIs, CLI behavior, schemas, or compatibility contracts.
