@@ -4,3 +4,4 @@ export const providersPackageResponsibility =
 
 export * from "./contracts.js";
 export * from "./fixtures.js";
+export * from "./mock-backend.js";

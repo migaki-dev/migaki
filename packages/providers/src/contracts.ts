@@ -143,7 +143,10 @@ export interface LoweredExecutionStep {
   readonly inputContext?: readonly string[];
   readonly kind:
     | "approval"
+    | "branch"
     | "cache"
+    | "context_transform"
+    | "join"
     | "model"
     | "retrieval"
     | "tool"
