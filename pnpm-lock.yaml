@@ -38,7 +38,11 @@ importers:
 
   packages/mir: {}
 
-  packages/providers: {}
+  packages/providers:
+    dependencies:
+      '@migaki/mir':
+        specifier: workspace:*
+        version: link:../mir
 
   packages/runtime: {}
 
