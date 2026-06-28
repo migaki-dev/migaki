@@ -1,0 +1,271 @@
+{
+  "id": "rag-optimized-skeleton",
+  "version": "migaki.mir.v0",
+  "metadata": {
+    "application": "rag-dedup-cache",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "description": "Optimized RAG skeleton showing safe v0 pass targets without implementing the passes.",
+    "tags": ["example", "rag", "optimized-skeleton"],
+    "traceId": "example-rag-optimized"
+  },
+  "constraints": {
+    "allowedProviders": ["mock"],
+    "auditLevel": "evidence_bundle",
+    "cachePolicy": {
+      "mode": "eligible",
+      "scope": "plan"
+    },
+    "maxCostUsd": 0.5,
+    "maxLatencyMs": 1500,
+    "minValidatorPassRate": 1,
+    "replayPolicy": "metadata",
+    "requiredValidators": ["validator-source-grounding"],
+    "retentionPolicy": {
+      "mode": "metadata_only",
+      "reason": "Optimized fixture should retain only replay metadata."
+    }
+  },
+  "context": [
+    {
+      "id": "ctx-system",
+      "role": "system_instruction",
+      "contentRef": "fixture://rag/system",
+      "mutability": "fixed",
+      "provenance": {
+        "source": "system"
+      },
+      "cachePolicy": {
+        "mode": "required",
+        "scope": "plan"
+      },
+      "privacyClass": "internal",
+      "tokenEstimate": 32
+    },
+    {
+      "id": "ctx-cached-prefix",
+      "role": "system_instruction",
+      "contentRef": "fixture://rag/cache/prefix",
+      "mutability": "fixed",
+      "provenance": {
+        "source": "cache"
+      },
+      "cachePolicy": {
+        "keyRef": "cache://rag/stable-prefix",
+        "mode": "eligible",
+        "scope": "plan"
+      },
+      "privacyClass": "internal",
+      "tokenEstimate": 32
+    },
+    {
+      "id": "ctx-question",
+      "role": "user_input",
+      "contentRef": "fixture://rag/question",
+      "mutability": "fixed",
+      "provenance": {
+        "source": "user"
+      },
+      "privacyClass": "confidential",
+      "retentionPolicy": {
+        "mode": "redacted"
+      },
+      "tokenEstimate": 24
+    },
+    {
+      "id": "ctx-retrieved",
+      "role": "retrieved_document",
+      "contentRef": "fixture://rag/retrieved-chunks/raw",
+      "mutability": "deduplicable",
+      "provenance": {
+        "nodeId": "node-retrieve",
+        "source": "retrieval"
+      },
+      "privacyClass": "internal",
+      "tokenEstimate": 1200
+    },
+    {
+      "id": "ctx-deduplicated",
+      "role": "retrieved_document",
+      "contentRef": "fixture://rag/retrieved-chunks/deduplicated",
+      "mutability": "fixed",
+      "provenance": {
+        "derivedFromContextIds": ["ctx-retrieved"],
+        "nodeId": "node-deduplicate",
+        "source": "generated"
+      },
+      "privacyClass": "internal",
+      "tokenEstimate": 760
+    },
+    {
+      "id": "ctx-ranked",
+      "role": "scratchpad",
+      "contentRef": "fixture://rag/ranked-chunks",
+      "mutability": "droppable",
+      "provenance": {
+        "nodeId": "node-rank",
+        "source": "generated"
+      },
+      "privacyClass": "internal",
+      "tokenEstimate": 160
+    },
+    {
+      "id": "ctx-answer",
+      "role": "validator_output",
+      "contentRef": "fixture://rag/answer/optimized",
+      "mutability": "fixed",
+      "provenance": {
+        "nodeId": "node-synthesize",
+        "source": "generated"
+      },
+      "privacyClass": "internal",
+      "tokenEstimate": 180
+    },
+    {
+      "id": "ctx-validation",
+      "role": "validator_output",
+      "contentRef": "fixture://rag/validation/optimized",
+      "mutability": "fixed",
+      "provenance": {
+        "nodeId": "node-validate",
+        "source": "validator"
+      },
+      "privacyClass": "internal"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "node-cache-read",
+      "kind": "cache_read",
+      "cacheKeyRef": "cache://rag/stable-prefix",
+      "outputContext": "ctx-cached-prefix",
+      "cachePolicy": {
+        "keyRef": "cache://rag/stable-prefix",
+        "mode": "eligible",
+        "scope": "plan"
+      }
+    },
+    {
+      "id": "node-retrieve",
+      "kind": "retrieval_call",
+      "queryContext": "ctx-question",
+      "resultContext": "ctx-retrieved",
+      "retrieval": {
+        "source": "docs",
+        "topK": 20
+      }
+    },
+    {
+      "id": "node-deduplicate",
+      "kind": "context_transform",
+      "inputContext": ["ctx-retrieved"],
+      "outputContext": "ctx-deduplicated",
+      "transform": {
+        "kind": "deduplicate",
+        "lossy": false
+      }
+    },
+    {
+      "id": "node-rank",
+      "kind": "model_call",
+      "inputContext": ["ctx-question", "ctx-deduplicated"],
+      "outputContext": "ctx-ranked",
+      "model": {
+        "requiredCapabilities": ["structured_output"],
+        "task": "ranking"
+      },
+      "parameters": {
+        "maxOutputTokens": 256
+      }
+    },
+    {
+      "id": "node-synthesize",
+      "kind": "model_call",
+      "inputContext": ["ctx-cached-prefix", "ctx-question", "ctx-ranked"],
+      "outputContext": "ctx-answer",
+      "model": {
+        "task": "synthesis"
+      },
+      "parameters": {
+        "maxOutputTokens": 512
+      },
+      "validators": ["validator-source-grounding"]
+    },
+    {
+      "id": "node-validate",
+      "kind": "validator",
+      "inputContext": ["ctx-answer", "ctx-deduplicated"],
+      "outputContext": "ctx-validation",
+      "validator": {
+        "kind": "source_grounding",
+        "name": "validator-source-grounding"
+      },
+      "failurePolicy": "retry_node"
+    },
+    {
+      "id": "node-cache-write",
+      "kind": "cache_write",
+      "cacheKeyRef": "cache://rag/stable-prefix",
+      "inputContext": ["ctx-system"],
+      "cachePolicy": {
+        "keyRef": "cache://rag/stable-prefix",
+        "mode": "eligible",
+        "scope": "plan"
+      }
+    },
+    {
+      "id": "node-join",
+      "kind": "join",
+      "inputNodeIds": ["node-validate", "node-cache-write"],
+      "strategy": "all"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-cache-synthesize",
+      "fromNodeId": "node-cache-read",
+      "toNodeId": "node-synthesize",
+      "kind": "data",
+      "contextIds": ["ctx-cached-prefix"]
+    },
+    {
+      "id": "edge-retrieve-deduplicate",
+      "fromNodeId": "node-retrieve",
+      "toNodeId": "node-deduplicate",
+      "kind": "data",
+      "contextIds": ["ctx-retrieved"]
+    },
+    {
+      "id": "edge-deduplicate-rank",
+      "fromNodeId": "node-deduplicate",
+      "toNodeId": "node-rank",
+      "kind": "data",
+      "contextIds": ["ctx-deduplicated"]
+    },
+    {
+      "id": "edge-rank-synthesize",
+      "fromNodeId": "node-rank",
+      "toNodeId": "node-synthesize",
+      "kind": "data",
+      "contextIds": ["ctx-ranked"]
+    },
+    {
+      "id": "edge-synthesize-validate",
+      "fromNodeId": "node-synthesize",
+      "toNodeId": "node-validate",
+      "kind": "validation",
+      "contextIds": ["ctx-answer"]
+    },
+    {
+      "id": "edge-validate-join",
+      "fromNodeId": "node-validate",
+      "toNodeId": "node-join",
+      "kind": "control"
+    },
+    {
+      "id": "edge-cache-write-join",
+      "fromNodeId": "node-cache-write",
+      "toNodeId": "node-join",
+      "kind": "control"
+    }
+  ]
+}

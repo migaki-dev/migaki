@@ -1,0 +1,178 @@
+{
+  "id": "code-review",
+  "version": "migaki.mir.v0",
+  "metadata": {
+    "application": "code-review-routing",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "description": "Small code-review plan proving mIR is not RAG-only.",
+    "tags": ["example", "code-review"],
+    "traceId": "example-code-review"
+  },
+  "constraints": {
+    "allowedProviders": ["mock"],
+    "auditLevel": "evidence_bundle",
+    "maxCostUsd": 0.75,
+    "maxLatencyMs": 2500,
+    "minValidatorPassRate": 1,
+    "replayPolicy": "metadata",
+    "requiredValidators": ["validator-review-grounding"],
+    "retentionPolicy": {
+      "mode": "metadata_only",
+      "reason": "Code review fixture should not persist repository content."
+    }
+  },
+  "context": [
+    {
+      "id": "ctx-style-guide",
+      "role": "developer_instruction",
+      "contentRef": "fixture://code-review/style-guide",
+      "mutability": "fixed",
+      "provenance": {
+        "source": "developer"
+      },
+      "cachePolicy": {
+        "mode": "eligible",
+        "scope": "plan"
+      },
+      "privacyClass": "internal",
+      "tokenEstimate": 240
+    },
+    {
+      "id": "ctx-changed-files",
+      "role": "retrieved_document",
+      "contentRef": "fixture://code-review/changed-files",
+      "mutability": "fixed",
+      "provenance": {
+        "source": "retrieval"
+      },
+      "privacyClass": "restricted",
+      "retentionPolicy": {
+        "mode": "redacted"
+      },
+      "tokenEstimate": 900
+    },
+    {
+      "id": "ctx-lint-output",
+      "role": "tool_result",
+      "contentRef": "fixture://code-review/lint-output",
+      "mutability": "droppable",
+      "provenance": {
+        "nodeId": "node-run-static-checks",
+        "source": "tool"
+      },
+      "privacyClass": "internal",
+      "tokenEstimate": 120
+    },
+    {
+      "id": "ctx-lint-summary",
+      "role": "scratchpad",
+      "contentRef": "fixture://code-review/lint-summary",
+      "mutability": "droppable",
+      "provenance": {
+        "nodeId": "node-explain-lint",
+        "source": "generated"
+      },
+      "privacyClass": "internal",
+      "tokenEstimate": 120
+    },
+    {
+      "id": "ctx-review-comments",
+      "role": "validator_output",
+      "contentRef": "fixture://code-review/comments",
+      "mutability": "fixed",
+      "provenance": {
+        "nodeId": "node-architectural-review",
+        "source": "generated"
+      },
+      "privacyClass": "internal",
+      "tokenEstimate": 280
+    },
+    {
+      "id": "ctx-review-validation",
+      "role": "validator_output",
+      "contentRef": "fixture://code-review/validation",
+      "mutability": "fixed",
+      "provenance": {
+        "nodeId": "node-validate-review",
+        "source": "validator"
+      },
+      "privacyClass": "internal"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "node-run-static-checks",
+      "kind": "tool_call",
+      "inputContext": ["ctx-changed-files"],
+      "outputContext": "ctx-lint-output",
+      "tool": {
+        "name": "static-checks",
+        "inputRef": "fixture://code-review/static-check-input",
+        "schemaRef": "fixture://schemas/static-check-result"
+      }
+    },
+    {
+      "id": "node-explain-lint",
+      "kind": "model_call",
+      "inputContext": ["ctx-style-guide", "ctx-lint-output"],
+      "outputContext": "ctx-lint-summary",
+      "model": {
+        "task": "classification"
+      },
+      "parameters": {
+        "maxOutputTokens": 256
+      }
+    },
+    {
+      "id": "node-architectural-review",
+      "kind": "model_call",
+      "inputContext": [
+        "ctx-style-guide",
+        "ctx-changed-files",
+        "ctx-lint-summary"
+      ],
+      "outputContext": "ctx-review-comments",
+      "model": {
+        "task": "reasoning"
+      },
+      "parameters": {
+        "maxOutputTokens": 512
+      },
+      "validators": ["validator-review-grounding"]
+    },
+    {
+      "id": "node-validate-review",
+      "kind": "validator",
+      "inputContext": ["ctx-review-comments", "ctx-changed-files"],
+      "outputContext": "ctx-review-validation",
+      "validator": {
+        "kind": "custom",
+        "name": "validator-review-grounding"
+      },
+      "failurePolicy": "warn"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-static-lint-summary",
+      "fromNodeId": "node-run-static-checks",
+      "toNodeId": "node-explain-lint",
+      "kind": "data",
+      "contextIds": ["ctx-lint-output"]
+    },
+    {
+      "id": "edge-lint-architecture",
+      "fromNodeId": "node-explain-lint",
+      "toNodeId": "node-architectural-review",
+      "kind": "data",
+      "contextIds": ["ctx-lint-summary"]
+    },
+    {
+      "id": "edge-review-validation",
+      "fromNodeId": "node-architectural-review",
+      "toNodeId": "node-validate-review",
+      "kind": "validation",
+      "contextIds": ["ctx-review-comments"]
+    }
+  ]
+}
