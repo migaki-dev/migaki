@@ -39,3 +39,10 @@ for fixed system, developer, and example context in model input order. It does
 not rewrite prompts or lower provider-specific cache breakpoints; provider cache
 capabilities are recorded as evidence and unsupported breakpoint behavior is
 reported as informational warnings.
+
+The v0 token estimation contract is `migaki.token-estimation.v0`. It exposes
+metadata-only context block, context group, plan, and before/after delta
+estimates with estimator identity, source, confidence, and limitations. The
+default deterministic estimator is fixture-oriented and does not claim
+provider-exact tokenization; unknown inputs keep aggregate totals unknown rather
+than inventing precision.
