@@ -44,7 +44,14 @@ importers:
         specifier: workspace:*
         version: link:../mir
 
-  packages/runtime: {}
+  packages/runtime:
+    dependencies:
+      '@migaki/mir':
+        specifier: workspace:*
+        version: link:../mir
+      '@migaki/providers':
+        specifier: workspace:*
+        version: link:../providers
 
 packages:
 
