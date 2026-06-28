@@ -17,5 +17,12 @@
     "noEmit": true
   },
   "include": ["src/**/*.ts", "packages/*/src/**/*.ts", "examples/**/*.ts"],
-  "exclude": ["node_modules", "dist", "coverage"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "coverage",
+    "**/*.e2e.test.ts",
+    "**/*.spec.ts",
+    "**/*.test.ts"
+  ]
 }

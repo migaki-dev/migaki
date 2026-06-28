@@ -77,7 +77,12 @@ mise run check
 mise run setup
 mise run check
 mise run hooks:install
+mise run format:check
+mise run lint
 mise run typecheck
+mise run test
+mise run test:e2e
+mise run build
 mise run bootstrap:check
 mise tasks
 ```

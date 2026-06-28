@@ -26,9 +26,29 @@ run = "scripts/install-git-hooks"
 description = "Update pnpm-lock.yaml after dependency changes"
 run = "pnpm install --lockfile-only"
 
+[tasks."format:check"]
+description = "Check repository formatting"
+run = "pnpm run format:check"
+
+[tasks.lint]
+description = "Run ESLint"
+run = "pnpm run lint"
+
 [tasks.typecheck]
 description = "Run strict TypeScript type checking"
-run = "pnpm exec tsc --noEmit --pretty false"
+run = "pnpm run typecheck"
+
+[tasks.test]
+description = "Run unit tests"
+run = "pnpm run test"
+
+[tasks."test:e2e"]
+description = "Run e2e tests"
+run = "pnpm run test:e2e"
+
+[tasks.build]
+description = "Build TypeScript outputs"
+run = "pnpm run build"
 
 [tasks."bootstrap:check"]
 description = "Validate bootstrap script syntax and shell launch paths"
@@ -64,4 +84,12 @@ fi
 
 [tasks.check]
 description = "Run the repository quality gate"
-depends = ["typecheck", "bootstrap:check"]
+depends = [
+  "format:check",
+  "lint",
+  "typecheck",
+  "test",
+  "test:e2e",
+  "build",
+  "bootstrap:check",
+]

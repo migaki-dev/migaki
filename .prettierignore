@@ -1,0 +1,7 @@
+coverage
+dist
+node_modules
+.pnpm-store
+.agents/skills
+pnpm-lock.yaml
+mise.lock
