@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { MIR_V0_VERSION, type MIRPlan } from "@migaki/mir";
 import { FakeClock } from "../../../src/testing/index.js";
 import {
+  EVIDENCE_EVENT_VERSION,
   PASS_CONTRACT_VERSION,
   PLAN_DIFF_VERSION,
   runOptimizationPasses,
@@ -204,8 +205,30 @@ function createTaggingPass(
         },
         evidence: [
           {
+            version: EVIDENCE_EVENT_VERSION,
             id: `evidence-${name}`,
-            kind: "decision",
+            kind: "pass_decision",
+            passDecision: {
+              decision: "applied",
+              pass: {
+                name,
+                version: "0.0.0",
+              },
+            },
+            privacy: {
+              privacyClass: "internal",
+              replayMode: "metadata",
+            },
+            redaction: {
+              mode: "none",
+            },
+            source: {
+              kind: "pass",
+              pass: {
+                name,
+                version: "0.0.0",
+              },
+            },
             summary: `Applied ${name}.`,
           },
         ],

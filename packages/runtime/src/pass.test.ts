@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { MIR_V0_VERSION, type MIRPlan } from "@migaki/mir";
 import {
+  EVIDENCE_EVENT_VERSION,
   PASS_CONTRACT_VERSION,
   PLAN_DIFF_VERSION,
   type OptimizationPass,
@@ -57,8 +58,31 @@ const fakePass = {
       },
       evidence: [
         {
+          version: EVIDENCE_EVENT_VERSION,
           id: "evidence-noop",
-          kind: "decision",
+          kind: "pass_decision",
+          passDecision: {
+            decision: "applied",
+            pass: {
+              name: "fake.noop",
+              version: "0.0.0",
+            },
+          },
+          privacy: {
+            privacyClass: "internal",
+            replayMode: "metadata",
+          },
+          redaction: {
+            mode: "none",
+          },
+          source: {
+            kind: "pass",
+            pass: {
+              name: "fake.noop",
+              version: "0.0.0",
+            },
+            runId: context.runId,
+          },
           summary: `No changes for ${context.runId}.`,
         },
       ],

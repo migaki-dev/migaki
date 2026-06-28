@@ -1,10 +1,8 @@
 import type { MIRPlan } from "@migaki/mir";
-import type {
-  ProviderCapabilities,
-  ProviderCapabilityAssumption,
-} from "@migaki/providers";
+import type { ProviderCapabilities } from "@migaki/providers";
 
 import type { MIRPlanDiff, MIRPlanDiffEntry } from "./diff.js";
+import type { EvidenceEvent } from "./evidence.js";
 
 export const PASS_CONTRACT_VERSION = "migaki.pass.v0";
 
@@ -68,14 +66,7 @@ export interface ReferencedPassDiff {
 
 export type PassDiffChange = MIRPlanDiffEntry;
 
-export interface PassEvidenceFragment {
-  readonly data?: Readonly<Record<string, unknown>>;
-  readonly id: string;
-  readonly kind: "artifact" | "assumption" | "decision" | "measurement";
-  readonly providerAssumptions?: readonly ProviderCapabilityAssumption[];
-  readonly refs?: readonly string[];
-  readonly summary: string;
-}
+export type PassEvidenceFragment = EvidenceEvent;
 
 export interface PassWarning {
   readonly assumption?: string;
