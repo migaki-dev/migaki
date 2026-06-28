@@ -1,0 +1,124 @@
+{
+  "id": "valid-rag-plan",
+  "version": "migaki.mir.v0",
+  "metadata": {
+    "application": "rag-dedup-cache",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "traceId": "trace-valid-001"
+  },
+  "constraints": {
+    "auditLevel": "evidence_bundle",
+    "cachePolicy": {
+      "mode": "eligible",
+      "scope": "plan"
+    },
+    "maxCostUsd": 1,
+    "maxLatencyMs": 1000,
+    "minValidatorPassRate": 1,
+    "replayPolicy": "metadata",
+    "requiredValidators": ["validator-source-grounding"],
+    "retentionPolicy": {
+      "mode": "metadata_only"
+    }
+  },
+  "context": [
+    {
+      "id": "ctx-system",
+      "role": "system_instruction",
+      "contentRef": "fixture://system",
+      "mutability": "fixed",
+      "provenance": {
+        "source": "system"
+      },
+      "cachePolicy": {
+        "mode": "required",
+        "scope": "plan"
+      },
+      "privacyClass": "internal",
+      "retentionPolicy": {
+        "mode": "metadata_only"
+      },
+      "tokenEstimate": 12
+    },
+    {
+      "id": "ctx-question",
+      "role": "user_input",
+      "contentRef": "fixture://question",
+      "mutability": "fixed",
+      "provenance": {
+        "source": "user"
+      },
+      "privacyClass": "confidential",
+      "retentionPolicy": {
+        "mode": "redacted"
+      }
+    },
+    {
+      "id": "ctx-retrieved",
+      "role": "retrieved_document",
+      "contentRef": "fixture://retrieved",
+      "mutability": "deduplicable",
+      "provenance": {
+        "source": "retrieval",
+        "nodeId": "node-retrieve"
+      }
+    },
+    {
+      "id": "ctx-answer",
+      "role": "validator_output",
+      "contentRef": "fixture://answer",
+      "mutability": "fixed",
+      "provenance": {
+        "source": "validator",
+        "nodeId": "node-validate"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "id": "node-retrieve",
+      "kind": "retrieval_call",
+      "queryContext": "ctx-question",
+      "resultContext": "ctx-retrieved",
+      "retrieval": {
+        "source": "docs",
+        "topK": 4
+      }
+    },
+    {
+      "id": "node-synthesize",
+      "kind": "model_call",
+      "inputContext": ["ctx-system", "ctx-question", "ctx-retrieved"],
+      "outputContext": "ctx-answer",
+      "model": {
+        "task": "synthesis"
+      }
+    },
+    {
+      "id": "node-validate",
+      "kind": "validator",
+      "inputContext": ["ctx-answer", "ctx-retrieved"],
+      "validator": {
+        "kind": "source_grounding",
+        "name": "validator-source-grounding"
+      },
+      "failurePolicy": "retry_node"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-retrieve-synthesize",
+      "fromNodeId": "node-retrieve",
+      "toNodeId": "node-synthesize",
+      "kind": "data",
+      "contextIds": ["ctx-retrieved"]
+    },
+    {
+      "id": "edge-synthesize-validate",
+      "fromNodeId": "node-synthesize",
+      "toNodeId": "node-validate",
+      "kind": "validation",
+      "contextIds": ["ctx-answer"]
+    }
+  ]
+}
