@@ -1,11 +1,14 @@
 import {
   PROVIDER_CONTRACT_VERSION,
+  PROVIDER_COST_RATE_FIXTURE_VERSION,
   checkProviderCapabilityRequirements,
   type ProviderBackendKind,
   type ProviderCapabilities,
   type ProviderCapabilityCheck,
   type ProviderCapabilityRequirement,
   type ProviderCapabilitySource,
+  type ProviderCostRateEvidenceCitation,
+  type ProviderCostRateFixture,
 } from "./contracts.js";
 
 export const PROVIDER_CAPABILITY_FIXTURE_VERSION = PROVIDER_CONTRACT_VERSION;
@@ -108,8 +111,67 @@ const providerCapabilityFixtures = {
   },
 } as const satisfies Record<ProviderCapabilityFixtureId, ProviderCapabilities>;
 
+const providerCostRateFixtures = [
+  {
+    version: PROVIDER_COST_RATE_FIXTURE_VERSION,
+    provider: "mock",
+    model: "mock-default",
+    currency: "USD",
+    inputUsdPerMillionTokens: 0,
+    outputUsdPerMillionTokens: 0,
+    observedAt: "2026-01-01",
+    source: {
+      kind: "fixture",
+      note: "Zero-cost deterministic mock backend fixture.",
+    },
+  },
+  {
+    version: PROVIDER_COST_RATE_FIXTURE_VERSION,
+    provider: "openai-style",
+    model: "openai-style-synthesis",
+    currency: "USD",
+    inputUsdPerMillionTokens: 1,
+    outputUsdPerMillionTokens: 4,
+    observedAt: "2026-01-01",
+    source: {
+      kind: "fixture",
+      note: "Synthetic OpenAI-style cost fixture for deterministic tests.",
+    },
+  },
+  {
+    version: PROVIDER_COST_RATE_FIXTURE_VERSION,
+    provider: "anthropic-style",
+    model: "anthropic-style-synthesis",
+    currency: "USD",
+    inputUsdPerMillionTokens: 2,
+    outputUsdPerMillionTokens: 8,
+    observedAt: "2026-01-01",
+    source: {
+      kind: "fixture",
+      note: "Synthetic Anthropic-style cost fixture for deterministic tests.",
+    },
+  },
+  {
+    version: PROVIDER_COST_RATE_FIXTURE_VERSION,
+    provider: "litellm-compatible",
+    model: "litellm-compatible-synthesis",
+    currency: "USD",
+    inputUsdPerMillionTokens: 1.5,
+    outputUsdPerMillionTokens: 6,
+    observedAt: "2026-01-01",
+    source: {
+      kind: "fixture",
+      note: "Synthetic LiteLLM-compatible gateway cost fixture.",
+    },
+  },
+] as const satisfies readonly ProviderCostRateFixture[];
+
 export function listProviderCapabilityFixtures(): readonly ProviderCapabilities[] {
   return Object.values(providerCapabilityFixtures);
+}
+
+export function listProviderCostRateFixtures(): readonly ProviderCostRateFixture[] {
+  return providerCostRateFixtures;
 }
 
 export function lookupProviderCapabilities(
@@ -118,6 +180,15 @@ export function lookupProviderCapabilities(
   return isProviderCapabilityFixtureId(fixtureId)
     ? providerCapabilityFixtures[fixtureId]
     : undefined;
+}
+
+export function lookupProviderCostRateFixture(
+  provider: string,
+  model: string,
+): ProviderCostRateFixture | undefined {
+  return providerCostRateFixtures.find(
+    (fixture) => fixture.provider === provider && fixture.model === model,
+  );
 }
 
 export function checkProviderFixtureRequirements(
@@ -152,6 +223,28 @@ export function citeProviderCapabilities(
     source: capabilities.source,
     version: capabilities.version,
   };
+}
+
+export function citeProviderCostRate(
+  fixture: ProviderCostRateFixture,
+): ProviderCostRateEvidenceCitation {
+  const citation: ProviderCostRateEvidenceCitation = {
+    currency: fixture.currency,
+    inputUsdPerMillionTokens: fixture.inputUsdPerMillionTokens,
+    model: fixture.model,
+    observedAt: fixture.observedAt,
+    provider: fixture.provider,
+    source: fixture.source,
+    version: fixture.version,
+    ...(fixture.expiresAt !== undefined
+      ? { expiresAt: fixture.expiresAt }
+      : {}),
+    ...(fixture.outputUsdPerMillionTokens !== undefined
+      ? { outputUsdPerMillionTokens: fixture.outputUsdPerMillionTokens }
+      : {}),
+  };
+
+  return citation;
 }
 
 function isProviderCapabilityFixtureId(

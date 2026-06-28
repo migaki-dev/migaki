@@ -4,6 +4,12 @@ export const PROVIDER_CONTRACT_VERSION = "migaki.providers.v0";
 
 export type ProviderContractVersion = typeof PROVIDER_CONTRACT_VERSION;
 
+export const PROVIDER_COST_RATE_FIXTURE_VERSION =
+  "migaki.provider-cost-rates.v0";
+
+export type ProviderCostRateFixtureVersion =
+  typeof PROVIDER_COST_RATE_FIXTURE_VERSION;
+
 export type ProviderBackendKind =
   | "anthropic_style"
   | "custom"
@@ -34,6 +40,32 @@ export interface ProviderCapabilitySource {
   readonly kind: "docs" | "fixture" | "manual" | "observed";
   readonly note?: string;
   readonly url?: string;
+}
+
+export type ProviderCostRateCurrency = "USD";
+
+export interface ProviderCostRateFixture {
+  readonly currency: ProviderCostRateCurrency;
+  readonly expiresAt?: string;
+  readonly inputUsdPerMillionTokens: number;
+  readonly model: string;
+  readonly observedAt: string;
+  readonly outputUsdPerMillionTokens?: number;
+  readonly provider: string;
+  readonly source: ProviderCapabilitySource;
+  readonly version: ProviderCostRateFixtureVersion;
+}
+
+export interface ProviderCostRateEvidenceCitation {
+  readonly currency: ProviderCostRateCurrency;
+  readonly expiresAt?: string;
+  readonly inputUsdPerMillionTokens: number;
+  readonly model: string;
+  readonly observedAt: string;
+  readonly outputUsdPerMillionTokens?: number;
+  readonly provider: string;
+  readonly source: ProviderCapabilitySource;
+  readonly version: ProviderCostRateFixtureVersion;
 }
 
 export type ProviderCapabilityName =
