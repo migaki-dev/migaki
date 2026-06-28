@@ -1,0 +1,4 @@
+interface:
+  display_name: "Migaki Issue Runner"
+  short_description: "Claim and complete a Migaki GitHub issue or milestone queue item."
+  default_prompt: "Pick up the requested issue or next unblocked milestone issue, claim it, implement it, and open an auto-merge PR."
