@@ -22,6 +22,11 @@ pass summaries, warnings, grouped evidence sections, replay metadata, and
 explicit records for omitted or redacted data. Serialization is deterministic
 for golden fixtures and CI artifacts.
 
+The v0 mock trace artifact contract is `migaki.trace-artifact.v0`. It captures
+mock-backed execution steps, fixture responses, timing, usage, validator
+outcomes, replay metadata, and evidence bundle links so deterministic runs can
+be loaded and replay-checked without live providers.
+
 The v0 constraint evaluation contract is `migaki.constraint-evaluation.v0`.
 It checks supported cost, latency, quality, provider, replay, audit, retention,
 validator, privacy, and redaction constraints deterministically. Required
