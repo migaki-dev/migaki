@@ -15,3 +15,8 @@ supports injected retryable failures for replay and evidence tests.
 injected transport. It records sanitized request/response metadata, retry
 attempts, provider assumptions, and redaction decisions without persisting
 authorization headers or body content by default.
+
+`lowerOpenAIStyleModelRequest` and `createOpenAIStyleAdapter` provide the v0
+OpenAI-style lowering path. They construct deterministic request shapes from
+mIR model nodes, consult capability fixtures for structured output, tool
+calling, and cache behavior, and execute only through injected fake transports.
