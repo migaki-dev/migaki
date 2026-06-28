@@ -7,11 +7,14 @@
 - Mock backend contract: `migaki.mock-backend.v0`
 - OpenAI-style adapter contract: `migaki.openai-style-adapter.v0`
 - Anthropic-style adapter contract: `migaki.anthropic-style-adapter.v0`
+- LiteLLM-compatible adapter contract:
+  `migaki.litellm-compatible-adapter.v0`
 - Owning package: `@migaki/providers`
 - Source of truth: `packages/providers/src/contracts.ts`,
   `packages/providers/src/fixtures.ts`, `packages/providers/src/mock-backend.ts`,
-  `packages/providers/src/openai-style.ts`, and
-  `packages/providers/src/anthropic-style.ts`
+  `packages/providers/src/openai-style.ts`,
+  `packages/providers/src/anthropic-style.ts`, and
+  `packages/providers/src/litellm-compatible.ts`
 
 Living design context is in the
 [Provider Capabilities](https://github.com/migaki-dev/migaki/wiki/Provider-Capabilities)
@@ -82,8 +85,11 @@ capability fixtures.
 calls into deterministic Anthropic-style request shapes using injected
 transports only. They represent fixture-backed explicit cache breakpoints.
 
-The repository currently includes LiteLLM-compatible capability fixtures, but
-LiteLLM-compatible request lowering is not implemented in this contract yet.
+`lowerLiteLLMCompatibleModelRequest` and `createLiteLLMCompatibleAdapter` lower
+model calls into deterministic LiteLLM-compatible chat request shapes using
+injected transports only. They record gateway assumptions that distinguish
+Migaki lowering from gateway-owned provider routing, connectivity, budget
+enforcement, fallback policy, and observability.
 
 ## Compatibility
 
