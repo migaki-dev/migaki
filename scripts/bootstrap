@@ -1,14 +1,7 @@
 #!/bin/sh
 set -eu
 
-MISE_MIN_VERSION="2026.6.14"
-MISE_INSTALL_VERSION="v2026.6.14"
-NODE_VERSION="24.18.0"
-PNPM_VERSION="11.9.0"
-COLIMA_VERSION="0.10.3"
-
 force=0
-mise_installed_or_updated=0
 
 usage() {
   cat <<'EOF'
@@ -20,13 +13,12 @@ The script is POSIX sh and can be launched from sh, bash, zsh, fish, or
 nushell. It supports Unix-like systems across common x86, x64, and ARM
 architectures.
 
-The only system installer it uses is the native mise installer. Node.js, pnpm,
-and Colima are managed by mise from the repository's pinned toolchain. The mise
-and Colima install/update steps ask before changing the system.
+The only system installer it uses is the native mise installer. All tool
+versions live in mise.toml and mise.lock.
 
 After tool setup, the script refreshes its own environment, trusts the local
-mise config, installs the required project tools, then runs `mise run setup`
-and `mise run check`.
+mise config, installs the project tools, then runs `mise run setup` and
+`mise run check`.
 
 Options:
   -f, --force   Re-run installer/update steps even when tools already exist.
@@ -104,24 +96,6 @@ append_once() {
     printf '\n%s\n' "$line" >> "$file"
     log "Updated $file"
   fi
-}
-
-version_ge() {
-  actual=$(printf '%s' "$1" | sed 's/^v//')
-  required=$(printf '%s' "$2" | sed 's/^v//')
-  awk -v actual="$actual" -v required="$required" '
-    BEGIN {
-      split(actual, a, ".")
-      split(required, r, ".")
-      for (i = 1; i <= 3; i++) {
-        ai = (a[i] == "" ? 0 : a[i]) + 0
-        ri = (r[i] == "" ? 0 : r[i]) + 0
-        if (ai > ri) exit 0
-        if (ai < ri) exit 1
-      }
-      exit 0
-    }
-  '
 }
 
 detect_shell_name() {
@@ -211,18 +185,13 @@ install_mise_if_needed() {
   ensure_mise_on_path
 
   mise_bin=$(find_mise_bin 2>/dev/null || true)
-  mise_version=""
-  if [ -n "$mise_bin" ]; then
-    mise_version=$("$mise_bin" --version | awk '{print $1}')
-  fi
 
-  if [ -n "$mise_bin" ] && version_ge "$mise_version" "$MISE_MIN_VERSION" && [ "$force" -eq 0 ]; then
-    log "mise $mise_version already satisfies minimum $MISE_MIN_VERSION; skipping install."
+  if [ -n "$mise_bin" ] && [ "$force" -eq 0 ]; then
+    log "$("$mise_bin" --version) found; skipping mise install."
   else
-    if ask_yes_no "Install or update mise to $MISE_INSTALL_VERSION using the native installer?"; then
-      log "Installing mise $MISE_INSTALL_VERSION using the native installer."
-      curl -fsSL https://mise.run | MISE_VERSION="$MISE_INSTALL_VERSION" sh
-      mise_installed_or_updated=1
+    if ask_yes_no "Install or update mise using the native installer?"; then
+      log "Installing mise using the native installer."
+      curl -fsSL https://mise.run | sh
       ensure_mise_on_path
       mise_bin=$(find_mise_bin)
     else
@@ -236,51 +205,18 @@ install_mise_if_needed() {
     return 1
   fi
 
-  mise_version=$("$mise_bin" --version | awk '{print $1}')
-  if ! version_ge "$mise_version" "$MISE_MIN_VERSION"; then
-    log "mise $mise_version is below required minimum $MISE_MIN_VERSION."
-    return 1
-  fi
-
   configure_mise_for_shell "$mise_bin" "$(detect_shell_name)"
-
-  if [ "$mise_installed_or_updated" -eq 1 ]; then
-    if "$mise_bin" self-update "$MISE_INSTALL_VERSION" --yes >/dev/null 2>&1; then
-      log "mise self-update checked $MISE_INSTALL_VERSION."
-    else
-      log "mise self-update is unavailable for this installation method; continuing."
-    fi
-  fi
 
   eval "$("$mise_bin" env -s bash -C "$ROOT_DIR")"
 }
 
-install_required_tools() {
+install_project_tools() {
   mise_bin=$1
 
   if [ "$force" -eq 1 ]; then
-    "$mise_bin" install --force --yes "node@$NODE_VERSION" "pnpm@$PNPM_VERSION"
+    "$mise_bin" install --force --yes
   else
-    "$mise_bin" install --yes "node@$NODE_VERSION" "pnpm@$PNPM_VERSION"
-  fi
-}
-
-install_colima_if_requested() {
-  mise_bin=$1
-
-  if "$mise_bin" where "colima@$COLIMA_VERSION" >/dev/null 2>&1 && [ "$force" -eq 0 ]; then
-    log "Colima $COLIMA_VERSION already installed by mise; skipping."
-    return
-  fi
-
-  if ask_yes_no "Install or update Colima $COLIMA_VERSION through mise?"; then
-    if [ "$force" -eq 1 ]; then
-      "$mise_bin" install --force --yes "colima@$COLIMA_VERSION"
-    else
-      "$mise_bin" install --yes "colima@$COLIMA_VERSION"
-    fi
-  else
-    log "Skipped Colima installation/update."
+    "$mise_bin" install --yes
   fi
 }
 
@@ -305,9 +241,7 @@ main() {
   mise_bin=$(find_mise_bin)
 
   "$mise_bin" trust "$ROOT_DIR/mise.toml" --yes
-  install_required_tools "$mise_bin"
-  install_colima_if_requested "$mise_bin"
-  "$mise_bin" upgrade --local --yes node pnpm
+  install_project_tools "$mise_bin"
   run_mise_task "$mise_bin" setup
   run_mise_task "$mise_bin" check
 
