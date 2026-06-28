@@ -46,3 +46,9 @@ estimates with estimator identity, source, confidence, and limitations. The
 default deterministic estimator is fixture-oriented and does not claim
 provider-exact tokenization; unknown inputs keep aggregate totals unknown rather
 than inventing precision.
+
+The v0 cost estimation contract is `migaki.cost-estimation.v0`. It combines
+plan token estimates with explicit node provider/model selections and versioned
+provider cost-rate fixtures. Estimates include rate citations, confidence,
+limitations, stale-rate warnings, and unknown-cost warnings so constrained plans
+fail closed when cost cannot be proven.
