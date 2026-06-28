@@ -33,3 +33,9 @@ It removes only exact duplicate context blocks that are marked deduplicable,
 non-sensitive, and provenance-compatible, then rewrites input references to the
 kept context id. Unsafe duplicate candidates are preserved with warnings and
 evidence instead of being silently optimized.
+
+`migaki.context.stable_prefix_detection` reports cacheable prefix opportunities
+for fixed system, developer, and example context in model input order. It does
+not rewrite prompts or lower provider-specific cache breakpoints; provider cache
+capabilities are recorded as evidence and unsupported breakpoint behavior is
+reported as informational warnings.
