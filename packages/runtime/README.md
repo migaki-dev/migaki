@@ -9,3 +9,9 @@ metadata, constraint, context, node, edge, and warning changes in deterministic
 order. Diff entries identify changed artifacts and fields, but omit before and
 after values so sensitive prompt, context, provider, or warning content is not
 copied into report artifacts by default.
+
+The v0 evidence event contract is `migaki.evidence-event.v0`. Events cover pass
+decisions, warnings, capability assumptions, context changes, estimates,
+validator results, routing, retry/fallback decisions, and policy decisions.
+Every event carries source, privacy, and redaction metadata so later evidence
+bundles can say what was included, omitted, or redacted.
