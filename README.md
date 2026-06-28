@@ -22,8 +22,13 @@ Core areas:
 - evidence bundles for decisions, assumptions, costs, and lossy behavior
 - container-backed e2e tests and evals for adapter/runtime behavior
 
+The implemented v0 contract docs live under `docs/`. The wiki holds living
+product design and roadmap context; repository docs hold technical contracts
+that ship with code.
+
 This repository is still early scaffolding. Public package boundaries, schemas,
-and adapters should be treated as pre-release until versioned contracts exist.
+and adapters should be treated as pre-release unless a repository contract doc
+names the implemented v0 surface.
 
 ## Toolchain
 
@@ -91,6 +96,7 @@ Use `mise run setup:update-lockfile` after intentional dependency changes.
 
 ## Repository Layout
 
+- `docs/` contains repository-versioned technical contract docs for v0.
 - `src/` contains root TypeScript exports and shared test helpers for the workspace.
 - `packages/mir/` owns mIR schemas, validators, and example plan contracts.
 - `packages/runtime/` owns planning, pass execution, evidence, tracing, and replay plumbing.
