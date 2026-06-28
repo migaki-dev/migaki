@@ -20,3 +20,8 @@ authorization headers or body content by default.
 OpenAI-style lowering path. They construct deterministic request shapes from
 mIR model nodes, consult capability fixtures for structured output, tool
 calling, and cache behavior, and execute only through injected fake transports.
+
+`lowerAnthropicStyleModelRequest` and `createAnthropicStyleAdapter` provide the
+v0 Anthropic-style lowering path. They lower mIR model nodes into deterministic
+message request shapes, represent fixture-backed explicit cache breakpoints,
+and execute only through injected fake transports.
