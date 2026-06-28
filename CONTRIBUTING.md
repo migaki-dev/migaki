@@ -24,6 +24,10 @@ mise run check
 `mise run setup` also installs the repository Git hooks by setting
 `core.hooksPath` to `.githooks`.
 
+When changing tool versions or tools in `mise.toml`, regenerate and commit
+`mise.lock` in the same change. Tool edits without the matching lockfile update
+are incomplete.
+
 ## Definition of Done
 
 A change is not done until:
