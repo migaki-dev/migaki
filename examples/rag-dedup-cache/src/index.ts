@@ -3,3 +3,4 @@ export const ragDedupCacheExampleResponsibility =
   "Deterministic RAG deduplication and cache-layout example workspace.";
 
 export * from "./baseline.js";
+export * from "./optimized.js";
