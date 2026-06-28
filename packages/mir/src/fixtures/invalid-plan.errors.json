@@ -1,0 +1,59 @@
+[
+  {
+    "code": "unknown_version",
+    "context": {
+      "actual": "migaki.mir.v9",
+      "expected": "migaki.mir.v0"
+    },
+    "message": "Unsupported mIR version.",
+    "path": "$.version"
+  },
+  {
+    "code": "invalid_constraint",
+    "context": {
+      "actual": -1
+    },
+    "message": "Constraint must be a non-negative number.",
+    "path": "$.constraints.maxCostUsd"
+  },
+  {
+    "code": "invalid_constraint",
+    "context": {
+      "actual": 2
+    },
+    "message": "Constraint must be between 0 and 1.",
+    "path": "$.constraints.minValidatorPassRate"
+  },
+  {
+    "code": "invalid_constraint",
+    "context": {
+      "provider": "mock"
+    },
+    "message": "Provider cannot be both allowed and denied.",
+    "path": "$.constraints.deniedProviders[0]"
+  },
+  {
+    "code": "invalid_reference",
+    "context": {
+      "contextId": "ctx-missing"
+    },
+    "message": "Referenced context block does not exist.",
+    "path": "$.nodes[0].inputContext[0]"
+  },
+  {
+    "code": "invalid_reference",
+    "context": {
+      "nodeId": "node-missing"
+    },
+    "message": "Referenced node does not exist.",
+    "path": "$.edges[0].toNodeId"
+  },
+  {
+    "code": "invalid_reference",
+    "context": {
+      "contextId": "ctx-missing"
+    },
+    "message": "Referenced context block does not exist.",
+    "path": "$.edges[0].contextIds[0]"
+  }
+]

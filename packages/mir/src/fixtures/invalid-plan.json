@@ -1,0 +1,53 @@
+{
+  "id": "invalid-rag-plan",
+  "version": "migaki.mir.v9",
+  "metadata": {
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  },
+  "constraints": {
+    "allowedProviders": ["mock"],
+    "deniedProviders": ["mock"],
+    "maxCostUsd": -1,
+    "minValidatorPassRate": 2
+  },
+  "context": [
+    {
+      "id": "ctx-question",
+      "role": "user_input",
+      "contentRef": "fixture://question",
+      "mutability": "fixed",
+      "provenance": {
+        "source": "user"
+      }
+    },
+    {
+      "id": "ctx-answer",
+      "role": "validator_output",
+      "contentRef": "fixture://answer",
+      "mutability": "fixed",
+      "provenance": {
+        "source": "validator"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "id": "node-synthesize",
+      "kind": "model_call",
+      "inputContext": ["ctx-missing"],
+      "outputContext": "ctx-answer",
+      "model": {
+        "task": "synthesis"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-missing-node",
+      "fromNodeId": "node-synthesize",
+      "toNodeId": "node-missing",
+      "kind": "data",
+      "contextIds": ["ctx-missing"]
+    }
+  ]
+}
