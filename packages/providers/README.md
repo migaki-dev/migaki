@@ -25,3 +25,9 @@ calling, and cache behavior, and execute only through injected fake transports.
 v0 Anthropic-style lowering path. They lower mIR model nodes into deterministic
 message request shapes, represent fixture-backed explicit cache breakpoints,
 and execute only through injected fake transports.
+
+`lowerLiteLLMCompatibleModelRequest` and `createLiteLLMCompatibleAdapter`
+provide the optional v0 LiteLLM-compatible gateway lowering path. They lower
+mIR model nodes into deterministic chat request shapes, record gateway-owned
+routing, connectivity, budget, fallback, and observability responsibilities,
+and execute only through injected fake transports.
