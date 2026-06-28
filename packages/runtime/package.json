@@ -9,6 +9,10 @@
       "import": "./src/index.ts"
     }
   },
+  "dependencies": {
+    "@migaki/mir": "workspace:*",
+    "@migaki/providers": "workspace:*"
+  },
   "files": [
     "README.md",
     "src"
