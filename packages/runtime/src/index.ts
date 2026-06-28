@@ -10,3 +10,4 @@ export * from "./exact-duplicate-context.js";
 export * from "./pass.js";
 export * from "./runner.js";
 export * from "./stable-prefix.js";
+export * from "./token-estimation.js";
