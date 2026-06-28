@@ -9,6 +9,7 @@ export * from "./diff.js";
 export * from "./evidence-bundle.js";
 export * from "./evidence.js";
 export * from "./exact-duplicate-context.js";
+export * from "./mock-trace.js";
 export * from "./pass.js";
 export * from "./prompt-cache-layout.js";
 export * from "./retry-fallback-planning.js";
