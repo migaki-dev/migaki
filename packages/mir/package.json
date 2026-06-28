@@ -1,0 +1,17 @@
+{
+  "name": "@migaki/mir",
+  "version": "0.0.0",
+  "description": "mIR schema, validator, and example plan contracts for portable Migaki execution graphs.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "files": [
+    "README.md",
+    "src"
+  ],
+  "sideEffects": false
+}
