@@ -16,9 +16,9 @@ architectures.
 The only system installer it uses is the native mise installer. All tool
 versions live in mise.toml and mise.lock.
 
-After tool setup, the script refreshes its own environment, trusts the local
-mise config, installs the project tools, then runs `mise run setup` and
-`mise run check`.
+After tool setup, the script refreshes its own environment, optionally offers
+to configure shell activation, trusts the local mise config, installs the
+project tools, then runs `mise run setup` and `mise run check`.
 
 Options:
   -f, --force   Re-run installer/update steps even when tools already exist.
@@ -59,7 +59,7 @@ have() {
 }
 
 has_tty() {
-  [ -r /dev/tty ] && [ -w /dev/tty ]
+  [ -r /dev/tty ] && [ -w /dev/tty ] && { : </dev/tty >/dev/tty; } 2>/dev/null
 }
 
 ask_yes_no() {
@@ -76,6 +76,28 @@ ask_yes_no() {
 
   case "$answer" in
     ""|Y|y|yes|YES|Yes)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+ask_no_yes() {
+  prompt=$1
+
+  if ! has_tty; then
+    log "$prompt [y/N]"
+    log "No interactive terminal is available; skipping."
+    return 1
+  fi
+
+  printf '%s [y/N] ' "$prompt" >/dev/tty
+  IFS= read -r answer </dev/tty || answer=
+
+  case "$answer" in
+    Y|y|yes|YES|Yes)
       return 0
       ;;
     *)
@@ -143,7 +165,7 @@ find_mise_bin() {
 }
 
 ensure_mise_on_path() {
-  for dir in "$HOME_DIR/.local/bin" "$HOME_DIR/.local/share/mise/bin"; do
+  for dir in "$HOME_DIR/.local/share/mise/bin" "$HOME_DIR/.local/bin" "$HOME_DIR/.local/share/mise/shims"; do
     case ":$PATH:" in
       *":$dir:"*) ;;
       *) PATH="$dir:$PATH" ;;
@@ -176,7 +198,7 @@ configure_mise_for_shell() {
       append_once "$env_file" "source '$init_file'"
       ;;
     sh|*)
-      append_once "$HOME_DIR/.profile" "export PATH=\"\$HOME/.local/share/mise/shims:\$HOME/.local/bin:\$PATH\""
+      append_once "$HOME_DIR/.profile" 'export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$HOME/.local/share/mise/bin:$PATH"'
       ;;
   esac
 }
@@ -205,7 +227,11 @@ install_mise_if_needed() {
     return 1
   fi
 
-  configure_mise_for_shell "$mise_bin" "$(detect_shell_name)"
+  if ask_no_yes "Configure mise activation in your $(detect_shell_name) shell startup files?"; then
+    configure_mise_for_shell "$mise_bin" "$(detect_shell_name)"
+  else
+    log "Skipped shell activation setup. For one-off agent shells, source scripts/env from the repository root."
+  fi
 
   eval "$("$mise_bin" env -s bash -C "$ROOT_DIR")"
 }

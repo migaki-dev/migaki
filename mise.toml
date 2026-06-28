@@ -5,6 +5,7 @@ task.run_auto_install = false
 
 [tools]
 colima = "0.10.3"
+gh = "2.95.0"
 node = "24.18.0"
 pnpm = "11.9.0"
 
@@ -35,6 +36,7 @@ run = '''
 #!/usr/bin/env sh
 set -eu
 
+sh -n scripts/env
 sh -n scripts/bootstrap
 sh -n scripts/install-git-hooks
 sh -n scripts/run-git-hook-check

@@ -1,0 +1,20 @@
+# Source this file from the repository root to expose mise-managed tools in the
+# current shell without editing user startup files:
+#
+#   . scripts/env
+
+_migaki_prepend_path() {
+  case ":$PATH:" in
+    *":$1:"*) ;;
+    *) PATH="$1${PATH:+:$PATH}" ;;
+  esac
+}
+
+if [ -n "${HOME:-}" ]; then
+  _migaki_prepend_path "$HOME/.local/share/mise/bin"
+  _migaki_prepend_path "$HOME/.local/bin"
+  _migaki_prepend_path "$HOME/.local/share/mise/shims"
+fi
+
+export PATH
+unset -f _migaki_prepend_path 2>/dev/null || unset _migaki_prepend_path
