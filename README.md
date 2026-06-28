@@ -86,7 +86,13 @@ Use `mise run setup:update-lockfile` after intentional dependency changes.
 
 ## Repository Layout
 
-- `src/` contains TypeScript source.
+- `src/` contains root TypeScript exports for the workspace.
+- `packages/mir/` owns mIR schemas, validators, and example plan contracts.
+- `packages/runtime/` owns planning, pass execution, evidence, tracing, and replay plumbing.
+- `packages/providers/` owns provider capabilities and backend lowering contracts.
+- `packages/adapters/` owns application and framework integration surfaces.
+- `packages/cli/` owns developer-facing report and replay command surfaces.
+- `examples/rag-dedup-cache/` contains the v0 RAG deduplication and cache-layout example workspace.
 - `scripts/bootstrap` bootstraps a development machine.
 - `CONTRIBUTING.md` defines contribution standards for humans and coding
   agents.
