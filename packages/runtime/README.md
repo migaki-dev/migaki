@@ -58,3 +58,9 @@ cache layout opportunities from stable-prefix detection output. It distinguishes
 automatic cache behavior from explicit breakpoint placement, estimates cacheable
 prefix tokens where metadata is available, and records capability assumptions or
 downgrade warnings as evidence without mutating provider requests.
+
+`migaki.runtime.retry_fallback_planning` reports retry boundaries and fallback
+choices without executing them. It can represent validator-triggered retries of
+the failed model node, blocks unsafe side-effecting tool retries unless
+idempotency or approval metadata is present, and filters fallback providers
+through allowed/denied provider constraints.

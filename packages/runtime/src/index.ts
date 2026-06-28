@@ -10,6 +10,7 @@ export * from "./evidence.js";
 export * from "./exact-duplicate-context.js";
 export * from "./pass.js";
 export * from "./prompt-cache-layout.js";
+export * from "./retry-fallback-planning.js";
 export * from "./runner.js";
 export * from "./stable-prefix.js";
 export * from "./token-estimation.js";
