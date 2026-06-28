@@ -9,3 +9,4 @@ export * from "./evidence.js";
 export * from "./exact-duplicate-context.js";
 export * from "./pass.js";
 export * from "./runner.js";
+export * from "./stable-prefix.js";
