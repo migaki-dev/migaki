@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "noEmit": true,
+    "types": ["node", "vitest"]
+  },
+  "include": [
+    "src/**/*.test.ts",
+    "packages/**/*.test.ts",
+    "examples/**/*.test.ts",
+    "vitest.config.ts",
+    "vitest.e2e.config.ts"
+  ],
+  "exclude": ["node_modules", "dist", "coverage"]
+}
