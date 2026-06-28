@@ -1,0 +1,48 @@
+#!/bin/sh
+set -eu
+
+hook_name=${1:-git-hook}
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ "${MIGAKI_SKIP_HOOKS:-}" = "1" ]; then
+  printf '%s\n' "$hook_name: skipping because MIGAKI_SKIP_HOOKS=1."
+  exit 0
+fi
+
+find_mise() {
+  if command -v mise >/dev/null 2>&1; then
+    command -v mise
+    return
+  fi
+
+  if [ -n "${MISE_BIN:-}" ] && [ -x "$MISE_BIN" ]; then
+    printf '%s\n' "$MISE_BIN"
+    return
+  fi
+
+  if [ -n "${HOME:-}" ]; then
+    for candidate in "$HOME/.local/bin/mise" "$HOME/.local/share/mise/bin/mise"; do
+      if [ -x "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return
+      fi
+    done
+  fi
+
+  return 1
+}
+
+mise_bin=$(find_mise 2>/dev/null || true)
+if [ -z "$mise_bin" ]; then
+  cat >&2 <<'EOF'
+Migaki Git hook could not find mise.
+
+Run scripts/bootstrap, or install mise and retry. For an emergency local bypass,
+use Git's --no-verify flag; CI still requires the same checks.
+EOF
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+printf '%s\n' "$hook_name: running mise run check"
+"$mise_bin" run check
