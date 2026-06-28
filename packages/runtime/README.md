@@ -27,3 +27,9 @@ deterministic lookup indexes over mIR context blocks by id, role, provenance,
 mutability, cache policy, privacy class, retention policy, and content
 reference. Ledger diagnostics flag duplicate ids, missing content references,
 and unsafe mutability for context roles that must remain fixed.
+
+The first v0 optimization pass is `migaki.context.exact_duplicate_elimination`.
+It removes only exact duplicate context blocks that are marked deduplicable,
+non-sensitive, and provenance-compatible, then rewrites input references to the
+kept context id. Unsafe duplicate candidates are preserved with warnings and
+evidence instead of being silently optimized.
