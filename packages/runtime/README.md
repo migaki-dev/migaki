@@ -52,3 +52,9 @@ plan token estimates with explicit node provider/model selections and versioned
 provider cost-rate fixtures. Estimates include rate citations, confidence,
 limitations, stale-rate warnings, and unknown-cost warnings so constrained plans
 fail closed when cost cannot be proven.
+
+`migaki.context.prompt_cache_layout_reporting` reports provider-aware prompt
+cache layout opportunities from stable-prefix detection output. It distinguishes
+automatic cache behavior from explicit breakpoint placement, estimates cacheable
+prefix tokens where metadata is available, and records capability assumptions or
+downgrade warnings as evidence without mutating provider requests.
