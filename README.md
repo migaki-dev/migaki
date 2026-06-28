@@ -35,6 +35,7 @@ Current workspace tools:
 - Node.js 24.18.0
 - pnpm 11.9.0
 - TypeScript 6.0.3
+- GitHub CLI 2.95.0
 - Colima 0.10.3 for Docker-compatible local container workflows
 
 Use `pnpm` only. Do not use `npm`, `yarn`, or `bun` for installs, scripts, or
@@ -50,9 +51,9 @@ scripts/bootstrap
 
 The script is POSIX `sh` and can be launched from common Unix shells, including
 `sh`, `bash`, `zsh`, `fish`, and `nushell`. It installs or updates mise through
-the native mise installer when needed, configures shell activation, trusts the
-local mise config, installs the pinned toolchain, installs workspace
-dependencies, and runs the quality gate.
+the native mise installer when needed, optionally offers to configure shell
+activation, trusts the local mise config, installs the pinned toolchain,
+installs workspace dependencies, and runs the quality gate.
 
 Useful options:
 

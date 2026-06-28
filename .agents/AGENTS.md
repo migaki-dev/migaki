@@ -27,6 +27,10 @@ Migaki is a TypeScript project using pnpm. Treat this repository as infrastructu
 - Use `mise` for tool versions across modern shells. Keep `mise.toml` authoritative for Node.js, pnpm, and any other required CLI tools.
 - When editing tools in `mise.toml`, regenerate and commit `mise.lock` in the
   same change so every supported platform keeps the same pinned toolchain.
+- Coding agents run many commands through non-interactive shells. Before
+  invoking workspace tools in a shell that has not activated mise, source the
+  repo-local helper with `. scripts/env`; it exposes mise shims for the current
+  shell without editing contributor startup files.
 - Keep bootstrapping simple: a new contributor should be able to run `mise install`, `corepack enable`, `pnpm install --frozen-lockfile`, and then the documented checks.
 - Pin tool versions. Avoid floating versions such as `latest`, broad Docker tags, or unbounded GitHub Actions versions.
 - Prefer package-manager and toolchain pins with integrity/hash support when the ecosystem provides it. Lockfiles are required and must be committed.
