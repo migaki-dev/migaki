@@ -5,7 +5,9 @@ Migaki is a TypeScript project using pnpm. Treat this repository as infrastructu
 ## Canonical File
 
 - Edit `.agents/AGENTS.md` as the single source of truth.
-- Root-level files such as `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, and `.windsurfrules` are compatibility symlinks for coding harnesses. Do not replace them with divergent copies.
+- Root-level files such as `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`,
+  `.windsurfrules`, and `.github/copilot-instructions.md` are compatibility
+  symlinks for coding harnesses. Do not replace them with divergent copies.
 
 ## Operating Posture
 
@@ -23,6 +25,8 @@ Migaki is a TypeScript project using pnpm. Treat this repository as infrastructu
 
 - Use `pnpm` only. Do not use `npm`, `yarn`, or `bun` for install, script execution, or lockfile updates.
 - Use `mise` for tool versions across modern shells. Keep `mise.toml` authoritative for Node.js, pnpm, and any other required CLI tools.
+- When editing tools in `mise.toml`, regenerate and commit `mise.lock` in the
+  same change so every supported platform keeps the same pinned toolchain.
 - Keep bootstrapping simple: a new contributor should be able to run `mise install`, `corepack enable`, `pnpm install --frozen-lockfile`, and then the documented checks.
 - Pin tool versions. Avoid floating versions such as `latest`, broad Docker tags, or unbounded GitHub Actions versions.
 - Prefer package-manager and toolchain pins with integrity/hash support when the ecosystem provides it. Lockfiles are required and must be committed.
