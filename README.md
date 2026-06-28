@@ -91,7 +91,7 @@ Use `mise run setup:update-lockfile` after intentional dependency changes.
 
 ## Repository Layout
 
-- `src/` contains root TypeScript exports for the workspace.
+- `src/` contains root TypeScript exports and shared test helpers for the workspace.
 - `packages/mir/` owns mIR schemas, validators, and example plan contracts.
 - `packages/runtime/` owns planning, pass execution, evidence, tracing, and replay plumbing.
 - `packages/providers/` owns provider capabilities and backend lowering contracts.
