@@ -4,3 +4,4 @@ export const ragDedupCacheExampleResponsibility =
 
 export * from "./baseline.js";
 export * from "./optimized.js";
+export * from "./validation.js";
