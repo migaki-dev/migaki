@@ -16,6 +16,12 @@ validator results, routing, retry/fallback decisions, and policy decisions.
 Every event carries source, privacy, and redaction metadata so later evidence
 bundles can say what was included, omitted, or redacted.
 
+The v0 evidence bundle contract is `migaki.evidence-bundle.v0`. Bundles carry
+references to the original and optimized plans, inline plan and context diffs,
+pass summaries, warnings, grouped evidence sections, replay metadata, and
+explicit records for omitted or redacted data. Serialization is deterministic
+for golden fixtures and CI artifacts.
+
 The v0 constraint evaluation contract is `migaki.constraint-evaluation.v0`.
 It checks supported cost, latency, quality, provider, replay, audit, retention,
 validator, privacy, and redaction constraints deterministically. Required
