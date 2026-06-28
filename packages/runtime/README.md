@@ -21,3 +21,9 @@ It checks supported cost, latency, quality, provider, replay, audit, retention,
 validator, privacy, and redaction constraints deterministically. Required
 constraints fail closed when the evaluator lacks the inputs needed to prove they
 passed, and each checked policy emits evidence.
+
+The v0 context ledger contract is `migaki.context-ledger.v0`. It provides
+deterministic lookup indexes over mIR context blocks by id, role, provenance,
+mutability, cache policy, privacy class, retention policy, and content
+reference. Ledger diagnostics flag duplicate ids, missing content references,
+and unsafe mutability for context roles that must remain fixed.
