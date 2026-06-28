@@ -34,7 +34,14 @@ importers:
 
   packages/adapters: {}
 
-  packages/cli: {}
+  packages/cli:
+    dependencies:
+      '@migaki/mir':
+        specifier: workspace:*
+        version: link:../mir
+      '@migaki/runtime':
+        specifier: workspace:*
+        version: link:../runtime
 
   packages/mir: {}
 
