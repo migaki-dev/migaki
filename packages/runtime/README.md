@@ -64,3 +64,8 @@ choices without executing them. It can represent validator-triggered retries of
 the failed model node, blocks unsafe side-effecting tool retries unless
 idempotency or approval metadata is present, and filters fallback providers
 through allowed/denied provider constraints.
+
+`migaki.runtime.static_routing_policy` reports constrained static routing
+decisions for explicitly eligible classification and ranking nodes. It honors
+required validators plus allowed and denied provider constraints, emitting
+evidence for routed nodes and warnings when routing is skipped.
