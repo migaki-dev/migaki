@@ -15,3 +15,9 @@ decisions, warnings, capability assumptions, context changes, estimates,
 validator results, routing, retry/fallback decisions, and policy decisions.
 Every event carries source, privacy, and redaction metadata so later evidence
 bundles can say what was included, omitted, or redacted.
+
+The v0 constraint evaluation contract is `migaki.constraint-evaluation.v0`.
+It checks supported cost, latency, quality, provider, replay, audit, retention,
+validator, privacy, and redaction constraints deterministically. Required
+constraints fail closed when the evaluator lacks the inputs needed to prove they
+passed, and each checked policy emits evidence.
