@@ -4,6 +4,7 @@ import { MIR_V0_VERSION, type MIRPlan } from "@migaki/mir";
 import { FakeClock } from "../../../src/testing/index.js";
 import {
   PASS_CONTRACT_VERSION,
+  PLAN_DIFF_VERSION,
   runOptimizationPasses,
   type OptimizationPass,
   type PassResult,
@@ -190,11 +191,14 @@ function createTaggingPass(
         },
         diff: {
           kind: "inline",
+          version: PLAN_DIFF_VERSION,
           changes: [
             {
+              artifactKind: "metadata",
               kind: "metadata_changed",
               path: "$.metadata.tags",
               description: `Added ${tag}.`,
+              valueMode: "omitted",
             },
           ],
         },

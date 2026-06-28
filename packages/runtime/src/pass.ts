@@ -4,6 +4,8 @@ import type {
   ProviderCapabilityAssumption,
 } from "@migaki/providers";
 
+import type { MIRPlanDiff, MIRPlanDiffEntry } from "./diff.js";
+
 export const PASS_CONTRACT_VERSION = "migaki.pass.v0";
 
 export type PassContractVersion = typeof PASS_CONTRACT_VERSION;
@@ -55,10 +57,7 @@ export interface PassResult {
 
 export type PassDiff = InlinePassDiff | ReferencedPassDiff;
 
-export interface InlinePassDiff {
-  readonly changes: readonly PassDiffChange[];
-  readonly kind: "inline";
-}
+export type InlinePassDiff = MIRPlanDiff;
 
 export interface ReferencedPassDiff {
   readonly hash?: string;
@@ -67,23 +66,7 @@ export interface ReferencedPassDiff {
   readonly ref: string;
 }
 
-export interface PassDiffChange {
-  readonly afterRef?: string;
-  readonly beforeRef?: string;
-  readonly description: string;
-  readonly kind:
-    | "constraint_changed"
-    | "context_added"
-    | "context_changed"
-    | "context_removed"
-    | "edge_added"
-    | "edge_removed"
-    | "metadata_changed"
-    | "node_added"
-    | "node_changed"
-    | "node_removed";
-  readonly path: string;
-}
+export type PassDiffChange = MIRPlanDiffEntry;
 
 export interface PassEvidenceFragment {
   readonly data?: Readonly<Record<string, unknown>>;

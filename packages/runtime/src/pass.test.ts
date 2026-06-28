@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { MIR_V0_VERSION, type MIRPlan } from "@migaki/mir";
 import {
   PASS_CONTRACT_VERSION,
+  PLAN_DIFF_VERSION,
   type OptimizationPass,
   type PassContext,
   type PassResult,
@@ -50,6 +51,7 @@ const fakePass = {
       },
       plan: inputPlan,
       diff: {
+        version: PLAN_DIFF_VERSION,
         kind: "inline",
         changes: [],
       },
@@ -87,6 +89,7 @@ describe("optimization pass contract", () => {
       plan,
       diff: {
         kind: "inline",
+        version: PLAN_DIFF_VERSION,
         changes: [],
       },
     });
