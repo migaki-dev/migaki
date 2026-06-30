@@ -7,7 +7,11 @@ describe("package metadata", () => {
     const manifest = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     ) as {
+      readonly bin?: Readonly<Record<string, string>>;
       readonly devDependencies?: Readonly<Record<string, string>>;
+      readonly exports?: Readonly<
+        Record<string, Readonly<Record<string, string>>>
+      >;
       readonly files?: readonly string[];
       readonly name?: string;
       readonly peerDependencies?: Readonly<Record<string, string>>;
@@ -18,17 +22,14 @@ describe("package metadata", () => {
       ">=0.10.0 <=0.12.0",
     );
     expect(manifest.devDependencies?.["@openai/agents"]).toBe("0.12.0");
-    expect(manifest.files).toEqual([
-      "README.md",
-      "src/benchmark.ts",
-      "src/hash.ts",
-      "src/index.ts",
-      "src/recorder.ts",
-      "src/report.ts",
-      "src/store.ts",
-      "src/types.ts",
-      "src/withMigaki.ts",
-    ]);
+    expect(manifest.bin).toEqual({
+      "migaki-openai-agents-js": "./dist/cli.js",
+    });
+    expect(manifest.exports?.["."]).toEqual({
+      import: "./dist/index.js",
+      types: "./dist/index.d.ts",
+    });
+    expect(manifest.files).toEqual(["README.md", "dist"]);
     expect(manifest.files?.some((file) => file.endsWith(".test.ts"))).toBe(
       false,
     );

@@ -48,6 +48,50 @@ The baseline lane runs with SDK tracing disabled. The Migaki lane writes normal
 run artifacts under `<runId>-migaki`, and the comparison report is written under
 `<runId>`.
 
+## CLI
+
+Run the same benchmark through the package CLI by pointing it at a module that
+exports `createRun(lane)`:
+
+```sh
+pnpm exec migaki-openai-agents-js benchmark \
+  --module ./benchmarks/repo-agent.mjs \
+  --run-id repo-task-001-comparison \
+  --store .migaki
+```
+
+When running from this repository before publishing, build first and replace the
+binary with `node packages/migaki-openai-agents-js/dist/cli.js`.
+
+The benchmark module uses the same contract as the library helper:
+
+```js
+import { Agent } from "@openai/agents";
+
+export function createRun(lane) {
+  return {
+    agent: new Agent({
+      name: `RepoAgent-${lane}`,
+      instructions: "Find relevant files and propose the patch.",
+    }),
+    input: "Find the relevant files and propose the patch.",
+    runConfig: {
+      model: "gpt-4.1-mini",
+    },
+  };
+}
+```
+
+For the deterministic no-provider fixture, run:
+
+```sh
+pnpm exec migaki-openai-agents-js repo-agent-benchmark \
+  --run-id repo-agent-fixture \
+  --store .migaki
+```
+
+Add `--format json` to either command for machine-readable output.
+
 ## Explicit Non-Goals
 
 - semantic IR

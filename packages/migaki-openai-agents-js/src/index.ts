@@ -1,4 +1,5 @@
 export * from "./benchmark.js";
+export * from "./cli.js";
 export * from "./hash.js";
 export * from "./recorder.js";
 export * from "./report.js";
