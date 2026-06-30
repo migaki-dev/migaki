@@ -566,10 +566,8 @@ function looksLikePath(modulePath: string): boolean {
     modulePath.startsWith(".") ||
     modulePath.startsWith("/") ||
     modulePath.includes("\\") ||
-    modulePath.endsWith(".cjs") ||
-    modulePath.endsWith(".js") ||
-    modulePath.endsWith(".mjs") ||
-    modulePath.endsWith(".ts")
+    modulePath.endsWith(".ts") ||
+    modulePath.endsWith(".tsx")
   );
 }
 

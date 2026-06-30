@@ -55,7 +55,7 @@ exports `createRun(lane)`:
 
 ```sh
 pnpm exec migaki-openai-agents-js benchmark \
-  --module ./benchmarks/repo-agent.mjs \
+  --module ./benchmarks/repo-agent.ts \
   --run-id repo-task-001-comparison \
   --store .migaki
 ```

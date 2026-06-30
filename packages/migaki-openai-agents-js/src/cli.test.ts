@@ -64,7 +64,7 @@ describe("openai agents instrumentation cli", () => {
     const sdk = await loadOpenAIAgentsSdkForTest();
     const root = await mkdtemp(join(tmpdir(), "migaki-cli-parallel-"));
     const cwd = "/workspace/project";
-    const modulePath = "./benchmarks/repo-agent.mjs";
+    const modulePath = "./benchmarks/repo-agent.ts";
     const importedSpecifiers: string[] = [];
 
     const io: MigakiOpenAIAgentsCliIo = {
