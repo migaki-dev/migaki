@@ -50,6 +50,11 @@ run = "pnpm run test:e2e"
 description = "Build TypeScript outputs"
 run = "pnpm run build"
 
+[tasks."benchmark:openai-agents"]
+description = "Run the OpenAI Agents benchmark CLI"
+depends = ["build"]
+run = "node packages/migaki-openai-agents-js/dist/cli.js"
+
 [tasks."bootstrap:check"]
 description = "Validate bootstrap script syntax and shell launch paths"
 run = '''

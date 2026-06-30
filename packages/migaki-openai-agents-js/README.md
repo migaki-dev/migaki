@@ -61,7 +61,8 @@ pnpm exec migaki-openai-agents-js benchmark \
 ```
 
 When running from this repository before publishing, build first and replace the
-binary with `node packages/migaki-openai-agents-js/dist/cli.js`.
+binary with either `mise run benchmark:openai-agents` or
+`node packages/migaki-openai-agents-js/dist/cli.js`.
 
 The benchmark module uses the same contract as the library helper:
 
@@ -86,6 +87,14 @@ For the deterministic no-provider fixture, run:
 
 ```sh
 pnpm exec migaki-openai-agents-js repo-agent-benchmark \
+  --run-id repo-agent-fixture \
+  --store .migaki
+```
+
+From this repository, the same fixture can run through mise:
+
+```sh
+mise run benchmark:openai-agents repo-agent-benchmark \
   --run-id repo-agent-fixture \
   --store .migaki
 ```
