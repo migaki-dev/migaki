@@ -8,6 +8,7 @@ describe("package metadata", () => {
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     ) as {
       readonly devDependencies?: Readonly<Record<string, string>>;
+      readonly files?: readonly string[];
       readonly name?: string;
       readonly peerDependencies?: Readonly<Record<string, string>>;
     };
@@ -17,5 +18,19 @@ describe("package metadata", () => {
       ">=0.10.0 <=0.12.0",
     );
     expect(manifest.devDependencies?.["@openai/agents"]).toBe("0.12.0");
+    expect(manifest.files).toEqual([
+      "README.md",
+      "src/benchmark.ts",
+      "src/hash.ts",
+      "src/index.ts",
+      "src/recorder.ts",
+      "src/report.ts",
+      "src/store.ts",
+      "src/types.ts",
+      "src/withMigaki.ts",
+    ]);
+    expect(manifest.files?.some((file) => file.endsWith(".test.ts"))).toBe(
+      false,
+    );
   });
 });
