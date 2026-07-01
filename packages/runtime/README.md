@@ -27,6 +27,10 @@ mock-backed execution steps, fixture responses, timing, usage, validator
 outcomes, replay metadata, and evidence bundle links so deterministic runs can
 be loaded and replay-checked without live providers.
 
+The v0 graph comparison contract is `migaki.graph-comparison.v0`. It compares
+two mIR graphs by exact node id plus cache key, input hash, dependency hash, and
+runtime hash to identify reusable model/tool nodes and blocked reuse reasons.
+
 The v0 constraint evaluation contract is `migaki.constraint-evaluation.v0`.
 It checks supported cost, latency, quality, provider, replay, audit, retention,
 validator, privacy, and redaction constraints deterministically. Required

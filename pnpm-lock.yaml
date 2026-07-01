@@ -42,6 +42,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/runtime
 
+  examples/repo-agent-comparison:
+    dependencies:
+      '@migaki/mir':
+        specifier: workspace:*
+        version: link:../../packages/mir
+      '@migaki/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
+      '@migaki/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+
   packages/adapters: {}
 
   packages/cli:

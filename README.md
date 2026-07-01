@@ -89,6 +89,8 @@ mise run test
 mise run test:e2e
 mise run build
 mise run bootstrap:check
+pnpm run benchmark:repo-agent-comparison
+OPENAI_API_KEY=... pnpm run benchmark:repo-agent-live
 mise tasks
 ```
 
@@ -104,6 +106,7 @@ Use `mise run setup:update-lockfile` after intentional dependency changes.
 - `packages/adapters/` owns application and framework integration surfaces.
 - `packages/cli/` owns developer-facing report and replay command surfaces.
 - `examples/rag-dedup-cache/` contains the v0 RAG deduplication and cache-layout example workspace.
+- `examples/repo-agent-comparison/` contains the deterministic two-run repo-agent trajectory comparison benchmark.
 - `scripts/bootstrap` bootstraps a development machine.
 - `CONTRIBUTING.md` defines contribution standards for humans and coding
   agents.
