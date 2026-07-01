@@ -99,6 +99,13 @@ Use `mise run setup:update-lockfile` after intentional dependency changes.
 
 ## Repository Layout
 
+The repository uses a conventional pnpm workspace shape: the private root
+declares tool scripts and pins pnpm, `pnpm-workspace.yaml` admits only
+`packages/*` and `examples/*`, publishable libraries/CLI/SDK integrations live
+under `packages/`, and deterministic example or benchmark fixtures live under
+`examples/`. Local package relationships use `workspace:*` so pnpm links only
+declared workspace packages and fails closed if a local package edge is wrong.
+
 - `docs/` contains repository-versioned technical contract docs for v0.
 - `src/` contains the root workspace export plus shared test helpers in
   `src/testing/`; it is not a publishable package boundary.
