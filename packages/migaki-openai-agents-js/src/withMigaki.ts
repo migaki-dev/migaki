@@ -1,4 +1,10 @@
 import { serializeStableJson } from "./hash.js";
+import {
+  modelCallEndFromOpenAISpan,
+  modelCallStartFromOpenAISpan,
+  usageSnapshot,
+  type OpenAIAgentsSpan,
+} from "./openaiSpan.js";
 import { MigakiRecorder, snapshotError } from "./recorder.js";
 import { LocalMigakiStore } from "./store.js";
 import {
@@ -6,7 +12,6 @@ import {
   OPENAI_AGENTS_SDK_VERSION,
   type MigakiClock,
   type MigakiStore,
-  type MigakiUsageSnapshot,
 } from "./types.js";
 
 export interface WithMigakiOptions {
@@ -86,6 +91,7 @@ export class MigakiAgentsRunner {
       throw error;
     } finally {
       detachHooks();
+      forgetRecorderTraceIds(recorder);
       activeRecorders.delete(this.#runId);
     }
   }
@@ -114,22 +120,21 @@ interface OpenAITracingProcessor {
   forceFlush(): Promise<void>;
   onSpanEnd(span: OpenAISpan): Promise<void>;
   onSpanStart(span: OpenAISpan): Promise<void>;
-  onTraceEnd(trace: unknown): Promise<void>;
-  onTraceStart(trace: unknown): Promise<void>;
+  onTraceEnd(trace: OpenAITrace): Promise<void>;
+  onTraceStart(trace: OpenAITrace): Promise<void>;
   shutdown(timeout?: number): Promise<void>;
 }
 
-interface OpenAISpan {
-  readonly error?: unknown;
-  readonly parentId?: string | null;
-  readonly spanData: Readonly<Record<string, unknown>>;
-  readonly spanId: string;
+type OpenAISpan = OpenAIAgentsSpan;
+
+interface OpenAITrace {
+  readonly metadata?: Readonly<Record<string, unknown>>;
   readonly traceId: string;
-  readonly traceMetadata?: Readonly<Record<string, unknown>>;
 }
 
 const openAiAgentsPackageName = "@openai/agents";
 const activeRecorders = new Map<string, MigakiRecorder>();
+const activeRecordersByTraceId = new Map<string, MigakiRecorder>();
 let globalProcessorInstalled = false;
 
 async function loadOpenAIAgentsSdk(): Promise<OpenAIAgentsSdkModule> {
@@ -188,16 +193,30 @@ const globalMigakiTraceProcessor: OpenAITracingProcessor = {
 
     return Promise.resolve();
   },
-  onTraceEnd() {
+  onTraceEnd(trace) {
+    activeRecordersByTraceId.delete(trace.traceId);
+
     return Promise.resolve();
   },
-  onTraceStart() {
+  onTraceStart(trace) {
+    const recorder = recorderForTrace(trace);
+
+    if (recorder !== undefined) {
+      activeRecordersByTraceId.set(trace.traceId, recorder);
+    }
+
     return Promise.resolve();
   },
   shutdown() {
     return Promise.resolve();
   },
 };
+
+function recorderForTrace(trace: OpenAITrace): MigakiRecorder | undefined {
+  const runId = readStringProperty(trace.metadata, "migakiRunId");
+
+  return runId === undefined ? undefined : activeRecorders.get(runId);
+}
 
 function recorderForSpan(span: OpenAISpan): MigakiRecorder | undefined {
   const runId = span.traceMetadata?.migakiRunId;
@@ -206,11 +225,15 @@ function recorderForSpan(span: OpenAISpan): MigakiRecorder | undefined {
     return activeRecorders.get(runId);
   }
 
-  if (activeRecorders.size === 1) {
-    return activeRecorders.values().next().value;
-  }
+  return activeRecordersByTraceId.get(span.traceId);
+}
 
-  return undefined;
+function forgetRecorderTraceIds(recorder: MigakiRecorder): void {
+  for (const [traceId, activeRecorder] of activeRecordersByTraceId) {
+    if (activeRecorder === recorder) {
+      activeRecordersByTraceId.delete(traceId);
+    }
+  }
 }
 
 function recordSpanStart(recorder: MigakiRecorder, span: OpenAISpan): void {
@@ -233,14 +256,11 @@ function recordSpanStart(recorder: MigakiRecorder, span: OpenAISpan): void {
     return;
   }
 
-  if (spanType === "generation") {
+  const modelCall = modelCallStartFromOpenAISpan(span);
+  if (modelCall !== undefined) {
     recorder.recordModelCallStarted({
-      input: data.input ?? null,
+      ...modelCall,
       metadata: spanMetadata(span),
-      modelName: readStringProperty(data, "model") ?? "unknown-model",
-      modelParams: data.model_config ?? null,
-      parentSpanId: span.parentId,
-      spanId: span.spanId,
     });
     return;
   }
@@ -268,22 +288,16 @@ function recordSpanEnd(recorder: MigakiRecorder, span: OpenAISpan): void {
   const spanType = readStringProperty(data, "type");
 
   if (spanType === "agent") {
-    recorder.completeSpan(span.spanId, data, span.error);
+    recorder.completeSpan(span.spanId, data, spanError(span));
     return;
   }
 
-  if (spanType === "generation") {
-    const usage = usageSnapshot(readRecordProperty(data, "usage"));
-
+  const modelCall = modelCallEndFromOpenAISpan(span);
+  if (modelCall !== undefined) {
     recorder.completeModelCallBySpan({
-      input: data.input ?? null,
+      ...modelCall,
       metadata: spanMetadata(span),
-      modelName: readStringProperty(data, "model") ?? "unknown-model",
-      modelParams: data.model_config ?? null,
-      output: data.output ?? null,
-      spanId: span.spanId,
-      ...(span.error !== undefined ? { error: span.error } : {}),
-      ...(usage !== undefined ? { usage } : {}),
+      ...(spanError(span) !== undefined ? { error: spanError(span) } : {}),
     });
     return;
   }
@@ -295,7 +309,7 @@ function recordSpanEnd(recorder: MigakiRecorder, span: OpenAISpan): void {
     recorder.completeHandoffBySpan({
       output: data,
       spanId: span.spanId,
-      ...(span.error !== undefined ? { error: span.error } : {}),
+      ...(spanError(span) !== undefined ? { error: spanError(span) } : {}),
       ...(fromAgent !== undefined ? { fromAgent } : {}),
       ...(toAgent !== undefined ? { toAgent } : {}),
     });
@@ -480,13 +494,19 @@ function instrumentModel(
 }
 
 function spanMetadata(span: OpenAISpan): Readonly<Record<string, unknown>> {
+  const error = spanError(span);
+
   return {
     openaiParentSpanId: span.parentId ?? null,
     openaiSpanId: span.spanId,
     openaiTraceId: span.traceId,
     source: "openai-agents-js-tracing",
-    ...(span.error !== undefined ? { error: snapshotError(span.error) } : {}),
+    ...(error !== undefined ? { error: snapshotError(error) } : {}),
   };
+}
+
+function spanError(span: OpenAISpan): unknown | undefined {
+  return span.error === null ? undefined : span.error;
 }
 
 function extractToolCallArguments(details: unknown): string | undefined {
@@ -505,37 +525,6 @@ function parseMaybeJson(value: string | undefined): unknown {
   } catch {
     return value;
   }
-}
-
-function usageSnapshot(
-  usage: Readonly<Record<string, unknown>>,
-): MigakiUsageSnapshot | undefined {
-  const inputTokens =
-    readNumberProperty(usage, "input_tokens") ??
-    readNumberProperty(usage, "inputTokens");
-  const outputTokens =
-    readNumberProperty(usage, "output_tokens") ??
-    readNumberProperty(usage, "outputTokens");
-  const totalTokens =
-    readNumberProperty(usage, "total_tokens") ??
-    readNumberProperty(usage, "totalTokens") ??
-    (inputTokens === undefined || outputTokens === undefined
-      ? undefined
-      : inputTokens + outputTokens);
-
-  if (
-    inputTokens === undefined &&
-    outputTokens === undefined &&
-    totalTokens === undefined
-  ) {
-    return undefined;
-  }
-
-  return {
-    ...(inputTokens !== undefined ? { inputTokens } : {}),
-    ...(outputTokens !== undefined ? { outputTokens } : {}),
-    ...(totalTokens !== undefined ? { totalTokens } : {}),
-  };
 }
 
 function resultSnapshot(result: unknown): unknown {
@@ -591,17 +580,6 @@ function readBooleanProperty(
   const child = value[property];
 
   return typeof child === "boolean" ? child : undefined;
-}
-
-function readNumberProperty(
-  value: Readonly<Record<string, unknown>>,
-  property: string,
-): number | undefined {
-  const child = value[property];
-
-  return typeof child === "number" && Number.isFinite(child)
-    ? child
-    : undefined;
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

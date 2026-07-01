@@ -87,6 +87,7 @@ describe("withMigaki", () => {
       );
       expect(modelNodes).toHaveLength(2);
       expect(toolNodes).toHaveLength(1);
+      expect(modelNodes.every((node) => node.status === "ok")).toBe(true);
       expect(modelNodes.every((node) => node.metadata.cacheKey)).toBe(true);
       expect(toolNodes.every((node) => node.metadata.cacheKey)).toBe(true);
       expect(model.calls).toHaveLength(2);
@@ -204,12 +205,55 @@ describe("withMigaki", () => {
       await rm(root, { force: true, recursive: true });
     }
   });
+
+  it("ignores unrelated OpenAI traces while a Migaki run is active", async () => {
+    const sdk = await loadOpenAIAgentsSdkForTest();
+    const root = await mkdtemp(join(tmpdir(), "migaki-sdk-unrelated-"));
+
+    try {
+      const agent = new sdk.Agent({
+        instructions: "Answer after an unrelated trace is emitted.",
+        name: "IsolatedAgent",
+      });
+
+      await withMigaki({
+        cache: new LocalMigakiStore(root),
+        runConfig: {
+          model: new UnrelatedTraceFakeModel(sdk),
+        },
+        runId: "sdk-unrelated-trace-test",
+      }).run(agent, "Keep the Migaki trace isolated.");
+
+      const graph = JSON.parse(
+        await readFile(
+          join(root, "runs", "sdk-unrelated-trace-test", "graph.json"),
+          "utf8",
+        ),
+      ) as MigakiGraph;
+      const modelNodes = graph.nodes.filter(
+        (node) => node.kind === "model_call",
+      );
+
+      expect(modelNodes).toHaveLength(1);
+      expect(modelNodes[0]?.metadata.modelName).toBe("configured-model");
+      expect(modelNodes[0]?.status).toBe("ok");
+      expect(
+        graph.nodes.some(
+          (node) => node.metadata.modelName === "unrelated-baseline-model",
+        ),
+      ).toBe(false);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
 });
 
 interface TestOpenAIAgentsSdk {
   readonly Agent: new (config: Readonly<Record<string, unknown>>) => unknown;
+  readonly Trace: new (config: Readonly<Record<string, unknown>>) => unknown;
   readonly Usage: new (input: Readonly<Record<string, unknown>>) => unknown;
   readonly createGenerationSpan: CreateGenerationSpan;
+  readonly createResponseSpan: CreateResponseSpan;
   readonly tool: (config: Readonly<Record<string, unknown>>) => unknown;
 }
 
@@ -222,6 +266,13 @@ interface TestSpan {
 type CreateGenerationSpan = (options: {
   readonly data: Record<string, unknown>;
 }) => TestSpan;
+type CreateResponseSpan = (
+  options: {
+    readonly data: Record<string, unknown>;
+    readonly spanId: string;
+  },
+  parent: unknown,
+) => TestSpan;
 
 const openAiAgentsPackageName = "@openai/agents";
 
@@ -233,14 +284,18 @@ async function loadOpenAIAgentsSdkForTest(): Promise<TestOpenAIAgentsSdk> {
   }
 
   const Agent = loaded.Agent;
+  const Trace = loaded.Trace;
   const Usage = loaded.Usage;
   const createGenerationSpan = loaded.createGenerationSpan;
+  const createResponseSpan = loaded.createResponseSpan;
   const tool = loaded.tool;
 
   if (
     typeof Agent !== "function" ||
+    typeof Trace !== "function" ||
     typeof Usage !== "function" ||
     typeof createGenerationSpan !== "function" ||
+    typeof createResponseSpan !== "function" ||
     typeof tool !== "function"
   ) {
     throw new Error("OpenAI Agents SDK test exports were not available.");
@@ -248,8 +303,10 @@ async function loadOpenAIAgentsSdkForTest(): Promise<TestOpenAIAgentsSdk> {
 
   return {
     Agent: Agent as TestOpenAIAgentsSdk["Agent"],
+    Trace: Trace as TestOpenAIAgentsSdk["Trace"],
     Usage: Usage as TestOpenAIAgentsSdk["Usage"],
     createGenerationSpan: createGenerationSpan as CreateGenerationSpan,
+    createResponseSpan: createResponseSpan as CreateResponseSpan,
     tool: tool as TestOpenAIAgentsSdk["tool"],
   };
 }
@@ -317,6 +374,53 @@ class FailingFakeModel {
 
   async getResponse(): Promise<unknown> {
     throw this.#error;
+  }
+
+  getStreamedResponse(): AsyncIterable<unknown> {
+    throw new Error("Streaming is not implemented in the fake model.");
+  }
+}
+
+class UnrelatedTraceFakeModel {
+  readonly #sdk: TestOpenAIAgentsSdk;
+
+  constructor(sdk: TestOpenAIAgentsSdk) {
+    this.#sdk = sdk;
+  }
+
+  async getResponse(): Promise<Readonly<Record<string, unknown>>> {
+    const trace = new this.#sdk.Trace({
+      metadata: {},
+      name: "Unrelated baseline trace",
+      traceId: "trace_unrelated_baseline",
+    });
+    const span = this.#sdk.createResponseSpan(
+      {
+        data: {
+          _input: [{ content: "baseline input", role: "user" }],
+          _response: {
+            model: "unrelated-baseline-model",
+            output: [assistantMessage("baseline trace answer")],
+            usage: {
+              input_tokens: 1,
+              output_tokens: 1,
+              total_tokens: 2,
+            },
+          },
+          type: "response",
+        },
+        spanId: "span_unrelated_baseline_response",
+      },
+      trace,
+    );
+
+    span.start();
+    span.end();
+
+    return {
+      output: [assistantMessage("isolated migaki answer")],
+      usage: { inputTokens: 3, outputTokens: 2 },
+    };
   }
 
   getStreamedResponse(): AsyncIterable<unknown> {
