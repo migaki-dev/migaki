@@ -88,6 +88,7 @@ mise run typecheck
 mise run test
 mise run test:e2e
 mise run build
+mise run benchmark:openai-agents repo-agent-benchmark --run-id repo-agent-fixture
 mise run bootstrap:check
 mise tasks
 ```
