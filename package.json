@@ -8,7 +8,7 @@
   "scripts": {
     "benchmark:repo-agent-live": "pnpm exec vitest run --config vitest.live-benchmark.config.ts --reporter verbose",
     "benchmark:repo-agent-comparison": "pnpm exec vitest run --config vitest.benchmark.config.ts",
-    "build": "tsc -p tsconfig.build.json --pretty false",
+    "build": "tsc -p tsconfig.build.json --pretty false && pnpm --filter migaki-openai-agents-js run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
@@ -24,6 +24,7 @@
     "@eslint/js": "10.0.1",
     "@types/node": "24.13.2",
     "eslint": "10.6.0",
+    "jiti": "2.7.0",
     "prettier": "3.8.4",
     "typescript": "6.0.3",
     "typescript-eslint": "8.62.0",

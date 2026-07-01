@@ -88,6 +88,7 @@ mise run typecheck
 mise run test
 mise run test:e2e
 mise run build
+mise run benchmark:openai-agents repo-agent-benchmark --run-id repo-agent-fixture
 mise run bootstrap:check
 pnpm run benchmark:repo-agent-comparison
 OPENAI_API_KEY=... pnpm run benchmark:repo-agent-live
@@ -99,14 +100,18 @@ Use `mise run setup:update-lockfile` after intentional dependency changes.
 ## Repository Layout
 
 - `docs/` contains repository-versioned technical contract docs for v0.
-- `src/` contains root TypeScript exports and shared test helpers for the workspace.
-- `packages/mir/` owns mIR schemas, validators, and example plan contracts.
-- `packages/runtime/` owns planning, pass execution, evidence, tracing, and replay plumbing.
-- `packages/providers/` owns provider capabilities and backend lowering contracts.
-- `packages/adapters/` owns application and framework integration surfaces.
-- `packages/cli/` owns developer-facing report and replay command surfaces.
-- `examples/rag-dedup-cache/` contains the v0 RAG deduplication and cache-layout example workspace.
-- `examples/repo-agent-comparison/` contains the deterministic two-run repo-agent trajectory comparison benchmark.
+- `src/` contains the root workspace export plus shared test helpers in
+  `src/testing/`; it is not a publishable package boundary.
+- `packages/mir/`, `packages/providers/`, `packages/runtime/`, and
+  `packages/adapters/` are library packages with provider-neutral contracts,
+  backend interfaces, execution planning, evidence, and integration surfaces.
+- `packages/cli/` is the developer-facing CLI package for report and replay
+  command surfaces.
+- `packages/migaki-openai-agents-js/` is the OpenAI Agents SDK integration
+  package. It builds to `dist/`, publishes the `migaki-openai-agents-js`
+  binary, and keeps `@openai/agents` as a peer compatibility surface.
+- `examples/rag-dedup-cache/` and `examples/repo-agent-comparison/` are private
+  example workspaces for deterministic fixtures and benchmarks.
 - `scripts/bootstrap` bootstraps a development machine.
 - `CONTRIBUTING.md` defines contribution standards for humans and coding
   agents.
