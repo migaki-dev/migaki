@@ -18,7 +18,10 @@ versions live in mise.toml and mise.lock.
 
 After tool setup, the script refreshes its own environment, optionally offers
 to configure shell activation, trusts the local mise config, installs the
-project tools, then runs `mise run setup` and `mise run check`.
+project tools, then runs `mise run setup` and `mise run check`. The quality
+gate builds the repo-local Migaki Codex hook entrypoint used by
+`.codex/hooks.json`; review and trust those project hooks in Codex before
+relying on them.
 
 Options:
   -f, --force   Re-run installer/update steps even when tools already exist.
@@ -257,6 +260,25 @@ run_mise_task() {
   fi
 }
 
+print_codex_hook_next_steps() {
+  hooks_file="$ROOT_DIR/.codex/hooks.json"
+  hook_entrypoint="$ROOT_DIR/packages/codex/dist/hook.js"
+
+  if [ ! -f "$hooks_file" ]; then
+    return
+  fi
+
+  log "Migaki Codex hooks are configured in .codex/hooks.json."
+
+  if [ -f "$hook_entrypoint" ]; then
+    log "Built hook entrypoint is ready at packages/codex/dist/hook.js."
+  else
+    log "Hook entrypoint is missing; run pnpm build before trusting the hooks."
+  fi
+
+  log "In Codex, review and trust the project hooks, for example with /hooks."
+}
+
 main() {
   cd "$ROOT_DIR"
 
@@ -270,6 +292,8 @@ main() {
   install_project_tools "$mise_bin"
   run_mise_task "$mise_bin" setup
   run_mise_task "$mise_bin" check
+
+  print_codex_hook_next_steps
 
   log "Bootstrap complete."
 }

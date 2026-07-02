@@ -58,7 +58,9 @@ The script is POSIX `sh` and can be launched from common Unix shells, including
 `sh`, `bash`, `zsh`, `fish`, and `nushell`. It installs or updates mise through
 the native mise installer when needed, optionally offers to configure shell
 activation, trusts the local mise config, installs the pinned toolchain,
-installs workspace dependencies, and runs the quality gate.
+installs workspace dependencies, and runs the quality gate. The gate builds the
+Migaki Codex hook entrypoint used by `.codex/hooks.json`; after bootstrap,
+review and trust the project hooks in Codex, for example with `/hooks`.
 
 Useful options:
 
@@ -103,6 +105,8 @@ Use `mise run setup:update-lockfile` after intentional dependency changes.
 - `packages/runtime/` owns planning, pass execution, evidence, tracing, and replay plumbing.
 - `packages/providers/` owns provider capabilities and backend lowering contracts.
 - `packages/adapters/` owns application and framework integration surfaces.
+- `packages/codex/` owns the Codex lifecycle-hook adapter for observation-only
+  execution reports.
 - `packages/cli/` owns developer-facing report and replay command surfaces.
 - `examples/rag-dedup-cache/` contains the v0 RAG deduplication and cache-layout example workspace.
 - `scripts/bootstrap` bootstraps a development machine.
@@ -113,6 +117,8 @@ Use `mise run setup:update-lockfile` after intentional dependency changes.
 - `pnpm-workspace.yaml` defines the pnpm workspace.
 - `.agents/AGENTS.md` is the canonical engineering guidance for AI coding
   agents and human contributors.
+- `.codex/hooks.json` dogfoods `@migaki/codex` after `pnpm build`; review and
+  trust project hooks in Codex before relying on it.
 - `.github/workflows/code-quality.yml` runs the required repository quality
   gate.
 
