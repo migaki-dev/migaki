@@ -1,0 +1,50 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "statusMessage": "Recording Migaki execution event"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "statusMessage": "Recording Migaki tool start"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "statusMessage": "Recording Migaki tool finish"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "statusMessage": "Writing Migaki execution report"
+          }
+        ]
+      }
+    ]
+  }
+}

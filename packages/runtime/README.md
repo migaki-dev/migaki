@@ -4,6 +4,20 @@ Owns deterministic execution planning, optimization pass orchestration, plan dif
 
 The v0 public API exports the optimization pass contract. Passes must declare identity, version, capability metadata, safety expectations, and return an updated plan with diff, evidence, and warnings.
 
+The v0 execution observation contract is `migaki.execution-event.v0`.
+`MigakiRuntime` appends each event to a store, replays JSONL into
+`migaki.execution-graph.v0`, and writes `graph.json` after every observation.
+When an event marks the run complete, it also writes a Markdown
+`migaki.execution-report.v0` report. The generic contracts are
+`ExecutionEvent`, `ExecutionNode`, `ExecutionGraph`, `Operation`,
+`Dependency`, `Artifact`, `Metrics`, and `Metadata`.
+
+`LocalStore(".migaki")` persists stateless hook invocations under
+`.migaki/runs/<runId>/`, rejects unsafe run IDs, and intentionally has no cache
+API. Reports are observation-only: they identify repeated fingerprints,
+critical paths, failed nodes, possible cache points, possible parallelism, and
+available token estimates without replaying or changing execution.
+
 The v0 plan diff contract is `migaki.plan-diff.v0`. Generated diffs report
 metadata, constraint, context, node, edge, and warning changes in deterministic
 order. Diff entries identify changed artifacts and fields, but omit before and
