@@ -2,6 +2,13 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import {
+  ADAPTIVE_POLICY_BUNDLE_VERSION,
+  ADAPTIVE_POLICY_PROHIBITED_EFFECTS,
+  validateAdaptivePolicyBundle,
+  type AdaptivePolicyBundle,
+} from "./adaptive-policy.js";
+
 export const EXECUTION_EVENT_VERSION = "migaki.execution-event.v0";
 export const EXECUTION_GRAPH_VERSION = "migaki.execution-graph.v0";
 export const EXECUTION_REPORT_VERSION = "migaki.execution-report.v0";
@@ -114,6 +121,10 @@ export interface MigakiRuntimeOptions {
   readonly store: ExecutionStore;
 }
 
+export interface RenderExecutionAdviceOptions {
+  readonly policies?: readonly unknown[];
+}
+
 export interface RepeatedOperationReport {
   readonly count: number;
   readonly displayName?: string;
@@ -213,6 +224,12 @@ export interface ExecutionReportSummary {
   readonly tokenEstimates: TokenEstimateReport;
   readonly toolCalls: number;
   readonly version: ExecutionReportVersion;
+}
+
+interface AppliedAdvicePolicy {
+  readonly bundleId: string;
+  readonly category: Extract<ExecutionOpportunityCategory, "file_reuse">;
+  readonly ruleId: string;
 }
 
 interface MutableExecutionNode {
@@ -535,14 +552,21 @@ export function renderExecutionReport(graph: ExecutionGraph): string {
   ].join("\n");
 }
 
-export function renderExecutionAdvice(graph: ExecutionGraph): string {
+export function renderExecutionAdvice(
+  graph: ExecutionGraph,
+  options: RenderExecutionAdviceOptions = {},
+): string {
   const summary = createExecutionReportSummary(graph);
+  const appliedPolicies = appliedAdvicePolicies(
+    summary.opportunities,
+    options.policies ?? [],
+  );
   const fileReuse = summary.opportunities.find(
     (opportunity) => opportunity.category === "file_reuse",
   );
 
   if (fileReuse !== undefined) {
-    return renderFileReuseAdvice(graph, fileReuse);
+    return renderFileReuseAdvice(graph, fileReuse, appliedPolicies);
   }
 
   const topOpportunity = summary.opportunities[0];
@@ -582,6 +606,7 @@ export function renderExecutionAdvice(graph: ExecutionGraph): string {
 function renderFileReuseAdvice(
   graph: ExecutionGraph,
   opportunity: ExecutionOpportunityReport,
+  policies: readonly AppliedAdvicePolicy[],
 ): string {
   return [
     "# Migaki Session Advice",
@@ -599,11 +624,107 @@ function renderFileReuseAdvice(
     "Suggested next prompt:",
     "Before continuing, check the prior context for files already inspected. Do not reopen the same file unless you need a specific missing range; if you do, read the smallest useful range once and summarize what you learned for later turns.",
     "",
+    ...renderPolicyProvenanceLines(policies),
     "Safety:",
     "- Raw paths and commands are omitted; this advice uses only fingerprints and safe source labels.",
     "- Observation only: do not cache, replay, or skip reads automatically until freshness, caller-safe file identity, and command-output equivalence are defined.",
     "",
   ].join("\n");
+}
+
+function appliedAdvicePolicies(
+  opportunities: readonly ExecutionOpportunityReport[],
+  policies: readonly unknown[],
+): readonly AppliedAdvicePolicy[] {
+  if (
+    !opportunities.some((opportunity) => opportunity.category === "file_reuse")
+  ) {
+    return [];
+  }
+
+  return policies
+    .flatMap((policy) => appliedAdvicePoliciesForBundle(policy))
+    .sort(
+      (left, right) =>
+        left.bundleId.localeCompare(right.bundleId) ||
+        left.ruleId.localeCompare(right.ruleId),
+    );
+}
+
+function appliedAdvicePoliciesForBundle(
+  policy: unknown,
+): readonly AppliedAdvicePolicy[] {
+  const bundle = acceptedAdvicePolicyBundle(policy);
+
+  if (bundle === undefined) {
+    return [];
+  }
+
+  return bundle.rules.flatMap((rule) => {
+    if (
+      !rule.enabled ||
+      rule.target !== "advice_ranking" ||
+      rule.action.kind !== "emphasize" ||
+      rule.match.category !== "file_reuse"
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        bundleId: bundle.id,
+        category: "file_reuse",
+        ruleId: rule.id,
+      },
+    ];
+  });
+}
+
+function acceptedAdvicePolicyBundle(
+  policy: unknown,
+): AdaptivePolicyBundle | undefined {
+  const result = validateAdaptivePolicyBundle(policy);
+
+  if (!result.success) {
+    return undefined;
+  }
+
+  const bundle = result.bundle;
+
+  if (
+    bundle.version !== ADAPTIVE_POLICY_BUNDLE_VERSION ||
+    bundle.status !== "accepted" ||
+    bundle.scope !== "advice" ||
+    bundle.safety.effectMode !== "advice_only"
+  ) {
+    return undefined;
+  }
+
+  if (
+    ADAPTIVE_POLICY_PROHIBITED_EFFECTS.some(
+      (effect) => !bundle.safety.prohibitedEffects.includes(effect),
+    )
+  ) {
+    return undefined;
+  }
+
+  return bundle;
+}
+
+function renderPolicyProvenanceLines(
+  policies: readonly AppliedAdvicePolicy[],
+): readonly string[] {
+  if (policies.length === 0) {
+    return [];
+  }
+
+  return [
+    "Policy:",
+    ...policies.map(
+      (policy) => `- Applied ${policy.bundleId}: emphasized file_reuse advice.`,
+    ),
+    "",
+  ];
 }
 
 export function stableExecutionHash(value: unknown): string {
@@ -1011,7 +1132,9 @@ function artifactSourceLabel(artifact: Artifact): string | undefined {
   const sourceField = readStringValue(codex, "sourceField");
 
   if (toolName === "Bash" && sourceCommand !== undefined) {
-    return `Bash ${sourceCommand}`;
+    const commandName = safeSourceCommandName(sourceCommand);
+
+    return commandName === undefined ? "Bash.command" : `Bash ${commandName}`;
   }
 
   if (toolName !== undefined && sourceField !== undefined) {
@@ -1019,6 +1142,22 @@ function artifactSourceLabel(artifact: Artifact): string | undefined {
   }
 
   return toolName;
+}
+
+function safeSourceCommandName(sourceCommand: string): string | undefined {
+  const token = sourceCommand.trim().split(/\s+/, 1)[0];
+  const safeReadCommandNames = new Set([
+    "cat",
+    "head",
+    "nl",
+    "sed",
+    "tail",
+    "wc",
+  ]);
+
+  return token !== undefined && safeReadCommandNames.has(token)
+    ? token
+    : undefined;
 }
 
 function optionalSourceLabels(
