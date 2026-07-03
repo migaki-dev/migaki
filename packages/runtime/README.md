@@ -20,7 +20,9 @@ available token estimates without replaying or changing execution.
 Opportunity reports include deterministic actionability metadata:
 `actionable`, `needs_review`, or `blocked`, plus "why actionable" and "blocked
 by" text so repeated work can be triaged without implying automatic caching,
-replay, or parallelization.
+replay, or parallelization. Report summaries also include actionability counts
+and the top ranked opportunity so the first useful recommendation is visible
+before the full opportunity list.
 
 The v0 plan diff contract is `migaki.plan-diff.v0`. Generated diffs report
 metadata, constraint, context, node, edge, and warning changes in deterministic
