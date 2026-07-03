@@ -22,7 +22,10 @@ Opportunity reports include deterministic actionability metadata:
 by" text so repeated work can be triaged without implying automatic caching,
 replay, or parallelization. Report summaries also include actionability counts
 and the top ranked opportunity so the first useful recommendation is visible
-before the full opportunity list.
+before the full opportunity list. When multiple sequence-only parallelism
+candidates are observed, the opportunity list aggregates them into one blocked
+candidate-review item while the Potential Parallelism section preserves the
+individual pairs as raw evidence.
 
 The v0 plan diff contract is `migaki.plan-diff.v0`. Generated diffs report
 metadata, constraint, context, node, edge, and warning changes in deterministic

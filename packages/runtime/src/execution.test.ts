@@ -432,6 +432,87 @@ describe("execution graph runtime", () => {
     ]);
   });
 
+  it("aggregates multiple blocked parallelism candidates into one opportunity", () => {
+    const graph = buildExecutionGraph("run-a", [
+      promptEvent(),
+      toolStartedEvent("tool-a", "Read", {
+        fingerprint: stableExecutionHash({ input: "a", tool: "Read" }),
+        timestamp: "2026-01-01T00:00:01.000Z",
+      }),
+      toolFinishedEvent("tool-a", "Read", {
+        fingerprint: stableExecutionHash({ input: "a", tool: "Read" }),
+        timestamp: "2026-01-01T00:00:02.000Z",
+      }),
+      toolStartedEvent("tool-b", "Read", {
+        fingerprint: stableExecutionHash({ input: "b", tool: "Read" }),
+        timestamp: "2026-01-01T00:00:03.000Z",
+      }),
+      toolFinishedEvent("tool-b", "Read", {
+        fingerprint: stableExecutionHash({ input: "b", tool: "Read" }),
+        timestamp: "2026-01-01T00:00:04.000Z",
+      }),
+      toolStartedEvent("tool-c", "Read", {
+        fingerprint: stableExecutionHash({ input: "c", tool: "Read" }),
+        timestamp: "2026-01-01T00:00:05.000Z",
+      }),
+      toolFinishedEvent("tool-c", "Read", {
+        fingerprint: stableExecutionHash({ input: "c", tool: "Read" }),
+        timestamp: "2026-01-01T00:00:06.000Z",
+      }),
+      toolStartedEvent("tool-d", "Read", {
+        fingerprint: stableExecutionHash({ input: "d", tool: "Read" }),
+        timestamp: "2026-01-01T00:00:07.000Z",
+      }),
+      toolFinishedEvent("tool-d", "Read", {
+        fingerprint: stableExecutionHash({ input: "d", tool: "Read" }),
+        timestamp: "2026-01-01T00:00:08.000Z",
+      }),
+    ]);
+
+    const summary = createExecutionReportSummary(graph);
+    const report = renderExecutionReport(graph);
+    const parallelismOpportunities = summary.opportunities.filter(
+      (opportunity) => opportunity.category === "parallelism",
+    );
+
+    expect(
+      summary.potentialParallelism.map((candidate) => candidate.nodeIds),
+    ).toEqual([
+      ["tool-a", "tool-b"],
+      ["tool-b", "tool-c"],
+      ["tool-c", "tool-d"],
+    ]);
+    expect(summary.opportunitySummary).toMatchObject({
+      topRecommendation:
+        "blocked parallelism across 3 related candidates on 4 nodes",
+      total: 1,
+    });
+    expect(parallelismOpportunities).toHaveLength(1);
+    expect(parallelismOpportunities[0]).toMatchObject({
+      actionability: "blocked",
+      category: "parallelism",
+      confidence: "low",
+      nodeIds: ["tool-a", "tool-b", "tool-c", "tool-d"],
+      priority: "low",
+      reason:
+        "3 adjacent tool-call pairs are ordered only by observation sequence; verify side effects before parallelizing.",
+      relatedCandidateCount: 3,
+      whyActionable:
+        "Multiple adjacent tool-call pairs were observed with only sequence-order evidence, so they are candidates for dependency review.",
+    });
+    expect(
+      parallelismOpportunities[0]?.estimatedAvoidableLatencyMs,
+    ).toBeUndefined();
+    expect(report).toContain(
+      "- Top recommendation: blocked parallelism across 3 related candidates on 4 nodes",
+    );
+    expect(report).toContain("Nodes: 4 unique nodes");
+    expect(report).toContain("Related candidates: 3");
+    expect(report).toContain("- tool-a + tool-b:");
+    expect(report).toContain("- tool-b + tool-c:");
+    expect(report).toContain("- tool-c + tool-d:");
+  });
+
   it("does not flag adjacent tool calls with explicit dependencies as parallelism candidates", () => {
     const graph = buildExecutionGraph("run-a", [
       promptEvent(),
@@ -507,10 +588,12 @@ describe("execution graph runtime", () => {
     ).toEqual([
       ["tool-a", "tool-b"],
       ["tool-c", "tool-d"],
-      ["tool-a", "tool-b"],
-      ["tool-c", "tool-d"],
-      ["tool-d", "tool-a"],
+      ["tool-c", "tool-d", "tool-a", "tool-b"],
     ]);
+    expect(createExecutionReportSummary(graph).opportunities[2]).toMatchObject({
+      category: "parallelism",
+      relatedCandidateCount: 3,
+    });
   });
 
   it("ranks blocked opportunities after actionable repeated work even when latency is higher", () => {
@@ -566,14 +649,14 @@ describe("execution graph runtime", () => {
     const firstBlockedIndex = opportunities.findIndex(
       (opportunity) => opportunity.actionability === "blocked",
     );
-    const highLatencyParallelismIndex = opportunities.findIndex(
+    const parallelismIndex = opportunities.findIndex(
       (opportunity) =>
         opportunity.category === "parallelism" &&
-        opportunity.estimatedAvoidableLatencyMs === 8000,
+        opportunity.relatedCandidateCount === 3,
     );
 
     expect(firstBlockedIndex).toBeGreaterThan(0);
-    expect(highLatencyParallelismIndex).toBeGreaterThan(firstBlockedIndex - 1);
+    expect(parallelismIndex).toBe(firstBlockedIndex);
     expect(
       opportunities
         .slice(0, firstBlockedIndex)
@@ -592,8 +675,9 @@ describe("execution graph runtime", () => {
     expect(opportunities[1]).toMatchObject({
       actionability: "blocked",
       category: "parallelism",
-      estimatedAvoidableLatencyMs: 8000,
+      relatedCandidateCount: 3,
     });
+    expect(opportunities[1]?.estimatedAvoidableLatencyMs).toBeUndefined();
   });
 
   it("appends events, reloads prior JSONL events, and writes reports only when the run completes", async () => {
