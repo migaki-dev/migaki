@@ -7,6 +7,7 @@ task.run_auto_install = false
 colima = "0.10.3"
 gh = "2.95.0"
 node = "24.18.0"
+codex = "latest"
 pnpm = "11.9.0"
 
 [tasks.default]
