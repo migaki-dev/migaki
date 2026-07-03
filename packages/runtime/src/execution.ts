@@ -116,6 +116,7 @@ export interface MigakiRuntimeOptions {
 
 export interface RepeatedOperationReport {
   readonly count: number;
+  readonly displayName?: string;
   readonly fingerprint: string;
   readonly nodeIds: readonly string[];
   readonly operationKind: string;
@@ -131,6 +132,7 @@ export interface RepeatedArtifactReport {
 
 export interface PotentialCachePointReport {
   readonly avoidableLatencyMs?: number;
+  readonly displayName?: string;
   readonly fingerprint: string;
   readonly nodeIds: readonly string[];
   readonly operationKind: string;
@@ -139,6 +141,26 @@ export interface PotentialCachePointReport {
 export interface PotentialParallelismReport {
   readonly nodeIds: readonly [string, string];
   readonly reason: string;
+}
+
+export type ExecutionOpportunityCategory =
+  | "cache"
+  | "failure"
+  | "file_reuse"
+  | "parallelism";
+export type ExecutionOpportunityConfidence = "high" | "low" | "medium";
+export type ExecutionOpportunityPriority = "high" | "low" | "medium";
+
+export interface ExecutionOpportunityReport {
+  readonly artifactIds?: readonly string[];
+  readonly category: ExecutionOpportunityCategory;
+  readonly confidence: ExecutionOpportunityConfidence;
+  readonly estimatedAvoidableLatencyMs?: number;
+  readonly id: string;
+  readonly nodeIds: readonly string[];
+  readonly priority: ExecutionOpportunityPriority;
+  readonly reason: string;
+  readonly safetyNotes: readonly string[];
 }
 
 export interface TokenEstimateReport {
@@ -158,6 +180,7 @@ export interface ExecutionReportSummary {
   readonly estimatedAvoidableLatencyMs?: number;
   readonly failedNodes: readonly string[];
   readonly nodeCount: number;
+  readonly opportunities: readonly ExecutionOpportunityReport[];
   readonly potentialCachePoints: readonly PotentialCachePointReport[];
   readonly potentialParallelism: readonly PotentialParallelismReport[];
   readonly repeatedFiles: readonly RepeatedArtifactReport[];
@@ -368,13 +391,24 @@ export function createExecutionReportSummary(
   graph: ExecutionGraph,
 ): ExecutionReportSummary {
   const repeatedOperations = findRepeatedOperations(graph.nodes);
-  const potentialCachePoints = repeatedOperations.map((operation) =>
-    createPotentialCachePoint(operation, graph.nodes),
-  );
+  const potentialCachePoints = repeatedOperations.flatMap((operation) => {
+    const cachePoint = createPotentialCachePoint(operation, graph.nodes);
+
+    return cachePoint === undefined ? [] : [cachePoint];
+  });
+  const potentialParallelism = findPotentialParallelism(graph);
+  const repeatedFiles = findRepeatedArtifacts(graph.nodes, "file");
   const estimatedAvoidableLatencyMs = sumDefined(
     potentialCachePoints.map((point) => point.avoidableLatencyMs),
   );
   const tokenEstimates = summarizeTokens(graph.nodes);
+  const opportunities = createExecutionOpportunities({
+    nodes: graph.nodes,
+    potentialCachePoints,
+    potentialParallelism,
+    repeatedFiles,
+    repeatedOperations,
+  });
   const summary: ExecutionReportSummary = {
     criticalPath: findCriticalPath(graph),
     edgeCount: graph.edges.length,
@@ -382,9 +416,10 @@ export function createExecutionReportSummary(
       .filter((node) => node.status === "error")
       .map((node) => node.id),
     nodeCount: graph.nodes.length,
+    opportunities,
     potentialCachePoints,
-    potentialParallelism: findPotentialParallelism(graph),
-    repeatedFiles: findRepeatedArtifacts(graph.nodes, "file"),
+    potentialParallelism,
+    repeatedFiles,
     repeatedOperations,
     repeatedPrompts: findRepeatedArtifacts(graph.nodes, "prompt"),
     runId: graph.runId,
@@ -419,6 +454,10 @@ export function renderExecutionReport(graph: ExecutionGraph): string {
     `- Edges: ${summary.edgeCount}`,
     `- Tool calls: ${summary.toolCalls}`,
     `- Failed nodes: ${summary.failedNodes.length}`,
+    "",
+    "## Opportunities",
+    "",
+    ...renderOpportunityLines(summary.opportunities),
     "",
     "## Nodes",
     "",
@@ -761,6 +800,7 @@ function findRepeatedOperations(
   const groups = new Map<
     string,
     {
+      displayName?: string;
       nodeIds: string[];
       operationKind: string;
     }
@@ -777,6 +817,9 @@ function findRepeatedOperations(
 
     if (existing === undefined) {
       groups.set(fingerprint, {
+        ...(node.operation.name !== undefined
+          ? { displayName: node.operation.name }
+          : {}),
         nodeIds: [node.id],
         operationKind: node.operation.kind,
       });
@@ -789,6 +832,9 @@ function findRepeatedOperations(
     .filter(([, group]) => group.nodeIds.length > 1)
     .map(([fingerprint, group]) => ({
       count: group.nodeIds.length,
+      ...(group.displayName !== undefined
+        ? { displayName: group.displayName }
+        : {}),
       fingerprint,
       nodeIds: group.nodeIds,
       operationKind: group.operationKind,
@@ -843,20 +889,260 @@ function findRepeatedArtifacts(
 function createPotentialCachePoint(
   operation: RepeatedOperationReport,
   nodes: readonly ExecutionNode[],
-): PotentialCachePointReport {
+): PotentialCachePointReport | undefined {
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const operationNodes = operation.nodeIds.flatMap((nodeId) => {
+    const node = nodesById.get(nodeId);
+
+    return node === undefined ? [] : [node];
+  });
+
+  if (
+    operationNodes.length !== operation.nodeIds.length ||
+    operationNodes.some((node) => node.status !== "ok")
+  ) {
+    return undefined;
+  }
+
   const avoidableLatencyMs = sumDefined(
-    operation.nodeIds
-      .slice(1)
-      .map((nodeId) => nodesById.get(nodeId)?.durationMs),
+    operationNodes.slice(1).map((node) => node.durationMs),
   );
 
   return {
+    ...(operation.displayName !== undefined
+      ? { displayName: operation.displayName }
+      : {}),
     fingerprint: operation.fingerprint,
     nodeIds: operation.nodeIds,
     operationKind: operation.operationKind,
     ...(avoidableLatencyMs !== undefined ? { avoidableLatencyMs } : {}),
   };
+}
+
+function createExecutionOpportunities(input: {
+  readonly nodes: readonly ExecutionNode[];
+  readonly potentialCachePoints: readonly PotentialCachePointReport[];
+  readonly potentialParallelism: readonly PotentialParallelismReport[];
+  readonly repeatedFiles: readonly RepeatedArtifactReport[];
+  readonly repeatedOperations: readonly RepeatedOperationReport[];
+}): readonly ExecutionOpportunityReport[] {
+  const nodesById = new Map(input.nodes.map((node) => [node.id, node]));
+
+  return [
+    ...input.repeatedOperations.flatMap((operation) =>
+      createRepeatedFailureOpportunity(operation, nodesById),
+    ),
+    ...input.potentialCachePoints.map(createCacheOpportunity),
+    ...input.repeatedFiles.map(createFileReuseOpportunity),
+    ...input.potentialParallelism.map((parallelism) =>
+      createParallelismOpportunity(parallelism, nodesById),
+    ),
+  ].sort(compareExecutionOpportunities);
+}
+
+function createRepeatedFailureOpportunity(
+  operation: RepeatedOperationReport,
+  nodesById: ReadonlyMap<string, ExecutionNode>,
+): readonly ExecutionOpportunityReport[] {
+  const nodes = operation.nodeIds.flatMap((nodeId) => {
+    const node = nodesById.get(nodeId);
+
+    return node === undefined ? [] : [node];
+  });
+  const failedNodes = nodes.filter((node) => node.status === "error");
+
+  if (failedNodes.length === 0) {
+    return [];
+  }
+
+  const hasSuccessfulNodes = nodes.some((node) => node.status === "ok");
+  const displayName = operation.displayName ?? operation.operationKind;
+  const latency = sumDefined(failedNodes.map((node) => node.durationMs));
+  const opportunity: ExecutionOpportunityReport = {
+    category: "failure",
+    confidence: hasSuccessfulNodes ? "medium" : "high",
+    id: opportunityId("failure", {
+      fingerprint: operation.fingerprint,
+      nodeIds: operation.nodeIds,
+    }),
+    nodeIds: operation.nodeIds,
+    priority: hasSuccessfulNodes ? "medium" : "high",
+    reason: hasSuccessfulNodes
+      ? `${displayName} had mixed success and failure for the same ${operation.operationKind} operation fingerprint.`
+      : `${displayName} failed repeatedly for the same ${operation.operationKind} operation fingerprint.`,
+    safetyNotes: hasSuccessfulNodes
+      ? [
+          "Mixed success and failure statuses: inspect reliability before treating this as reusable work.",
+        ]
+      : [
+          "Failure repeats are reliability signals, not clean cache candidates.",
+        ],
+    ...(latency !== undefined ? { estimatedAvoidableLatencyMs: latency } : {}),
+  };
+
+  return [opportunity];
+}
+
+function createCacheOpportunity(
+  point: PotentialCachePointReport,
+): ExecutionOpportunityReport {
+  const displayName = point.displayName ?? point.operationKind;
+
+  return {
+    category: "cache",
+    confidence: point.avoidableLatencyMs === undefined ? "medium" : "high",
+    id: opportunityId("cache", {
+      fingerprint: point.fingerprint,
+      nodeIds: point.nodeIds,
+    }),
+    nodeIds: point.nodeIds,
+    priority: point.avoidableLatencyMs === undefined ? "medium" : "high",
+    reason: `${displayName} repeated the same successful ${point.operationKind} operation ${point.nodeIds.length} times; later runs may be cacheable.`,
+    safetyNotes: [
+      "Observation only: verify inputs, side effects, and freshness requirements before caching.",
+    ],
+    ...(point.avoidableLatencyMs !== undefined
+      ? { estimatedAvoidableLatencyMs: point.avoidableLatencyMs }
+      : {}),
+  };
+}
+
+function createFileReuseOpportunity(
+  artifact: RepeatedArtifactReport,
+): ExecutionOpportunityReport {
+  return {
+    artifactIds: artifact.artifactIds,
+    category: "file_reuse",
+    confidence: "medium",
+    id: opportunityId("file_reuse", {
+      artifactIds: artifact.artifactIds,
+      fingerprint: artifact.fingerprint,
+      nodeIds: artifact.nodeIds,
+    }),
+    nodeIds: artifact.nodeIds,
+    priority: "medium",
+    reason: `A ${artifact.kind} fingerprint was observed ${artifact.count} times across tool activity.`,
+    safetyNotes: [
+      "Raw file paths are omitted; this fingerprint alone does not prove cacheable tool input or output.",
+    ],
+  };
+}
+
+function createParallelismOpportunity(
+  parallelism: PotentialParallelismReport,
+  nodesById: ReadonlyMap<string, ExecutionNode>,
+): ExecutionOpportunityReport {
+  const durations = parallelism.nodeIds
+    .map((nodeId) => nodesById.get(nodeId)?.durationMs)
+    .filter((duration): duration is number => typeof duration === "number");
+  const estimatedAvoidableLatencyMs =
+    durations.length === parallelism.nodeIds.length
+      ? Math.min(...durations)
+      : undefined;
+
+  return {
+    category: "parallelism",
+    confidence: "low",
+    id: opportunityId("parallelism", {
+      nodeIds: parallelism.nodeIds,
+    }),
+    nodeIds: parallelism.nodeIds,
+    priority: "low",
+    reason: parallelism.reason,
+    safetyNotes: [
+      "Sequence-only adjacency is not proof of independence; verify data dependencies and side effects first.",
+    ],
+    ...(estimatedAvoidableLatencyMs !== undefined
+      ? { estimatedAvoidableLatencyMs }
+      : {}),
+  };
+}
+
+function compareExecutionOpportunities(
+  left: ExecutionOpportunityReport,
+  right: ExecutionOpportunityReport,
+): number {
+  const leftLatency = left.estimatedAvoidableLatencyMs;
+  const rightLatency = right.estimatedAvoidableLatencyMs;
+
+  if (leftLatency !== undefined || rightLatency !== undefined) {
+    if (leftLatency === undefined) {
+      return 1;
+    }
+
+    if (rightLatency === undefined) {
+      return -1;
+    }
+
+    if (leftLatency !== rightLatency) {
+      return rightLatency - leftLatency;
+    }
+  }
+
+  const priorityComparison =
+    opportunityPriorityRank(right.priority) -
+    opportunityPriorityRank(left.priority);
+
+  if (priorityComparison !== 0) {
+    return priorityComparison;
+  }
+
+  const confidenceComparison =
+    opportunityConfidenceRank(right.confidence) -
+    opportunityConfidenceRank(left.confidence);
+
+  if (confidenceComparison !== 0) {
+    return confidenceComparison;
+  }
+
+  const categoryComparison = left.category.localeCompare(right.category);
+
+  if (categoryComparison !== 0) {
+    return categoryComparison;
+  }
+
+  const nodeComparison = left.nodeIds
+    .join("\u0000")
+    .localeCompare(right.nodeIds.join("\u0000"));
+
+  if (nodeComparison !== 0) {
+    return nodeComparison;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+function opportunityPriorityRank(
+  priority: ExecutionOpportunityPriority,
+): number {
+  switch (priority) {
+    case "high":
+      return 3;
+    case "medium":
+      return 2;
+    case "low":
+      return 1;
+  }
+}
+
+function opportunityConfidenceRank(
+  confidence: ExecutionOpportunityConfidence,
+): number {
+  switch (confidence) {
+    case "high":
+      return 3;
+    case "medium":
+      return 2;
+    case "low":
+      return 1;
+  }
+}
+
+function opportunityId(
+  category: ExecutionOpportunityCategory,
+  value: unknown,
+): string {
+  return `${category}-${stableExecutionDigest(value).slice(0, 12)}`;
 }
 
 function findCriticalPath(graph: ExecutionGraph): CriticalPathState {
@@ -1080,7 +1366,7 @@ function renderRepeatedOperationLines(
 
   return operations.map(
     (operation) =>
-      `- ${operation.operationKind} ${operation.fingerprint}: ${operation.count}x (${operation.nodeIds.join(", ")})`,
+      `- ${operation.displayName ?? operation.operationKind} (${operation.operationKind}) ${operation.fingerprint}: ${operation.count}x (${operation.nodeIds.join(", ")})`,
   );
 }
 
@@ -1106,8 +1392,29 @@ function renderPotentialCachePointLines(
 
   return points.map(
     (point) =>
-      `- ${point.operationKind} ${point.fingerprint}: ${point.nodeIds.join(", ")}; avoidable latency ${formatOptionalNumber(point.avoidableLatencyMs)} ms`,
+      `- ${point.displayName ?? point.operationKind} (${point.operationKind}) ${point.fingerprint}: ${point.nodeIds.join(", ")}; avoidable latency ${formatOptionalNumber(point.avoidableLatencyMs)} ms`,
   );
+}
+
+function renderOpportunityLines(
+  opportunities: readonly ExecutionOpportunityReport[],
+): readonly string[] {
+  if (opportunities.length === 0) {
+    return ["- none"];
+  }
+
+  return opportunities.map((opportunity) => {
+    const details = [
+      `Nodes: ${opportunity.nodeIds.join(", ")}`,
+      ...(opportunity.artifactIds === undefined
+        ? []
+        : [`Artifacts: ${opportunity.artifactIds.join(", ")}`]),
+      `avoidable latency ${formatOptionalNumber(opportunity.estimatedAvoidableLatencyMs)} ms`,
+      `Safety: ${opportunity.safetyNotes.join(" ")}`,
+    ];
+
+    return `- [${opportunity.priority}/${opportunity.confidence}] ${opportunity.category}: ${opportunity.reason} ${details.join("; ")}`;
+  });
 }
 
 function renderPotentialParallelismLines(
