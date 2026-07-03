@@ -36,6 +36,8 @@ export interface CodexHookResult {
 type SupportedCodexHookEventName =
   | "PermissionRequest"
   | "PostToolUse"
+  | "PostCompact"
+  | "PreCompact"
   | "PreToolUse"
   | "Stop"
   | "UserPromptSubmit";
@@ -57,7 +59,9 @@ interface SupportedCodexHookInput extends CodexHookInputBase {
 
 const supportedHookEvents = new Set<string>([
   "PermissionRequest",
+  "PostCompact",
   "PostToolUse",
+  "PreCompact",
   "PreToolUse",
   "Stop",
   "UserPromptSubmit",
@@ -155,6 +159,49 @@ export function codexHookInputToExecutionEvent(
       },
       runId,
       status,
+    };
+  }
+
+  if (
+    input.hook_event_name === "PreCompact" ||
+    input.hook_event_name === "PostCompact"
+  ) {
+    if (!hasCompactSignal(input)) {
+      return undefined;
+    }
+
+    const phase = input.hook_event_name === "PreCompact" ? "pre" : "post";
+    const compactFingerprint = stableExecutionHash({
+      hookEventName: input.hook_event_name,
+      compact: compactFingerprintPayload(input),
+    });
+    const operationId = compactOperationId({
+      compactFingerprint,
+      compactId:
+        readString(input, "compaction_id") ?? readString(input, "compact_id"),
+    });
+
+    return {
+      version: EXECUTION_EVENT_VERSION,
+      id: `codex:${safeIdentifier(input.turn_id)}:${operationId}:${phase}`,
+      lifecycle: phase === "pre" ? "start" : "finish",
+      operation: {
+        fingerprint: compactFingerprint,
+        id: operationId,
+        kind: "context_compaction",
+        name: "Context compaction",
+      },
+      artifacts: compactArtifacts(input, compactFingerprint, phase),
+      metadata: {
+        ...metadata,
+        codex: {
+          ...readRecord(metadata.codex),
+          compactPhase: phase,
+          ...compactMetadata(input),
+        },
+      },
+      runId,
+      ...(phase === "post" ? { status: "ok" } : {}),
     };
   }
 
@@ -345,6 +392,139 @@ function hasPermissionRequestSignal(
     readString(input, "tool_use_id") !== undefined ||
     readUnknown(input, "tool_input") !== undefined
   );
+}
+
+function hasCompactSignal(input: Readonly<Record<string, unknown>>): boolean {
+  return (
+    readString(input, "acceptance_criteria") !== undefined ||
+    readString(input, "compact_id") !== undefined ||
+    readString(input, "compaction_id") !== undefined ||
+    readNumberValue(input, "context_window_percent") !== undefined ||
+    readNumberValue(input, "input_tokens") !== undefined ||
+    readString(input, "inspected_files_summary") !== undefined ||
+    readString(input, "reason") !== undefined ||
+    readString(input, "summary") !== undefined ||
+    readNumberValue(input, "token_count") !== undefined ||
+    readString(input, "trigger") !== undefined
+  );
+}
+
+function compactFingerprintPayload(
+  input: Readonly<Record<string, unknown>>,
+): unknown {
+  return {
+    acceptanceCriteria: readUnknown(input, "acceptance_criteria"),
+    compactId: readUnknown(input, "compact_id"),
+    compactionId: readUnknown(input, "compaction_id"),
+    contextWindowPercent: readUnknown(input, "context_window_percent"),
+    inputTokens: readUnknown(input, "input_tokens"),
+    inspectedFilesSummary: readUnknown(input, "inspected_files_summary"),
+    reason: readUnknown(input, "reason"),
+    summary: readUnknown(input, "summary"),
+    tokenCount: readUnknown(input, "token_count"),
+    trigger: readUnknown(input, "trigger"),
+  };
+}
+
+function compactOperationId(input: {
+  readonly compactFingerprint: string;
+  readonly compactId: string | undefined;
+}): string {
+  if (input.compactId !== undefined && isSafeMetadataToken(input.compactId)) {
+    return `compaction-${safeIdentifier(input.compactId)}`;
+  }
+
+  return `compaction-${stableExecutionDigest(input.compactFingerprint).slice(0, 16)}`;
+}
+
+function compactArtifacts(
+  input: Readonly<Record<string, unknown>>,
+  compactFingerprint: string,
+  phase: "post" | "pre",
+): readonly Artifact[] {
+  return [
+    redactedArtifact({
+      fingerprint: compactFingerprint,
+      id: `compact-context-${phase}`,
+      kind: "compact_context",
+      reason: "Raw Codex compact hook payload is not persisted by default.",
+    }),
+    ...compactStringArtifact(input, {
+      id: "compact-acceptance-criteria",
+      kind: "acceptance_criteria",
+      reason:
+        "Raw Codex compact acceptance criteria are not persisted by default.",
+      sourceKey: "acceptance_criteria",
+    }),
+    ...compactStringArtifact(input, {
+      id: "compact-inspected-files-summary",
+      kind: "inspected_files_summary",
+      reason:
+        "Raw Codex compact inspected-file summary is not persisted by default.",
+      sourceKey: "inspected_files_summary",
+    }),
+    ...compactStringArtifact(input, {
+      id: "compact-summary",
+      kind: "summary",
+      reason: "Raw Codex compact summary is not persisted by default.",
+      sourceKey: "summary",
+    }),
+  ];
+}
+
+function compactStringArtifact(
+  input: Readonly<Record<string, unknown>>,
+  artifact: {
+    readonly id: string;
+    readonly kind: string;
+    readonly reason: string;
+    readonly sourceKey: string;
+  },
+): readonly Artifact[] {
+  const value = readString(input, artifact.sourceKey);
+
+  if (value === undefined) {
+    return [];
+  }
+
+  return [
+    redactedArtifact({
+      fingerprint: stableExecutionHash({
+        [artifact.sourceKey]: value,
+      }),
+      id: artifact.id,
+      kind: artifact.kind,
+      reason: artifact.reason,
+    }),
+  ];
+}
+
+function compactMetadata(input: Readonly<Record<string, unknown>>): Metadata {
+  return {
+    ...safeMetadataString(input, "compact_id", "compactId"),
+    ...safeMetadataString(input, "compaction_id", "compactionId"),
+    ...safeMetadataString(input, "trigger", "trigger"),
+    ...numberMetadata(input, "context_window_percent", "contextWindowPercent"),
+    ...numberMetadata(input, "input_tokens", "inputTokens"),
+    ...numberMetadata(input, "token_count", "tokenCount"),
+    ...(readString(input, "reason") !== undefined
+      ? {
+          reasonFingerprint: stableExecutionHash({
+            reason: readString(input, "reason"),
+          }),
+        }
+      : {}),
+  };
+}
+
+function numberMetadata(
+  input: Readonly<Record<string, unknown>>,
+  sourceKey: string,
+  metadataKey: string,
+): Metadata {
+  const value = readNumberValue(input, sourceKey);
+
+  return value === undefined ? {} : { [metadataKey]: value };
 }
 
 function permissionRequestFingerprintPayload(

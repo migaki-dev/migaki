@@ -254,6 +254,118 @@ describe("Codex hook adapter", () => {
     });
   });
 
+  it("records compact boundaries and pressure without persisting raw context text", async () => {
+    const storeDirectory = await tempRoot();
+    const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
+
+    await runAt(
+      clock,
+      storeDirectory,
+      preCompact({
+        acceptance_criteria: "secret acceptance criteria",
+        compaction_id: "compact-1",
+        context_window_percent: 91,
+        inspected_files_summary: "secret inspected file summary",
+        reason: "secret compaction reason",
+        trigger: "context_pressure",
+      }),
+    );
+    await runAt(
+      clock,
+      storeDirectory,
+      postCompact({
+        acceptance_criteria: "secret updated criteria",
+        compaction_id: "compact-1",
+        context_window_percent: 43,
+        inspected_files_summary: "secret preserved file summary",
+        summary: "secret compacted transcript summary",
+        trigger: "context_pressure",
+      }),
+    );
+    await runAt(clock, storeDirectory, stop());
+
+    const { eventsJsonl, graph, report } =
+      await readRunArtifacts(storeDirectory);
+    const persisted = [eventsJsonl, JSON.stringify(graph), report].join("\n");
+    const compactNode = graph.nodes.find(
+      (node) => node.operation.kind === "context_compaction",
+    );
+
+    expect(compactNode).toMatchObject({
+      durationMs: 1000,
+      id: "compaction-compact-1",
+      operation: {
+        kind: "context_compaction",
+        name: "Context compaction",
+      },
+      status: "ok",
+    });
+    expect(compactNode?.metadata.codex).toMatchObject({
+      compactPhase: "post",
+      compactionId: "compact-1",
+      contextWindowPercent: 43,
+      trigger: "context_pressure",
+    });
+    expect(
+      compactNode?.artifacts.map((artifact) => artifact.kind).sort(),
+    ).toEqual([
+      "acceptance_criteria",
+      "compact_context",
+      "compact_context",
+      "inspected_files_summary",
+      "summary",
+    ]);
+    expect(
+      compactNode?.artifacts.every((artifact) =>
+        isSha256Fingerprint(artifact.fingerprint),
+      ),
+    ).toBe(true);
+    expect(persisted).not.toContain("secret acceptance criteria");
+    expect(persisted).not.toContain("secret updated criteria");
+    expect(persisted).not.toContain("secret inspected file summary");
+    expect(persisted).not.toContain("secret preserved file summary");
+    expect(persisted).not.toContain("secret compacted transcript summary");
+    expect(persisted).not.toContain("secret compaction reason");
+  });
+
+  it("ignores malformed compact hook payloads without failing the hook command", async () => {
+    const storeDirectory = await tempRoot();
+
+    await expect(
+      runCodexHook(
+        JSON.stringify({
+          hook_event_name: "PreCompact",
+          turn_id: "turn-1",
+        }),
+        {
+          storeDirectory,
+        },
+      ),
+    ).resolves.toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "",
+    });
+    await expect(
+      runCodexHook(
+        JSON.stringify({
+          hook_event_name: "PostCompact",
+          turn_id: "turn-1",
+        }),
+        {
+          storeDirectory,
+        },
+      ),
+    ).resolves.toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "",
+    });
+    await expect(readRunArtifacts(storeDirectory)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("records repeated Read file fingerprints without persisting raw file paths", async () => {
     const storeDirectory = await tempRoot();
     const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
@@ -899,6 +1011,21 @@ function preToolUse(
   };
 }
 
+function preCompact(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    cwd: "/tmp/repo",
+    hook_event_name: "PreCompact",
+    model: "gpt-5.1-codex",
+    permission_mode: "default",
+    session_id: "session-1",
+    transcript_path: null,
+    turn_id: "turn-1",
+    ...overrides,
+  };
+}
+
 function permissionRequest(
   overrides: Readonly<Record<string, unknown>> = {},
 ): Record<string, unknown> {
@@ -910,6 +1037,16 @@ function permissionRequest(
     session_id: "session-1",
     transcript_path: null,
     turn_id: "turn-1",
+    ...overrides,
+  };
+}
+
+function postCompact(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    ...preCompact(),
+    hook_event_name: "PostCompact",
     ...overrides,
   };
 }

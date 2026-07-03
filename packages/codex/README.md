@@ -13,6 +13,8 @@ Supported hook events:
 - `PermissionRequest`
 - `PreToolUse`
 - `PostToolUse`
+- `PreCompact`
+- `PostCompact`
 - `Stop`
 
 The adapter scopes runs by Codex turn:
@@ -37,6 +39,12 @@ approval and sandbox friction. Safe enum-like fields such as approval status,
 permission decision, sandbox mode, sandbox permission mode, tool name, and
 request ids may appear in metadata. Arbitrary request text, nested tool intent,
 and pause reasons are fingerprinted and omitted.
+
+`PreCompact` and `PostCompact` events are recorded as a start/finish pair for a
+context-compaction boundary. Safe pressure metadata such as context-window
+percent, token counts, trigger, and compact ids may appear in metadata. Raw
+compact summaries, inspected-file summaries, acceptance criteria, reasons, and
+payload text are fingerprinted and omitted.
 
 Read-like Codex tool inputs also emit redacted `file` artifacts when the hook
 payload exposes a safe plain-string path field or a conservative read-like Bash

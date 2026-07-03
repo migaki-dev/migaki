@@ -47,6 +47,28 @@
         ]
       }
     ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "statusMessage": "Recording Migaki compaction start"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "statusMessage": "Recording Migaki compaction finish"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
