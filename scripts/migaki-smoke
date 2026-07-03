@@ -143,10 +143,19 @@ run_hook_fixture() {
       printf '{"cwd":"%s","hook_event_name":"UserPromptSubmit","model":"gpt-5.1-codex","permission_mode":"default","prompt":"Create deterministic file reuse smoke evidence.","session_id":"migaki-smoke","transcript_path":null,"turn_id":"%s"}\n' "$ROOT_DIR" "$FIXTURE_TURN_ID"
       ;;
     PreToolUse|PostToolUse)
+      case "$offset" in
+        1)
+          fixture_command="cat README.md"
+          ;;
+        *)
+          fixture_command=". scripts/env && sed -n '1,20p' README.md"
+          ;;
+      esac
+
       if [ "$hook_event_name" = "PostToolUse" ]; then
-        printf '{"cwd":"%s","hook_event_name":"PostToolUse","model":"gpt-5.1-codex","permission_mode":"default","session_id":"migaki-smoke","tool_input":{"file_path":"README.md","offset":%s},"tool_name":"Read","tool_response":{"status":"ok"},"tool_use_id":"%s","transcript_path":null,"turn_id":"%s"}\n' "$ROOT_DIR" "$offset" "$tool_use_id" "$FIXTURE_TURN_ID"
+        printf '{"cwd":"%s","hook_event_name":"PostToolUse","model":"gpt-5.1-codex","permission_mode":"default","session_id":"migaki-smoke","tool_input":{"command":"%s"},"tool_name":"Bash","tool_response":{"status":"ok"},"tool_use_id":"%s","transcript_path":null,"turn_id":"%s"}\n' "$ROOT_DIR" "$fixture_command" "$tool_use_id" "$FIXTURE_TURN_ID"
       else
-        printf '{"cwd":"%s","hook_event_name":"PreToolUse","model":"gpt-5.1-codex","permission_mode":"default","session_id":"migaki-smoke","tool_input":{"file_path":"README.md","offset":%s},"tool_name":"Read","tool_use_id":"%s","transcript_path":null,"turn_id":"%s"}\n' "$ROOT_DIR" "$offset" "$tool_use_id" "$FIXTURE_TURN_ID"
+        printf '{"cwd":"%s","hook_event_name":"PreToolUse","model":"gpt-5.1-codex","permission_mode":"default","session_id":"migaki-smoke","tool_input":{"command":"%s"},"tool_name":"Bash","tool_use_id":"%s","transcript_path":null,"turn_id":"%s"}\n' "$ROOT_DIR" "$fixture_command" "$tool_use_id" "$FIXTURE_TURN_ID"
       fi
       ;;
     Stop)
@@ -197,5 +206,7 @@ require_report_text "file_reuse"
 require_report_text "file fingerprint was observed 2 times"
 require_report_text "Raw file paths are omitted"
 reject_report_text "README.md"
+reject_report_text "cat README.md"
+reject_report_text "sed -n"
 
 "$ROOT_DIR/scripts/migaki-latest-report"

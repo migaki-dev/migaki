@@ -68,6 +68,11 @@ const filePathFieldByToolName = new Map<string, string>([
   ["Read", "file_path"],
 ]);
 
+const supportedBashReadPrefixTokens = [
+  [".", "scripts/env", "&&"],
+  ["source", "scripts/env", "&&"],
+] as const;
+
 export async function runCodexHook(
   stdin: string,
   options: CodexHookRunOptions = {},
@@ -162,7 +167,7 @@ export function codexHookInputToExecutionEvent(
       toolName,
     });
     const operationId = `tool-${safeIdentifier(toolUseId)}`;
-    const filePathArtifact = codexFilePathArtifact({
+    const filePathArtifacts = codexFilePathArtifacts({
       cwd: input.cwd,
       operationId,
       toolInput,
@@ -195,7 +200,7 @@ export function codexHookInputToExecutionEvent(
             kind: "tool_input",
             reason: "Raw Codex tool input is not persisted by default.",
           }),
-          ...optionalArtifact(filePathArtifact),
+          ...filePathArtifacts,
         ],
         metadata: toolMetadata,
         runId,
@@ -226,7 +231,7 @@ export function codexHookInputToExecutionEvent(
           kind: "tool_result",
           reason: "Raw Codex tool output is not persisted by default.",
         }),
-        ...optionalArtifact(filePathArtifact),
+        ...filePathArtifacts,
       ],
       metadata: toolMetadata,
       runId,
@@ -352,38 +357,93 @@ function codexMetadata(input: CodexHookInputBase): Metadata {
   };
 }
 
-function codexFilePathArtifact(input: {
+function codexFilePathArtifacts(input: {
   readonly cwd: string | undefined;
   readonly operationId: string;
   readonly toolInput: unknown;
   readonly toolName: string;
-}): Artifact | undefined {
+}): readonly Artifact[] {
+  const observations = codexFilePathObservations(input);
+
+  return observations.map((observation, index) =>
+    codexFilePathArtifact({
+      ...observation,
+      operationId: input.operationId,
+      toolName: input.toolName,
+      ...(observations.length > 1 ? { sourceIndex: index + 1 } : {}),
+    }),
+  );
+}
+
+function codexFilePathObservations(input: {
+  readonly cwd: string | undefined;
+  readonly toolInput: unknown;
+  readonly toolName: string;
+}): readonly {
+  readonly normalizedPath: string;
+  readonly sourceCommand?: string;
+  readonly sourceField: string;
+}[] {
+  if (!isRecord(input.toolInput)) {
+    return [];
+  }
+
   const sourceField = filePathFieldByToolName.get(input.toolName);
 
-  if (sourceField === undefined || !isRecord(input.toolInput)) {
-    return undefined;
+  if (sourceField !== undefined) {
+    const normalizedPath = normalizeCodexFilePath(
+      readStringValue(input.toolInput, sourceField),
+      input.cwd,
+    );
+
+    return normalizedPath === undefined
+      ? []
+      : [
+          {
+            normalizedPath,
+            sourceField,
+          },
+        ];
   }
 
-  const normalizedPath = normalizeCodexFilePath(
-    readStringValue(input.toolInput, sourceField),
+  if (input.toolName !== "Bash") {
+    return [];
+  }
+
+  return bashReadLikeFilePathObservations(
+    readStringValue(input.toolInput, "command"),
     input.cwd,
   );
+}
 
-  if (normalizedPath === undefined) {
-    return undefined;
-  }
-
+function codexFilePathArtifact(input: {
+  readonly normalizedPath: string;
+  readonly operationId: string;
+  readonly sourceCommand?: string;
+  readonly sourceField: string;
+  readonly sourceIndex?: number;
+  readonly toolName: string;
+}): Artifact {
   return {
     fingerprint: stableExecutionHash({
       kind: CODEX_FILE_PATH_FINGERPRINT_VERSION,
-      path: normalizedPath,
+      path: input.normalizedPath,
     }),
-    id: `${input.operationId}-file-path`,
+    id:
+      input.sourceIndex === undefined
+        ? `${input.operationId}-file-path`
+        : `${input.operationId}-file-path-${input.sourceIndex}`,
     kind: "file",
     metadata: {
       codex: {
         fingerprintVersion: CODEX_FILE_PATH_FINGERPRINT_VERSION,
-        sourceField,
+        ...(input.sourceCommand !== undefined
+          ? { sourceCommand: input.sourceCommand }
+          : {}),
+        sourceField: input.sourceField,
+        ...(input.sourceIndex !== undefined
+          ? { sourceIndex: input.sourceIndex }
+          : {}),
         toolName: input.toolName,
       },
       redaction: {
@@ -392,6 +452,297 @@ function codexFilePathArtifact(input: {
       },
     },
   };
+}
+
+function bashReadLikeFilePathObservations(
+  command: string | undefined,
+  cwd: string | undefined,
+): readonly {
+  readonly normalizedPath: string;
+  readonly sourceCommand: string;
+  readonly sourceField: string;
+}[] {
+  const parsed = parseSupportedBashReadLikeCommand(command);
+
+  if (parsed === undefined) {
+    return [];
+  }
+
+  const normalizedPaths = uniqueStrings(
+    parsed.pathTokens.flatMap((pathToken) => {
+      const normalizedPath = normalizeCodexFilePath(pathToken, cwd);
+
+      return normalizedPath === undefined ? [] : [normalizedPath];
+    }),
+  );
+
+  return normalizedPaths.map((normalizedPath) => ({
+    normalizedPath,
+    sourceCommand: parsed.commandName,
+    sourceField: "command",
+  }));
+}
+
+function parseSupportedBashReadLikeCommand(
+  command: string | undefined,
+):
+  | { readonly commandName: string; readonly pathTokens: readonly string[] }
+  | undefined {
+  if (command === undefined || command.trim() === "") {
+    return undefined;
+  }
+
+  const tokens = parseShellWords(command);
+  const readTokens = stripSupportedBashReadPrefix(tokens);
+
+  if (readTokens.length === 0) {
+    return undefined;
+  }
+
+  if (readTokens.some(isUnsafeShellToken)) {
+    return undefined;
+  }
+
+  const commandName = readTokens[0];
+  const args = readTokens.slice(1);
+  let pathTokens: readonly string[] | undefined;
+
+  switch (commandName) {
+    case "cat":
+      pathTokens = readOptionOnlyCommandPathTokens(args, {
+        optionsWithValues: new Set(),
+      });
+      break;
+    case "head":
+    case "tail":
+      pathTokens = readOptionOnlyCommandPathTokens(args, {
+        optionsWithValues: new Set(["-c", "-n", "--bytes", "--lines"]),
+      });
+      break;
+    case "nl":
+      pathTokens = readOptionOnlyCommandPathTokens(args, {
+        optionsWithValues: new Set(["-d", "-i", "-l", "-n", "-s", "-v", "-w"]),
+      });
+      break;
+    case "sed":
+      pathTokens = readSedCommandPathTokens(args);
+      break;
+    case "wc":
+      pathTokens = readOptionOnlyCommandPathTokens(args, {
+        optionsWithValues: new Set(["--files0-from"]),
+      });
+      break;
+    default:
+      return undefined;
+  }
+
+  if (pathTokens === undefined || pathTokens.length === 0) {
+    return undefined;
+  }
+
+  if (!pathTokens.every(isSafeLiteralPathToken)) {
+    return undefined;
+  }
+
+  return {
+    commandName,
+    pathTokens,
+  };
+}
+
+function parseShellWords(command: string): readonly string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | undefined;
+
+  for (const character of command.trim()) {
+    if (quote !== undefined) {
+      if (character === quote) {
+        quote = undefined;
+      } else {
+        current += character;
+      }
+
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+
+    if (/\s/u.test(character)) {
+      if (current !== "") {
+        tokens.push(current);
+        current = "";
+      }
+
+      continue;
+    }
+
+    current += character;
+  }
+
+  if (quote !== undefined) {
+    return [];
+  }
+
+  if (current !== "") {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
+function stripSupportedBashReadPrefix(
+  tokens: readonly string[],
+): readonly string[] {
+  for (const prefix of supportedBashReadPrefixTokens) {
+    if (
+      prefix.every((token, index) => tokens[index] === token) &&
+      tokens.length > prefix.length
+    ) {
+      return tokens.slice(prefix.length);
+    }
+  }
+
+  return tokens;
+}
+
+function readOptionOnlyCommandPathTokens(
+  args: readonly string[],
+  options: {
+    readonly optionsWithValues: ReadonlySet<string>;
+  },
+): readonly string[] | undefined {
+  const paths: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === undefined) {
+      return undefined;
+    }
+
+    if (arg === "--") {
+      paths.push(...args.slice(index + 1));
+      break;
+    }
+
+    if (arg.startsWith("--")) {
+      const optionName = arg.split("=", 1)[0];
+
+      if (
+        optionName !== undefined &&
+        options.optionsWithValues.has(optionName) &&
+        !arg.includes("=")
+      ) {
+        index += 1;
+      }
+
+      continue;
+    }
+
+    if (arg.startsWith("-") && arg !== "-") {
+      if (options.optionsWithValues.has(arg)) {
+        index += 1;
+      }
+
+      continue;
+    }
+
+    paths.push(arg);
+  }
+
+  return paths;
+}
+
+function readSedCommandPathTokens(
+  args: readonly string[],
+): readonly string[] | undefined {
+  const paths: string[] = [];
+  let hasScript = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === undefined) {
+      return undefined;
+    }
+
+    if (arg === "--") {
+      if (!hasScript) {
+        return undefined;
+      }
+
+      paths.push(...args.slice(index + 1));
+      break;
+    }
+
+    if (!hasScript && (arg === "-n" || arg === "-E" || arg === "-r")) {
+      continue;
+    }
+
+    if (!hasScript && (arg === "-e" || arg === "--expression")) {
+      if (args[index + 1] === undefined) {
+        return undefined;
+      }
+
+      hasScript = true;
+      index += 1;
+      continue;
+    }
+
+    if (!hasScript && arg.startsWith("-e") && arg.length > 2) {
+      hasScript = true;
+      continue;
+    }
+
+    if (!hasScript && arg.startsWith("-")) {
+      return undefined;
+    }
+
+    if (!hasScript) {
+      hasScript = true;
+      continue;
+    }
+
+    paths.push(arg);
+  }
+
+  return hasScript ? paths : undefined;
+}
+
+function isUnsafeShellToken(token: string): boolean {
+  return /[\n\r\0|&;<>`$(){}\\]/u.test(token);
+}
+
+function isSafeLiteralPathToken(token: string): boolean {
+  return (
+    token !== "" &&
+    token !== "-" &&
+    token !== "." &&
+    token !== ".." &&
+    !token.startsWith("-") &&
+    !token.includes("://") &&
+    !/[*?[\]{}]/u.test(token)
+  );
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const value of values) {
+    if (seen.has(value)) {
+      continue;
+    }
+
+    seen.add(value);
+    unique.push(value);
+  }
+
+  return unique;
 }
 
 function normalizeCodexFilePath(
@@ -419,10 +770,6 @@ function normalizeCodexFilePath(
   }
 
   return normalize(resolve(trimmedCwd, trimmed));
-}
-
-function optionalArtifact(artifact: Artifact | undefined): readonly Artifact[] {
-  return artifact === undefined ? [] : [artifact];
 }
 
 function redactedArtifact(input: {

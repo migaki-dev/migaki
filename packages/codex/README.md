@@ -31,15 +31,22 @@ and working directories are not persisted by default. The adapter stores stable
 fingerprints and redaction metadata instead.
 
 Read-like Codex tool inputs also emit redacted `file` artifacts when the hook
-payload exposes a safe plain-string path field:
+payload exposes a safe plain-string path field or a conservative read-like Bash
+command:
 
 - `Read.file_path`
 - `Grep.path`
 - `Glob.path`
 - `LS.path`
+- `Bash.command` for strict read-only forms using `cat`, `sed`, `nl`, `head`,
+  `tail`, or `wc`
 
 The adapter normalizes these paths only to compute a stable fingerprint. Raw
-and normalized paths are omitted from events, graphs, and reports.
+and normalized paths are omitted from events, graphs, and reports. Bash command
+text is also omitted. Bash extraction fails closed for shell control flow,
+redirection, command substitution, glob-like path tokens, unknown commands, and
+ambiguous arguments; the only supported command prefix is the repository's exact
+`. scripts/env &&` or `source scripts/env &&` setup prefix.
 
 ## Dogfood Hooks
 
