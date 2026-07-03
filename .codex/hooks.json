@@ -11,6 +11,18 @@
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "statusMessage": "Recording Migaki permission request"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "*",

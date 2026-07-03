@@ -143,6 +143,117 @@ describe("Codex hook adapter", () => {
     expect(persisted).not.toContain("secret output body");
   });
 
+  it("records PermissionRequest decisions and friction without persisting raw intent", async () => {
+    const storeDirectory = await tempRoot();
+    const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
+
+    await runAt(
+      clock,
+      storeDirectory,
+      permissionRequest({
+        approval_status: "approved",
+        permission_decision: "allow",
+        permission_request_id: "approval-1",
+        pause_reason: "secret approval pause reason",
+        sandbox_mode: "workspace-write",
+        sandbox_permissions: "require_escalated",
+        tool_input: {
+          command: "cat /tmp/repo/packages/codex/src/secret-permission.ts",
+          justification: "secret escalation justification",
+        },
+        tool_name: "Bash",
+        tool_use_id: "tool-approval-1",
+      }),
+    );
+    await runAt(
+      clock,
+      storeDirectory,
+      permissionRequest({
+        approval_status: "denied",
+        permission_decision: "deny",
+        permission_request_id: "approval-2",
+        pause_reason: "secret denial pause reason",
+        sandbox_mode: "read-only",
+        tool_input: {
+          command: "rm -rf /tmp/repo/secret-permission-target",
+        },
+        tool_name: "Bash",
+        tool_use_id: "tool-approval-2",
+      }),
+    );
+    await runAt(clock, storeDirectory, stop());
+
+    const { eventsJsonl, graph } = await readRunArtifacts(storeDirectory);
+    const persisted = [eventsJsonl, JSON.stringify(graph)].join("\n");
+    const permissionNodes = graph.nodes.filter(
+      (node) => node.operation.kind === "permission_request",
+    );
+
+    expect(permissionNodes.map((node) => node.id)).toEqual([
+      "permission-approval-1",
+      "permission-approval-2",
+    ]);
+    expect(permissionNodes.map((node) => node.status)).toEqual(["ok", "error"]);
+    expect(permissionNodes.map((node) => node.metadata.codex)).toEqual([
+      expect.objectContaining({
+        approvalStatus: "approved",
+        permissionDecision: "allow",
+        permissionRequestId: "approval-1",
+        sandboxMode: "workspace-write",
+        sandboxPermissions: "require_escalated",
+        toolName: "Bash",
+        toolUseId: "tool-approval-1",
+      }),
+      expect.objectContaining({
+        approvalStatus: "denied",
+        permissionDecision: "deny",
+        permissionRequestId: "approval-2",
+        sandboxMode: "read-only",
+        toolName: "Bash",
+        toolUseId: "tool-approval-2",
+      }),
+    ]);
+    for (const node of permissionNodes) {
+      expect(node.artifacts.map((artifact) => artifact.kind).sort()).toEqual([
+        "pause_reason",
+        "permission_request",
+        "tool_intent",
+      ]);
+    }
+    expect(
+      permissionNodes
+        .flatMap((node) => node.artifacts)
+        .every((artifact) => isSha256Fingerprint(artifact.fingerprint)),
+    ).toBe(true);
+    expect(persisted).not.toContain("secret approval pause reason");
+    expect(persisted).not.toContain("secret denial pause reason");
+    expect(persisted).not.toContain("secret escalation justification");
+    expect(persisted).not.toContain("secret-permission.ts");
+    expect(persisted).not.toContain("secret-permission-target");
+  });
+
+  it("ignores malformed PermissionRequest payloads without failing the hook command", async () => {
+    const storeDirectory = await tempRoot();
+    const result = await runCodexHook(
+      JSON.stringify({
+        hook_event_name: "PermissionRequest",
+        turn_id: "turn-1",
+      }),
+      {
+        storeDirectory,
+      },
+    );
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "",
+    });
+    await expect(readRunArtifacts(storeDirectory)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("records repeated Read file fingerprints without persisting raw file paths", async () => {
     const storeDirectory = await tempRoot();
     const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
@@ -782,6 +893,21 @@ function preToolUse(
     },
     tool_name: "Bash",
     tool_use_id: "tool-1",
+    transcript_path: null,
+    turn_id: "turn-1",
+    ...overrides,
+  };
+}
+
+function permissionRequest(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    cwd: "/tmp/repo",
+    hook_event_name: "PermissionRequest",
+    model: "gpt-5.1-codex",
+    permission_mode: "on-request",
+    session_id: "session-1",
     transcript_path: null,
     turn_id: "turn-1",
     ...overrides,
