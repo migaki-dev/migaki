@@ -10,6 +10,7 @@ replay, route, or otherwise change Codex behavior.
 Supported hook events:
 
 - `UserPromptSubmit`
+- `PermissionRequest`
 - `PreToolUse`
 - `PostToolUse`
 - `Stop`
@@ -26,9 +27,16 @@ Artifacts are written through `LocalStore(".migaki")`:
 - `.migaki/runs/<runId>/graph.json`
 - `.migaki/runs/<runId>/report.md`
 
-Raw prompt text, tool input, tool output, assistant messages, transcript paths,
-and working directories are not persisted by default. The adapter stores stable
+Raw prompt text, permission request payloads, permission tool intent, pause
+reasons, tool input, tool output, assistant messages, transcript paths, and
+working directories are not persisted by default. The adapter stores stable
 fingerprints and redaction metadata instead.
+
+`PermissionRequest` events are recorded as point-in-time observations of
+approval and sandbox friction. Safe enum-like fields such as approval status,
+permission decision, sandbox mode, sandbox permission mode, tool name, and
+request ids may appear in metadata. Arbitrary request text, nested tool intent,
+and pause reasons are fingerprinted and omitted.
 
 Read-like Codex tool inputs also emit redacted `file` artifacts when the hook
 payload exposes a safe plain-string path field or a conservative read-like Bash
@@ -50,7 +58,7 @@ ambiguous arguments; the only supported command prefix is the repository's exact
 
 ## Dogfood Hooks
 
-The repository-level `.codex/hooks.json` registers the four supported hook
+The repository-level `.codex/hooks.json` registers the supported hook
 events and points them at the built hook entrypoint:
 
 ```sh

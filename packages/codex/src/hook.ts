@@ -34,6 +34,7 @@ export interface CodexHookResult {
 }
 
 type SupportedCodexHookEventName =
+  | "PermissionRequest"
   | "PostToolUse"
   | "PreToolUse"
   | "Stop"
@@ -55,6 +56,7 @@ interface SupportedCodexHookInput extends CodexHookInputBase {
 }
 
 const supportedHookEvents = new Set<string>([
+  "PermissionRequest",
   "PostToolUse",
   "PreToolUse",
   "Stop",
@@ -113,6 +115,48 @@ export function codexHookInputToExecutionEvent(
 
   const runId = codexRunId(input.turn_id);
   const metadata = codexMetadata(input);
+
+  if (input.hook_event_name === "PermissionRequest") {
+    if (!hasPermissionRequestSignal(input)) {
+      return undefined;
+    }
+
+    const requestId =
+      readString(input, "permission_request_id") ??
+      readString(input, "request_id") ??
+      readString(input, "tool_use_id");
+    const permissionFingerprint = stableExecutionHash({
+      hookEventName: input.hook_event_name,
+      permissionRequest: permissionRequestFingerprintPayload(input),
+    });
+    const operationId = permissionRequestOperationId({
+      permissionFingerprint,
+      requestId,
+    });
+    const status = isDeniedPermissionRequest(input) ? "error" : "ok";
+
+    return {
+      version: EXECUTION_EVENT_VERSION,
+      id: `codex:${safeIdentifier(input.turn_id)}:${operationId}`,
+      lifecycle: "point",
+      operation: {
+        fingerprint: permissionFingerprint,
+        id: operationId,
+        kind: "permission_request",
+        name: "Permission request",
+      },
+      artifacts: permissionRequestArtifacts(input, permissionFingerprint),
+      metadata: {
+        ...metadata,
+        codex: {
+          ...readRecord(metadata.codex),
+          ...permissionRequestMetadata(input),
+        },
+      },
+      runId,
+      status,
+    };
+  }
 
   if (input.hook_event_name === "UserPromptSubmit") {
     const prompt = readString(input, "prompt");
@@ -280,6 +324,188 @@ export function codexHookInputToExecutionEvent(
   }
 
   return undefined;
+}
+
+function hasPermissionRequestSignal(
+  input: Readonly<Record<string, unknown>>,
+): boolean {
+  return (
+    readString(input, "approval_status") !== undefined ||
+    readString(input, "approval_policy") !== undefined ||
+    readString(input, "outcome") !== undefined ||
+    readString(input, "reason") !== undefined ||
+    readString(input, "permission_decision") !== undefined ||
+    readString(input, "permission_request_id") !== undefined ||
+    readString(input, "pause_reason") !== undefined ||
+    readString(input, "request_id") !== undefined ||
+    readString(input, "status") !== undefined ||
+    readString(input, "sandbox_mode") !== undefined ||
+    readUnknown(input, "sandbox_permissions") !== undefined ||
+    readString(input, "tool_name") !== undefined ||
+    readString(input, "tool_use_id") !== undefined ||
+    readUnknown(input, "tool_input") !== undefined
+  );
+}
+
+function permissionRequestFingerprintPayload(
+  input: Readonly<Record<string, unknown>>,
+): unknown {
+  return {
+    approvalPolicy: readUnknown(input, "approval_policy"),
+    approvalStatus: readUnknown(input, "approval_status"),
+    outcome: readUnknown(input, "outcome"),
+    pauseReason:
+      readUnknown(input, "pause_reason") ?? readUnknown(input, "reason"),
+    permissionDecision: readUnknown(input, "permission_decision"),
+    permissionRequestId: readUnknown(input, "permission_request_id"),
+    requestId: readUnknown(input, "request_id"),
+    sandboxMode: readUnknown(input, "sandbox_mode"),
+    sandboxPermissions: readUnknown(input, "sandbox_permissions"),
+    status: readUnknown(input, "status"),
+    toolInput: readUnknown(input, "tool_input"),
+    toolName: readUnknown(input, "tool_name"),
+    toolUseId: readUnknown(input, "tool_use_id"),
+  };
+}
+
+function permissionRequestOperationId(input: {
+  readonly permissionFingerprint: string;
+  readonly requestId: string | undefined;
+}): string {
+  if (input.requestId !== undefined && isSafeMetadataToken(input.requestId)) {
+    return `permission-${safeIdentifier(input.requestId)}`;
+  }
+
+  return `permission-${stableExecutionDigest(input.permissionFingerprint).slice(0, 16)}`;
+}
+
+function permissionRequestArtifacts(
+  input: Readonly<Record<string, unknown>>,
+  permissionFingerprint: string,
+): readonly Artifact[] {
+  const toolInput = readUnknown(input, "tool_input");
+  const pauseReason =
+    readString(input, "pause_reason") ?? readString(input, "reason");
+  const artifacts: Artifact[] = [
+    redactedArtifact({
+      fingerprint: permissionFingerprint,
+      id: "permission-request",
+      kind: "permission_request",
+      reason:
+        "Raw Codex permission request payload is not persisted by default.",
+    }),
+  ];
+
+  if (toolInput !== undefined) {
+    artifacts.push(
+      redactedArtifact({
+        fingerprint: stableExecutionHash({
+          toolInput,
+          toolName: readString(input, "tool_name"),
+        }),
+        id: "permission-tool-intent",
+        kind: "tool_intent",
+        reason: "Raw Codex permission tool intent is not persisted by default.",
+      }),
+    );
+  }
+
+  if (pauseReason !== undefined) {
+    artifacts.push(
+      redactedArtifact({
+        fingerprint: stableExecutionHash({ pauseReason }),
+        id: "permission-pause-reason",
+        kind: "pause_reason",
+        reason:
+          "Raw Codex permission pause reason is not persisted by default.",
+      }),
+    );
+  }
+
+  return artifacts;
+}
+
+function permissionRequestMetadata(
+  input: Readonly<Record<string, unknown>>,
+): Metadata {
+  return {
+    ...safeMetadataString(input, "approval_policy", "approvalPolicy"),
+    ...safeMetadataString(input, "approval_status", "approvalStatus"),
+    ...safeMetadataString(input, "outcome", "outcome"),
+    ...safeMetadataString(input, "permission_decision", "permissionDecision"),
+    ...safeMetadataString(
+      input,
+      "permission_request_id",
+      "permissionRequestId",
+    ),
+    ...safeMetadataString(input, "request_id", "requestId"),
+    ...safeMetadataString(input, "sandbox_mode", "sandboxMode"),
+    ...safeMetadataString(input, "sandbox_permissions", "sandboxPermissions"),
+    ...safeMetadataString(input, "status", "status"),
+    ...safeMetadataString(input, "tool_name", "toolName"),
+    ...safeMetadataString(input, "tool_use_id", "toolUseId"),
+    ...(readString(input, "pause_reason") !== undefined ||
+    readString(input, "reason") !== undefined
+      ? {
+          pauseReasonFingerprint: stableExecutionHash({
+            pauseReason:
+              readString(input, "pause_reason") ?? readString(input, "reason"),
+          }),
+        }
+      : {}),
+  };
+}
+
+function safeMetadataString(
+  input: Readonly<Record<string, unknown>>,
+  sourceKey: string,
+  metadataKey: string,
+): Metadata {
+  const value = readString(input, sourceKey);
+
+  if (value === undefined) {
+    return {};
+  }
+
+  if (isSafeMetadataToken(value)) {
+    return {
+      [metadataKey]: value,
+    };
+  }
+
+  return {
+    [`${metadataKey}Fingerprint`]: stableExecutionHash(value),
+  };
+}
+
+function isDeniedPermissionRequest(
+  input: Readonly<Record<string, unknown>>,
+): boolean {
+  const values = [
+    readString(input, "approval_status"),
+    readString(input, "permission_decision"),
+    readString(input, "status"),
+    readString(input, "outcome"),
+  ];
+
+  return values.some((value) => {
+    const normalized = value?.toLowerCase();
+
+    return (
+      normalized === "denied" ||
+      normalized === "deny" ||
+      normalized === "rejected" ||
+      normalized === "reject" ||
+      normalized === "blocked" ||
+      normalized === "error" ||
+      normalized === "failed" ||
+      normalized === "failure"
+    );
+  });
+}
+
+function isSafeMetadataToken(value: string): boolean {
+  return /^[A-Za-z0-9_.:-]{1,96}$/u.test(value);
 }
 
 export function codexRunId(turnId: string): string {
