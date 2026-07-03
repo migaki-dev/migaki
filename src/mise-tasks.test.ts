@@ -18,6 +18,17 @@ describe("mise tasks", () => {
       'run = "node packages/migaki-openai-agents-js/dist/cli.js"',
     );
   });
+
+  it("wires the Codex advice wrapper behind a build", async () => {
+    const config = await readFile(`${repositoryRoot}/mise.toml`, "utf8");
+    const task = readTask(config, "migaki:codex");
+
+    expect(task).toContain(
+      'description = "Run codex exec with latest Migaki session advice prepended"',
+    );
+    expect(task).toContain('depends = ["build"]');
+    expect(task).toContain('run = "scripts/migaki-codex"');
+  });
 });
 
 function readTask(config: string, taskName: string): string {

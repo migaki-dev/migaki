@@ -65,6 +65,11 @@ description = "Print next-session advice from the newest local Migaki execution 
 depends = ["build"]
 run = "scripts/migaki-advise"
 
+[tasks."migaki:codex"]
+description = "Run codex exec with latest Migaki session advice prepended"
+depends = ["build"]
+run = "scripts/migaki-codex"
+
 [tasks."migaki:runs"]
 description = "List recent local Migaki execution reports"
 run = "scripts/migaki-runs"
@@ -92,6 +97,7 @@ sh -n scripts/env
 sh -n scripts/bootstrap
 sh -n scripts/install-git-hooks
 sh -n scripts/migaki-advise
+sh -n scripts/migaki-codex
 sh -n scripts/migaki-latest-report
 sh -n scripts/migaki-runs
 sh -n scripts/migaki-feature-smoke
@@ -102,6 +108,7 @@ sh -n .githooks/pre-commit
 sh -n .githooks/pre-push
 scripts/bootstrap --help >/dev/null
 scripts/migaki-advise --help >/dev/null
+scripts/migaki-codex --help >/dev/null
 scripts/migaki-latest-report --help >/dev/null
 scripts/migaki-runs --help >/dev/null
 scripts/migaki-feature-smoke --help >/dev/null
