@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
 import { stdin as processStdin } from "node:process";
-import { resolve } from "node:path";
+import { isAbsolute, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -18,6 +18,8 @@ import {
 } from "@migaki/runtime";
 
 export const CODEX_HOOK_ADAPTER_VERSION = "migaki.codex-hooks.v0";
+
+const CODEX_FILE_PATH_FINGERPRINT_VERSION = "codex.file_path.v0";
 
 export interface CodexHookRunOptions {
   readonly clock?: ExecutionClock;
@@ -57,6 +59,13 @@ const supportedHookEvents = new Set<string>([
   "PreToolUse",
   "Stop",
   "UserPromptSubmit",
+]);
+
+const filePathFieldByToolName = new Map<string, string>([
+  ["Grep", "path"],
+  ["Glob", "path"],
+  ["LS", "path"],
+  ["Read", "file_path"],
 ]);
 
 export async function runCodexHook(
@@ -153,6 +162,12 @@ export function codexHookInputToExecutionEvent(
       toolName,
     });
     const operationId = `tool-${safeIdentifier(toolUseId)}`;
+    const filePathArtifact = codexFilePathArtifact({
+      cwd: input.cwd,
+      operationId,
+      toolInput,
+      toolName,
+    });
     const toolMetadata = {
       ...metadata,
       codex: {
@@ -180,6 +195,7 @@ export function codexHookInputToExecutionEvent(
             kind: "tool_input",
             reason: "Raw Codex tool input is not persisted by default.",
           }),
+          ...optionalArtifact(filePathArtifact),
         ],
         metadata: toolMetadata,
         runId,
@@ -210,6 +226,7 @@ export function codexHookInputToExecutionEvent(
           kind: "tool_result",
           reason: "Raw Codex tool output is not persisted by default.",
         }),
+        ...optionalArtifact(filePathArtifact),
       ],
       metadata: toolMetadata,
       runId,
@@ -333,6 +350,79 @@ function codexMetadata(input: CodexHookInputBase): Metadata {
       hookEventName: input.hook_event_name,
     },
   };
+}
+
+function codexFilePathArtifact(input: {
+  readonly cwd: string | undefined;
+  readonly operationId: string;
+  readonly toolInput: unknown;
+  readonly toolName: string;
+}): Artifact | undefined {
+  const sourceField = filePathFieldByToolName.get(input.toolName);
+
+  if (sourceField === undefined || !isRecord(input.toolInput)) {
+    return undefined;
+  }
+
+  const normalizedPath = normalizeCodexFilePath(
+    readStringValue(input.toolInput, sourceField),
+    input.cwd,
+  );
+
+  if (normalizedPath === undefined) {
+    return undefined;
+  }
+
+  return {
+    fingerprint: stableExecutionHash({
+      kind: CODEX_FILE_PATH_FINGERPRINT_VERSION,
+      path: normalizedPath,
+    }),
+    id: `${input.operationId}-file-path`,
+    kind: "file",
+    metadata: {
+      codex: {
+        fingerprintVersion: CODEX_FILE_PATH_FINGERPRINT_VERSION,
+        sourceField,
+        toolName: input.toolName,
+      },
+      redaction: {
+        mode: "omitted",
+        reason: "Raw Codex file path is not persisted by default.",
+      },
+    },
+  };
+}
+
+function normalizeCodexFilePath(
+  value: string | undefined,
+  cwd: string | undefined,
+): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (trimmed === "") {
+    return undefined;
+  }
+
+  if (isAbsolute(trimmed)) {
+    return normalize(trimmed);
+  }
+
+  const trimmedCwd = cwd?.trim();
+
+  if (trimmedCwd === undefined || trimmedCwd === "") {
+    return normalize(trimmed);
+  }
+
+  return normalize(resolve(trimmedCwd, trimmed));
+}
+
+function optionalArtifact(artifact: Artifact | undefined): readonly Artifact[] {
+  return artifact === undefined ? [] : [artifact];
 }
 
 function redactedArtifact(input: {

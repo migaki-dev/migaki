@@ -143,6 +143,219 @@ describe("Codex hook adapter", () => {
     expect(persisted).not.toContain("secret output body");
   });
 
+  it("records repeated Read file fingerprints without persisting raw file paths", async () => {
+    const storeDirectory = await tempRoot();
+    const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
+    const rawPath = "/tmp/repo/packages/codex/src/secret-plan.md";
+
+    await runAt(clock, storeDirectory, userPromptSubmit());
+    await runAt(
+      clock,
+      storeDirectory,
+      preToolUse({
+        tool_input: {
+          file_path: rawPath,
+        },
+        tool_name: "Read",
+        tool_use_id: "read-1",
+      }),
+    );
+    await runAt(
+      clock,
+      storeDirectory,
+      postToolUse({
+        tool_input: {
+          file_path: rawPath,
+        },
+        tool_name: "Read",
+        tool_use_id: "read-1",
+      }),
+    );
+    await runAt(
+      clock,
+      storeDirectory,
+      preToolUse({
+        tool_input: {
+          file_path: rawPath,
+        },
+        tool_name: "Read",
+        tool_use_id: "read-2",
+      }),
+    );
+    await runAt(
+      clock,
+      storeDirectory,
+      postToolUse({
+        tool_input: {
+          file_path: rawPath,
+        },
+        tool_name: "Read",
+        tool_use_id: "read-2",
+      }),
+    );
+    await runAt(clock, storeDirectory, stop());
+
+    const { eventsJsonl, graph, report } =
+      await readRunArtifacts(storeDirectory);
+    const persisted = [eventsJsonl, JSON.stringify(graph), report].join("\n");
+    const fileArtifacts = graphFileArtifacts(graph);
+    const fingerprints = fileArtifacts.map(
+      ({ artifact }) => artifact.fingerprint,
+    );
+
+    expect(persisted).toContain("sha256:");
+    expect(persisted).not.toContain(rawPath);
+    expect(persisted).not.toContain("secret-plan.md");
+    expect(fileArtifacts.map(({ nodeId }) => nodeId)).toEqual([
+      "tool-read-1",
+      "tool-read-2",
+    ]);
+    expect(fileArtifacts.map(({ artifact }) => artifact.id)).toEqual([
+      "tool-read-1-file-path",
+      "tool-read-2-file-path",
+    ]);
+    expect(fingerprints.every(isSha256Fingerprint)).toBe(true);
+    expect(new Set(fingerprints).size).toBe(1);
+    for (const { artifact } of fileArtifacts) {
+      expect(artifact).toMatchObject({
+        kind: "file",
+        metadata: {
+          codex: {
+            fingerprintVersion: "codex.file_path.v0",
+            sourceField: "file_path",
+            toolName: "Read",
+          },
+          redaction: {
+            mode: "omitted",
+            reason: "Raw Codex file path is not persisted by default.",
+          },
+        },
+      });
+    }
+    expect(report).toContain("file_reuse");
+    expect(report).toContain("file fingerprint was observed 2 times");
+    expect(report).toContain("Raw file paths are omitted");
+    expect(report).not.toContain(rawPath);
+    expect(report).not.toContain("secret-plan.md");
+  });
+
+  it("records safe Grep, Glob, and LS path fields as file artifacts", async () => {
+    const storeDirectory = await tempRoot();
+    const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
+
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        path: "packages/codex/src",
+        pattern: "secret grep pattern",
+      },
+      toolName: "Grep",
+      toolUseId: "grep-1",
+    });
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        path: "/tmp/repo/packages/runtime/src",
+        pattern: "**/secret-glob-pattern.ts",
+      },
+      toolName: "Glob",
+      toolUseId: "glob-1",
+    });
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        path: "/tmp/repo/packages/codex",
+      },
+      toolName: "LS",
+      toolUseId: "ls-1",
+    });
+    await runAt(clock, storeDirectory, stop());
+
+    const { eventsJsonl, graph, report } =
+      await readRunArtifacts(storeDirectory);
+    const persisted = [eventsJsonl, JSON.stringify(graph), report].join("\n");
+    const fileArtifacts = graphFileArtifacts(graph);
+
+    expect(fileArtifacts.map(({ nodeId }) => nodeId)).toEqual([
+      "tool-grep-1",
+      "tool-glob-1",
+      "tool-ls-1",
+    ]);
+    expect(
+      fileArtifacts.map(({ artifact }) => artifact.metadata?.codex),
+    ).toEqual([
+      {
+        fingerprintVersion: "codex.file_path.v0",
+        sourceField: "path",
+        toolName: "Grep",
+      },
+      {
+        fingerprintVersion: "codex.file_path.v0",
+        sourceField: "path",
+        toolName: "Glob",
+      },
+      {
+        fingerprintVersion: "codex.file_path.v0",
+        sourceField: "path",
+        toolName: "LS",
+      },
+    ]);
+    expect(
+      fileArtifacts
+        .map(({ artifact }) => artifact.fingerprint)
+        .every(isSha256Fingerprint),
+    ).toBe(true);
+    expect(persisted).not.toContain("secret grep pattern");
+    expect(persisted).not.toContain("secret-glob-pattern.ts");
+  });
+
+  it("does not emit file artifacts for unsafe or irrelevant path-like fields", async () => {
+    const storeDirectory = await tempRoot();
+    const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
+
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        file_path: "   ",
+      },
+      toolName: "Read",
+      toolUseId: "blank-read",
+    });
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        path: ["/tmp/repo/packages/codex/src/array-path.ts"],
+        pattern: "/tmp/repo/packages/codex/src/pattern-only.ts",
+      },
+      toolName: "Grep",
+      toolUseId: "array-grep",
+    });
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        include: "/tmp/repo/packages/codex/src/include-only.ts",
+        pattern: "/tmp/repo/packages/codex/src/glob-pattern-only.ts",
+      },
+      toolName: "Glob",
+      toolUseId: "pattern-glob",
+    });
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        path: {
+          value: "/tmp/repo/packages/codex/src/object-path.ts",
+        },
+      },
+      toolName: "LS",
+      toolUseId: "object-ls",
+    });
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        command: "cat /tmp/repo/packages/codex/src/bash-command.ts",
+      },
+      toolName: "Bash",
+      toolUseId: "bash-1",
+    });
+    await runAt(clock, storeDirectory, stop());
+
+    const { graph } = await readRunArtifacts(storeDirectory);
+
+    expect(graphFileArtifacts(graph)).toEqual([]);
+  });
+
   it("exits successfully with no stdout for unsupported or invalid hook input", async () => {
     const storeDirectory = await tempRoot();
 
@@ -190,6 +403,69 @@ async function runAt(
   expect(result.stdout).toBe("");
 
   return result;
+}
+
+async function recordToolCall(
+  clock: FakeClock,
+  storeDirectory: string,
+  input: {
+    readonly toolInput: Readonly<Record<string, unknown>>;
+    readonly toolName: string;
+    readonly toolUseId: string;
+  },
+): Promise<void> {
+  await runAt(
+    clock,
+    storeDirectory,
+    preToolUse({
+      tool_input: input.toolInput,
+      tool_name: input.toolName,
+      tool_use_id: input.toolUseId,
+    }),
+  );
+  await runAt(
+    clock,
+    storeDirectory,
+    postToolUse({
+      tool_input: input.toolInput,
+      tool_name: input.toolName,
+      tool_use_id: input.toolUseId,
+    }),
+  );
+}
+
+async function readRunArtifacts(storeDirectory: string): Promise<{
+  readonly eventsJsonl: string;
+  readonly graph: ExecutionGraph;
+  readonly report: string;
+}> {
+  const runDirectory = join(storeDirectory, "runs", "codex-turn-turn-1");
+
+  return {
+    eventsJsonl: await readFile(join(runDirectory, "events.jsonl"), "utf8"),
+    graph: JSON.parse(
+      await readFile(join(runDirectory, "graph.json"), "utf8"),
+    ) as ExecutionGraph,
+    report: await readFile(join(runDirectory, "report.md"), "utf8"),
+  };
+}
+
+function graphFileArtifacts(graph: ExecutionGraph): readonly {
+  readonly artifact: ExecutionGraph["nodes"][number]["artifacts"][number];
+  readonly nodeId: string;
+}[] {
+  return graph.nodes.flatMap((node) =>
+    node.artifacts
+      .filter((artifact) => artifact.kind === "file")
+      .map((artifact) => ({
+        artifact,
+        nodeId: node.id,
+      })),
+  );
+}
+
+function isSha256Fingerprint(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith("sha256:");
 }
 
 async function tempRoot(): Promise<string> {

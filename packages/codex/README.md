@@ -30,6 +30,17 @@ Raw prompt text, tool input, tool output, assistant messages, transcript paths,
 and working directories are not persisted by default. The adapter stores stable
 fingerprints and redaction metadata instead.
 
+Read-like Codex tool inputs also emit redacted `file` artifacts when the hook
+payload exposes a safe plain-string path field:
+
+- `Read.file_path`
+- `Grep.path`
+- `Glob.path`
+- `LS.path`
+
+The adapter normalizes these paths only to compute a stable fingerprint. Raw
+and normalized paths are omitted from events, graphs, and reports.
+
 ## Dogfood Hooks
 
 The repository-level `.codex/hooks.json` registers the four supported hook
