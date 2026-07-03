@@ -142,12 +142,128 @@ describe("execution graph runtime", () => {
     );
   });
 
-  it("reports failed operations and repeated fingerprints", () => {
+  it("reports repeated successful operations as cache opportunities", () => {
     const repeatedFingerprint = stableExecutionHash({
       tool: "Bash",
       input: {
         command: "pnpm test",
       },
+    });
+    const graph = buildExecutionGraph("run-a", [
+      promptEvent(),
+      toolStartedEvent("tool-test-1", "Bash", {
+        fingerprint: repeatedFingerprint,
+        timestamp: "2026-01-01T00:00:01.000Z",
+      }),
+      toolFinishedEvent("tool-test-1", "Bash", {
+        fingerprint: repeatedFingerprint,
+        timestamp: "2026-01-01T00:00:04.000Z",
+      }),
+      toolStartedEvent("tool-test-2", "Bash", {
+        fingerprint: repeatedFingerprint,
+        timestamp: "2026-01-01T00:00:05.000Z",
+      }),
+      toolFinishedEvent("tool-test-2", "Bash", {
+        fingerprint: repeatedFingerprint,
+        timestamp: "2026-01-01T00:00:07.000Z",
+      }),
+      runCompletedEvent("stop", "2026-01-01T00:00:08.000Z"),
+    ]);
+
+    const summary = createExecutionReportSummary(graph);
+    const report = renderExecutionReport(graph);
+
+    expect(summary.repeatedOperations).toEqual([
+      {
+        count: 2,
+        displayName: "Bash",
+        fingerprint: repeatedFingerprint,
+        nodeIds: ["tool-test-1", "tool-test-2"],
+        operationKind: "tool_call",
+      },
+    ]);
+    expect(summary.potentialCachePoints).toMatchObject([
+      {
+        avoidableLatencyMs: 2000,
+        fingerprint: repeatedFingerprint,
+      },
+    ]);
+    expect(summary.opportunities[0]).toEqual({
+      category: "cache",
+      confidence: "high",
+      estimatedAvoidableLatencyMs: 2000,
+      id: `cache-${stableExecutionHash({
+        fingerprint: repeatedFingerprint,
+        nodeIds: ["tool-test-1", "tool-test-2"],
+      }).slice("sha256:".length, "sha256:".length + 12)}`,
+      nodeIds: ["tool-test-1", "tool-test-2"],
+      priority: "high",
+      reason:
+        "Bash repeated the same successful tool_call operation 2 times; later runs may be cacheable.",
+      safetyNotes: [
+        "Observation only: verify inputs, side effects, and freshness requirements before caching.",
+      ],
+    });
+    expect(summary.estimatedAvoidableLatencyMs).toBe(2000);
+    expect(report).toContain("## Opportunities");
+    expect(report).toContain(
+      "- [high/high] cache: Bash repeated the same successful tool_call operation 2 times; later runs may be cacheable. Nodes: tool-test-1, tool-test-2; avoidable latency 2000 ms",
+    );
+    expect(report).toContain("- tool-test-1: Bash");
+  });
+
+  it("reports repeated failures separately from clean cache opportunities", () => {
+    const repeatedFingerprint = stableExecutionHash({
+      input: {
+        command: "pnpm test",
+      },
+      tool: "Bash",
+    });
+    const graph = buildExecutionGraph("run-a", [
+      promptEvent(),
+      toolStartedEvent("tool-test-1", "Bash", {
+        fingerprint: repeatedFingerprint,
+        timestamp: "2026-01-01T00:00:01.000Z",
+      }),
+      toolFinishedEvent("tool-test-1", "Bash", {
+        fingerprint: repeatedFingerprint,
+        status: "error",
+        timestamp: "2026-01-01T00:00:04.000Z",
+      }),
+      toolStartedEvent("tool-test-2", "Bash", {
+        fingerprint: repeatedFingerprint,
+        timestamp: "2026-01-01T00:00:05.000Z",
+      }),
+      toolFinishedEvent("tool-test-2", "Bash", {
+        fingerprint: repeatedFingerprint,
+        status: "error",
+        timestamp: "2026-01-01T00:00:07.000Z",
+      }),
+    ]);
+
+    const summary = createExecutionReportSummary(graph);
+
+    expect(summary.potentialCachePoints).toEqual([]);
+    expect(summary.estimatedAvoidableLatencyMs).toBeUndefined();
+    expect(summary.opportunities).toContainEqual(
+      expect.objectContaining({
+        category: "failure",
+        confidence: "high",
+        estimatedAvoidableLatencyMs: 5000,
+        nodeIds: ["tool-test-1", "tool-test-2"],
+        priority: "high",
+        reason:
+          "Bash failed repeatedly for the same tool_call operation fingerprint.",
+      }),
+    );
+  });
+
+  it("uses conservative opportunity caveats for mixed-status repeated operations", () => {
+    const repeatedFingerprint = stableExecutionHash({
+      input: {
+        command: "pnpm test",
+      },
+      tool: "Bash",
     });
     const graph = buildExecutionGraph("run-a", [
       promptEvent(),
@@ -168,33 +284,78 @@ describe("execution graph runtime", () => {
         fingerprint: repeatedFingerprint,
         timestamp: "2026-01-01T00:00:07.000Z",
       }),
-      runCompletedEvent("stop", "2026-01-01T00:00:08.000Z"),
+    ]);
+
+    const summary = createExecutionReportSummary(graph);
+
+    expect(summary.potentialCachePoints).toEqual([]);
+    expect(summary.opportunities).toContainEqual(
+      expect.objectContaining({
+        category: "failure",
+        confidence: "medium",
+        nodeIds: ["tool-test-1", "tool-test-2"],
+        priority: "medium",
+        safetyNotes: [
+          "Mixed success and failure statuses: inspect reliability before treating this as reusable work.",
+        ],
+      }),
+    );
+  });
+
+  it("reports repeated file artifacts without raw file paths", () => {
+    const fileFingerprint = stableExecutionHash({
+      path: "src/execution.ts",
+    });
+    const graph = buildExecutionGraph("run-a", [
+      promptEvent(),
+      toolStartedEvent("tool-read-1", "Read", {
+        timestamp: "2026-01-01T00:00:01.000Z",
+      }),
+      toolFinishedEvent("tool-read-1", "Read", {
+        artifacts: [
+          fileArtifact("file-read-1", fileFingerprint),
+          toolResultArtifact("tool-read-1", "Read"),
+        ],
+        timestamp: "2026-01-01T00:00:02.000Z",
+      }),
+      toolStartedEvent("tool-read-2", "Read", {
+        timestamp: "2026-01-01T00:00:03.000Z",
+      }),
+      toolFinishedEvent("tool-read-2", "Read", {
+        artifacts: [
+          fileArtifact("file-read-2", fileFingerprint),
+          toolResultArtifact("tool-read-2", "Read"),
+        ],
+        timestamp: "2026-01-01T00:00:05.000Z",
+      }),
     ]);
 
     const summary = createExecutionReportSummary(graph);
     const report = renderExecutionReport(graph);
 
-    expect(graph.nodes.find((node) => node.id === "tool-test-1")).toMatchObject(
+    expect(summary.repeatedFiles).toEqual([
       {
-        status: "error",
-      },
-    );
-    expect(summary.repeatedOperations).toEqual([
-      {
+        artifactIds: ["file-read-1", "file-read-2"],
         count: 2,
-        fingerprint: repeatedFingerprint,
-        nodeIds: ["tool-test-1", "tool-test-2"],
-        operationKind: "tool_call",
+        fingerprint: fileFingerprint,
+        kind: "file",
+        nodeIds: ["tool-read-1", "tool-read-2"],
       },
     ]);
-    expect(summary.potentialCachePoints).toMatchObject([
-      {
-        avoidableLatencyMs: 2000,
-        fingerprint: repeatedFingerprint,
-      },
-    ]);
-    expect(summary.estimatedAvoidableLatencyMs).toBe(2000);
-    expect(report).toContain("- tool-test-1: Bash");
+    expect(summary.opportunities).toContainEqual(
+      expect.objectContaining({
+        artifactIds: ["file-read-1", "file-read-2"],
+        category: "file_reuse",
+        confidence: "medium",
+        nodeIds: ["tool-read-1", "tool-read-2"],
+        priority: "medium",
+        safetyNotes: [
+          "Raw file paths are omitted; this fingerprint alone does not prove cacheable tool input or output.",
+        ],
+      }),
+    );
+    expect(report).toContain("file fingerprint was observed 2 times");
+    expect(report).not.toContain("src/execution.ts");
   });
 
   it("identifies deterministic parallelism candidates from sequence-only edges", () => {
@@ -220,6 +381,87 @@ describe("execution graph runtime", () => {
         reason:
           "Adjacent operations are ordered only by observation sequence; verify side effects before parallelizing.",
       },
+    ]);
+  });
+
+  it("does not flag adjacent tool calls with explicit dependencies as parallelism candidates", () => {
+    const graph = buildExecutionGraph("run-a", [
+      promptEvent(),
+      toolStartedEvent("tool-a", "Read", {
+        timestamp: "2026-01-01T00:00:01.000Z",
+      }),
+      toolFinishedEvent("tool-a", "Read", {
+        timestamp: "2026-01-01T00:00:03.000Z",
+      }),
+      toolStartedEvent("tool-b", "Bash", {
+        explicitDependencies: ["tool-a"],
+        timestamp: "2026-01-01T00:00:04.000Z",
+      }),
+      toolFinishedEvent("tool-b", "Bash", {
+        timestamp: "2026-01-01T00:00:06.000Z",
+      }),
+    ]);
+
+    expect(createExecutionReportSummary(graph).potentialParallelism).toEqual(
+      [],
+    );
+  });
+
+  it("sorts opportunities deterministically when scores match", () => {
+    const firstFingerprint = stableExecutionHash({
+      input: "a",
+      tool: "Read",
+    });
+    const secondFingerprint = stableExecutionHash({
+      input: "b",
+      tool: "Read",
+    });
+    const graph = buildExecutionGraph("run-a", [
+      promptEvent(),
+      toolStartedEvent("tool-c", "Read", {
+        fingerprint: secondFingerprint,
+        timestamp: "2026-01-01T00:00:01.000Z",
+      }),
+      toolFinishedEvent("tool-c", "Read", {
+        fingerprint: secondFingerprint,
+        timestamp: "2026-01-01T00:00:02.000Z",
+      }),
+      toolStartedEvent("tool-d", "Read", {
+        fingerprint: secondFingerprint,
+        timestamp: "2026-01-01T00:00:03.000Z",
+      }),
+      toolFinishedEvent("tool-d", "Read", {
+        fingerprint: secondFingerprint,
+        timestamp: "2026-01-01T00:00:04.000Z",
+      }),
+      toolStartedEvent("tool-a", "Read", {
+        fingerprint: firstFingerprint,
+        timestamp: "2026-01-01T00:00:05.000Z",
+      }),
+      toolFinishedEvent("tool-a", "Read", {
+        fingerprint: firstFingerprint,
+        timestamp: "2026-01-01T00:00:06.000Z",
+      }),
+      toolStartedEvent("tool-b", "Read", {
+        fingerprint: firstFingerprint,
+        timestamp: "2026-01-01T00:00:07.000Z",
+      }),
+      toolFinishedEvent("tool-b", "Read", {
+        fingerprint: firstFingerprint,
+        timestamp: "2026-01-01T00:00:08.000Z",
+      }),
+    ]);
+
+    expect(
+      createExecutionReportSummary(graph).opportunities.map(
+        (opportunity) => opportunity.nodeIds,
+      ),
+    ).toEqual([
+      ["tool-a", "tool-b"],
+      ["tool-c", "tool-d"],
+      ["tool-a", "tool-b"],
+      ["tool-c", "tool-d"],
+      ["tool-d", "tool-a"],
     ]);
   });
 
@@ -327,6 +569,9 @@ function toolFinishedEvent(
   id: string,
   toolName: string,
   options: {
+    readonly artifacts?: readonly NonNullable<
+      ExecutionEvent["artifacts"]
+    >[number][];
     readonly fingerprint?: string;
     readonly inputTokens?: number;
     readonly outputTokens?: number;
@@ -351,18 +596,8 @@ function toolFinishedEvent(
       kind: "tool_call",
       name: toolName,
     },
-    artifacts: [
-      {
-        fingerprint: stableExecutionHash({
-          status: options.status ?? "ok",
-          tool: toolName,
-        }),
-        id: `${id}-output`,
-        kind: "tool_result",
-        metadata: {
-          redaction: "raw tool output omitted",
-        },
-      },
+    artifacts: options.artifacts ?? [
+      toolResultArtifact(id, toolName, options.status),
     ],
     metrics: {
       ...(options.inputTokens !== undefined
@@ -376,6 +611,38 @@ function toolFinishedEvent(
     occurredAt: options.timestamp,
     runId: "run-a",
     status: options.status ?? "ok",
+  };
+}
+
+function fileArtifact(
+  id: string,
+  fingerprint: string,
+): NonNullable<ExecutionEvent["artifacts"]>[number] {
+  return {
+    fingerprint,
+    id,
+    kind: "file",
+    metadata: {
+      redaction: "raw file path omitted; fingerprint only",
+    },
+  };
+}
+
+function toolResultArtifact(
+  id: string,
+  toolName: string,
+  status: "error" | "ok" = "ok",
+): NonNullable<ExecutionEvent["artifacts"]>[number] {
+  return {
+    fingerprint: stableExecutionHash({
+      status,
+      tool: toolName,
+    }),
+    id: `${id}-output`,
+    kind: "tool_result",
+    metadata: {
+      redaction: "raw tool output omitted",
+    },
   };
 }
 
