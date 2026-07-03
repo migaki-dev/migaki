@@ -69,6 +69,28 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "statusMessage": "Recording Migaki subagent start"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "statusMessage": "Recording Migaki subagent finish"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

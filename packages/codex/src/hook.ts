@@ -40,6 +40,8 @@ type SupportedCodexHookEventName =
   | "PreCompact"
   | "PreToolUse"
   | "Stop"
+  | "SubagentStart"
+  | "SubagentStop"
   | "UserPromptSubmit";
 
 interface CodexHookInputBase {
@@ -64,6 +66,8 @@ const supportedHookEvents = new Set<string>([
   "PreCompact",
   "PreToolUse",
   "Stop",
+  "SubagentStart",
+  "SubagentStop",
   "UserPromptSubmit",
 ]);
 
@@ -202,6 +206,52 @@ export function codexHookInputToExecutionEvent(
       },
       runId,
       ...(phase === "post" ? { status: "ok" } : {}),
+    };
+  }
+
+  if (
+    input.hook_event_name === "SubagentStart" ||
+    input.hook_event_name === "SubagentStop"
+  ) {
+    if (!hasSubagentSignal(input)) {
+      return undefined;
+    }
+
+    const phase = input.hook_event_name === "SubagentStart" ? "start" : "stop";
+    const subagentFingerprint = stableExecutionHash({
+      hookEventName: input.hook_event_name,
+      subagent: subagentFingerprintPayload(input),
+    });
+    const operationId = subagentOperationId({
+      subagentFingerprint,
+      subagentId:
+        readString(input, "subagent_id") ??
+        readString(input, "agent_id") ??
+        readString(input, "task_id"),
+    });
+
+    return {
+      version: EXECUTION_EVENT_VERSION,
+      id: `codex:${safeIdentifier(input.turn_id)}:${operationId}:${phase}`,
+      lifecycle: phase === "start" ? "start" : "finish",
+      operation: {
+        fingerprint: subagentFingerprint,
+        id: operationId,
+        kind: "subagent",
+        name: "Subagent work",
+      },
+      artifacts: subagentArtifacts(input),
+      metadata: {
+        ...metadata,
+        codex: {
+          ...readRecord(metadata.codex),
+          subagentPhase: phase,
+          workScope: "subagent",
+          ...subagentMetadata(input),
+        },
+      },
+      runId,
+      ...(phase === "stop" ? { status: subagentStatus(input) } : {}),
     };
   }
 
@@ -407,6 +457,187 @@ function hasCompactSignal(input: Readonly<Record<string, unknown>>): boolean {
     readNumberValue(input, "token_count") !== undefined ||
     readString(input, "trigger") !== undefined
   );
+}
+
+function hasSubagentSignal(input: Readonly<Record<string, unknown>>): boolean {
+  return (
+    readString(input, "agent_id") !== undefined ||
+    readString(input, "agent_name") !== undefined ||
+    readString(input, "delegated_prompt") !== undefined ||
+    readString(input, "parent_session_id") !== undefined ||
+    readString(input, "parent_turn_id") !== undefined ||
+    readString(input, "prompt") !== undefined ||
+    readString(input, "result") !== undefined ||
+    readString(input, "status") !== undefined ||
+    readString(input, "subagent_id") !== undefined ||
+    readString(input, "task") !== undefined ||
+    readString(input, "task_id") !== undefined ||
+    readString(input, "transcript") !== undefined ||
+    readUnknown(input, "tool_input") !== undefined ||
+    readUnknown(input, "tool_response") !== undefined
+  );
+}
+
+function subagentFingerprintPayload(
+  input: Readonly<Record<string, unknown>>,
+): unknown {
+  return {
+    agentId: readUnknown(input, "agent_id"),
+    agentName: readUnknown(input, "agent_name"),
+    delegatedPrompt:
+      readUnknown(input, "delegated_prompt") ?? readUnknown(input, "prompt"),
+    parentSessionId: readUnknown(input, "parent_session_id"),
+    parentTurnId: readUnknown(input, "parent_turn_id"),
+    result: readUnknown(input, "result"),
+    status: readUnknown(input, "status"),
+    subagentId: readUnknown(input, "subagent_id"),
+    task: readUnknown(input, "task"),
+    taskId: readUnknown(input, "task_id"),
+    toolInput: readUnknown(input, "tool_input"),
+    toolResponse: readUnknown(input, "tool_response"),
+    transcript: readUnknown(input, "transcript"),
+  };
+}
+
+function subagentOperationId(input: {
+  readonly subagentFingerprint: string;
+  readonly subagentId: string | undefined;
+}): string {
+  if (input.subagentId !== undefined && isSafeMetadataToken(input.subagentId)) {
+    return `subagent-${safeIdentifier(input.subagentId)}`;
+  }
+
+  return `subagent-${stableExecutionDigest(input.subagentFingerprint).slice(0, 16)}`;
+}
+
+function subagentArtifacts(
+  input: Readonly<Record<string, unknown>>,
+): readonly Artifact[] {
+  return [
+    ...subagentStringArtifact(input, {
+      fallbackSourceKey: "prompt",
+      id: "subagent-delegated-prompt",
+      kind: "delegated_prompt",
+      reason:
+        "Raw Codex delegated subagent prompt is not persisted by default.",
+      sourceKey: "delegated_prompt",
+    }),
+    ...subagentStringArtifact(input, {
+      id: "subagent-task",
+      kind: "subagent_task",
+      reason: "Raw Codex subagent task text is not persisted by default.",
+      sourceKey: "task",
+    }),
+    ...subagentStringArtifact(input, {
+      id: "subagent-result",
+      kind: "subagent_result",
+      reason: "Raw Codex subagent result text is not persisted by default.",
+      sourceKey: "result",
+    }),
+    ...subagentStringArtifact(input, {
+      id: "subagent-transcript",
+      kind: "transcript",
+      reason: "Raw Codex subagent transcript text is not persisted by default.",
+      sourceKey: "transcript",
+    }),
+    ...subagentUnknownArtifact(input, {
+      id: "subagent-tool-intent",
+      kind: "tool_intent",
+      reason: "Raw Codex subagent tool intent is not persisted by default.",
+      sourceKey: "tool_input",
+    }),
+    ...subagentUnknownArtifact(input, {
+      id: "subagent-tool-result",
+      kind: "tool_result",
+      reason: "Raw Codex subagent tool result is not persisted by default.",
+      sourceKey: "tool_response",
+    }),
+  ];
+}
+
+function subagentStringArtifact(
+  input: Readonly<Record<string, unknown>>,
+  artifact: {
+    readonly fallbackSourceKey?: string;
+    readonly id: string;
+    readonly kind: string;
+    readonly reason: string;
+    readonly sourceKey: string;
+  },
+): readonly Artifact[] {
+  const value =
+    readString(input, artifact.sourceKey) ??
+    (artifact.fallbackSourceKey === undefined
+      ? undefined
+      : readString(input, artifact.fallbackSourceKey));
+
+  if (value === undefined) {
+    return [];
+  }
+
+  return [
+    redactedArtifact({
+      fingerprint: stableExecutionHash({
+        [artifact.sourceKey]: value,
+      }),
+      id: artifact.id,
+      kind: artifact.kind,
+      reason: artifact.reason,
+    }),
+  ];
+}
+
+function subagentUnknownArtifact(
+  input: Readonly<Record<string, unknown>>,
+  artifact: {
+    readonly id: string;
+    readonly kind: string;
+    readonly reason: string;
+    readonly sourceKey: string;
+  },
+): readonly Artifact[] {
+  const value = readUnknown(input, artifact.sourceKey);
+
+  if (value === undefined) {
+    return [];
+  }
+
+  return [
+    redactedArtifact({
+      fingerprint: stableExecutionHash({
+        [artifact.sourceKey]: value,
+      }),
+      id: artifact.id,
+      kind: artifact.kind,
+      reason: artifact.reason,
+    }),
+  ];
+}
+
+function subagentMetadata(input: Readonly<Record<string, unknown>>): Metadata {
+  return {
+    ...safeMetadataString(input, "agent_id", "agentId"),
+    ...safeMetadataString(input, "agent_name", "agentName"),
+    ...safeMetadataString(input, "parent_session_id", "parentSessionId"),
+    ...safeMetadataString(input, "parent_turn_id", "parentTurnId"),
+    ...safeMetadataString(input, "status", "subagentStatus"),
+    ...safeMetadataString(input, "subagent_id", "subagentId"),
+    ...safeMetadataString(input, "task_id", "taskId"),
+  };
+}
+
+function subagentStatus(
+  input: Readonly<Record<string, unknown>>,
+): Extract<ExecutionEvent["status"], "error" | "ok"> {
+  const status = readString(input, "status")?.toLowerCase();
+
+  return status === "error" ||
+    status === "failed" ||
+    status === "failure" ||
+    status === "timeout" ||
+    status === "timed_out"
+    ? "error"
+    : "ok";
 }
 
 function compactFingerprintPayload(

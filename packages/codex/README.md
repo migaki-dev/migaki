@@ -15,6 +15,8 @@ Supported hook events:
 - `PostToolUse`
 - `PreCompact`
 - `PostCompact`
+- `SubagentStart`
+- `SubagentStop`
 - `Stop`
 
 The adapter scopes runs by Codex turn:
@@ -45,6 +47,12 @@ context-compaction boundary. Safe pressure metadata such as context-window
 percent, token counts, trigger, and compact ids may appear in metadata. Raw
 compact summaries, inspected-file summaries, acceptance criteria, reasons, and
 payload text are fingerprinted and omitted.
+
+`SubagentStart` and `SubagentStop` events are recorded as a start/finish pair
+for delegated work with `subagent` operation kind and `workScope: "subagent"`
+metadata. Safe subagent ids, agent names, parent session/turn ids, task ids, and
+statuses may appear in metadata. Raw delegated prompts, tasks, results,
+transcripts, and nested tool payloads are fingerprinted and omitted.
 
 Read-like Codex tool inputs also emit redacted `file` artifacts when the hook
 payload exposes a safe plain-string path field or a conservative read-like Bash
