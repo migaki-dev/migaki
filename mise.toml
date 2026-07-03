@@ -60,6 +60,15 @@ run = "node packages/migaki-openai-agents-js/dist/cli.js"
 description = "Print the newest local Migaki execution report"
 run = "scripts/migaki-latest-report"
 
+[tasks."migaki:runs"]
+description = "List recent local Migaki execution reports"
+run = "scripts/migaki-runs"
+
+[tasks."migaki:smoke"]
+description = "Run a trusted Codex hook smoke test and print the newest report"
+depends = ["build"]
+run = "scripts/migaki-smoke"
+
 [tasks."bootstrap:check"]
 description = "Validate bootstrap script syntax and shell launch paths"
 run = '''
@@ -70,11 +79,15 @@ sh -n scripts/env
 sh -n scripts/bootstrap
 sh -n scripts/install-git-hooks
 sh -n scripts/migaki-latest-report
+sh -n scripts/migaki-runs
+sh -n scripts/migaki-smoke
 sh -n scripts/run-git-hook-check
 sh -n .githooks/pre-commit
 sh -n .githooks/pre-push
 scripts/bootstrap --help >/dev/null
 scripts/migaki-latest-report --help >/dev/null
+scripts/migaki-runs --help >/dev/null
+scripts/migaki-smoke --help >/dev/null
 scripts/bootstrap '-?' >/dev/null
 
 if command -v bash >/dev/null 2>&1; then

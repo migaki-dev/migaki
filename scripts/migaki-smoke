@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-smoke
+
+Run a trusted Codex CLI smoke turn and print the newest Migaki report.
+
+The project Codex hooks must already be reviewed and trusted with /hooks.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  "")
+    ;;
+  *)
+    printf '%s\n' "Unknown argument: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+OUTPUT_FILE="${TMPDIR:-/tmp}/migaki-codex-smoke-$$.jsonl"
+
+cleanup() {
+  rm -f "$OUTPUT_FILE"
+}
+trap cleanup EXIT HUP INT TERM
+
+if ! command -v codex >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+Codex CLI was not found on PATH.
+
+Run this through mise with `mise run migaki:smoke`, or source scripts/env first.
+EOF
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+
+codex -a never exec --json -C "$ROOT_DIR" -s read-only "Run pwd with the shell tool, then reply exactly: MIGAKI_HOOK_SMOKE" > "$OUTPUT_FILE" 2>&1
+
+if ! grep -Fq "MIGAKI_HOOK_SMOKE" "$OUTPUT_FILE"; then
+  printf '%s\n' "Codex smoke turn did not return the expected marker." >&2
+  tail -40 "$OUTPUT_FILE" >&2
+  exit 1
+fi
+
+"$ROOT_DIR/scripts/migaki-latest-report"
