@@ -6,4 +6,5 @@ export * from "./baseline.js";
 export * from "./benchmark.js";
 export * from "./feature-smoke.js";
 export * from "./optimized.js";
+export * from "./provider-smoke.js";
 export * from "./validation.js";

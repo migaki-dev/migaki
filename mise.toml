@@ -73,6 +73,10 @@ run = "scripts/migaki-smoke"
 description = "Run the deterministic RAG feature smoke"
 run = "scripts/migaki-feature-smoke"
 
+[tasks."migaki:provider-smoke"]
+description = "Run the deterministic RAG provider lowering smoke"
+run = "scripts/migaki-provider-smoke"
+
 [tasks."bootstrap:check"]
 description = "Validate bootstrap script syntax and shell launch paths"
 run = '''
@@ -85,6 +89,7 @@ sh -n scripts/install-git-hooks
 sh -n scripts/migaki-latest-report
 sh -n scripts/migaki-runs
 sh -n scripts/migaki-feature-smoke
+sh -n scripts/migaki-provider-smoke
 sh -n scripts/migaki-smoke
 sh -n scripts/run-git-hook-check
 sh -n .githooks/pre-commit
@@ -93,6 +98,7 @@ scripts/bootstrap --help >/dev/null
 scripts/migaki-latest-report --help >/dev/null
 scripts/migaki-runs --help >/dev/null
 scripts/migaki-feature-smoke --help >/dev/null
+scripts/migaki-provider-smoke --help >/dev/null
 scripts/migaki-smoke --help >/dev/null
 scripts/bootstrap '-?' >/dev/null
 

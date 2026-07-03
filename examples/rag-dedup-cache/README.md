@@ -16,3 +16,14 @@ mise run migaki:feature-smoke
 The smoke exercises the baseline and optimized RAG paths, then fails if duplicate
 context elimination, stable-prefix detection, prompt-cache layout reporting,
 source-grounding retry scope, or benchmark acceptance criteria regress.
+
+Run the provider lowering smoke from the repository root:
+
+```sh
+mise run migaki:provider-smoke
+```
+
+The provider smoke lowers the optimized synthesis node into Anthropic-style,
+OpenAI-style, and LiteLLM-compatible request shapes without live provider calls,
+then fails if cache policy handling, context refs, gateway delegation, or
+provider warning evidence regress.
