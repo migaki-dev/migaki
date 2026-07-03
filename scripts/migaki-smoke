@@ -5,7 +5,8 @@ usage() {
   cat <<'EOF'
 Usage: scripts/migaki-smoke
 
-Run a trusted Codex CLI smoke turn and print the newest Migaki report.
+Run a trusted Codex CLI smoke turn, then assert a deterministic file-reuse
+Codex hook fixture surfaces Migaki opportunity evidence.
 
 The project Codex hooks must already be reviewed and trusted with /hooks.
 EOF
@@ -27,6 +28,10 @@ esac
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUTPUT_FILE="${TMPDIR:-/tmp}/migaki-codex-smoke-$$.jsonl"
+HOOK_FILE="$ROOT_DIR/packages/codex/dist/hook.js"
+FIXTURE_TURN_ID="migaki-smoke-file-reuse-$$"
+FIXTURE_RUN_DIR="$ROOT_DIR/.migaki/runs/codex-turn-$FIXTURE_TURN_ID"
+FIXTURE_REPORT="$FIXTURE_RUN_DIR/report.md"
 
 cleanup() {
   rm -f "$OUTPUT_FILE"
@@ -51,5 +56,70 @@ if ! grep -Fq "MIGAKI_HOOK_SMOKE" "$OUTPUT_FILE"; then
   tail -40 "$OUTPUT_FILE" >&2
   exit 1
 fi
+
+run_hook_fixture() {
+  hook_event_name=$1
+  tool_use_id=${2:-}
+  offset=${3:-}
+
+  case "$hook_event_name" in
+    UserPromptSubmit)
+      printf '{"cwd":"%s","hook_event_name":"UserPromptSubmit","model":"gpt-5.1-codex","permission_mode":"default","prompt":"Create deterministic file reuse smoke evidence.","session_id":"migaki-smoke","transcript_path":null,"turn_id":"%s"}\n' "$ROOT_DIR" "$FIXTURE_TURN_ID"
+      ;;
+    PreToolUse|PostToolUse)
+      if [ "$hook_event_name" = "PostToolUse" ]; then
+        printf '{"cwd":"%s","hook_event_name":"PostToolUse","model":"gpt-5.1-codex","permission_mode":"default","session_id":"migaki-smoke","tool_input":{"file_path":"README.md","offset":%s},"tool_name":"Read","tool_response":{"status":"ok"},"tool_use_id":"%s","transcript_path":null,"turn_id":"%s"}\n' "$ROOT_DIR" "$offset" "$tool_use_id" "$FIXTURE_TURN_ID"
+      else
+        printf '{"cwd":"%s","hook_event_name":"PreToolUse","model":"gpt-5.1-codex","permission_mode":"default","session_id":"migaki-smoke","tool_input":{"file_path":"README.md","offset":%s},"tool_name":"Read","tool_use_id":"%s","transcript_path":null,"turn_id":"%s"}\n' "$ROOT_DIR" "$offset" "$tool_use_id" "$FIXTURE_TURN_ID"
+      fi
+      ;;
+    Stop)
+      printf '{"cwd":"%s","hook_event_name":"Stop","last_assistant_message":"Done.","model":"gpt-5.1-codex","permission_mode":"default","session_id":"migaki-smoke","stop_hook_active":false,"transcript_path":null,"turn_id":"%s"}\n' "$ROOT_DIR" "$FIXTURE_TURN_ID"
+      ;;
+    *)
+      printf '%s\n' "Unsupported fixture hook event: $hook_event_name" >&2
+      exit 2
+      ;;
+  esac | node "$HOOK_FILE"
+}
+
+run_hook_fixture UserPromptSubmit
+run_hook_fixture PreToolUse read-1 1
+run_hook_fixture PostToolUse read-1 1
+run_hook_fixture PreToolUse read-2 2
+run_hook_fixture PostToolUse read-2 2
+run_hook_fixture Stop
+
+if [ ! -f "$FIXTURE_REPORT" ]; then
+  printf '%s\n' "Expected deterministic Migaki report was not written: $FIXTURE_REPORT" >&2
+  exit 1
+fi
+
+require_report_text() {
+  text=$1
+  if ! grep -Fq -- "$text" "$FIXTURE_REPORT"; then
+    printf '%s\n' "Expected deterministic Migaki report to contain: $text" >&2
+    printf '%s\n' "Report path: $FIXTURE_REPORT" >&2
+    exit 1
+  fi
+}
+
+reject_report_text() {
+  text=$1
+  if grep -Fq -- "$text" "$FIXTURE_REPORT"; then
+    printf '%s\n' "Deterministic Migaki report unexpectedly contained: $text" >&2
+    printf '%s\n' "Report path: $FIXTURE_REPORT" >&2
+    exit 1
+  fi
+}
+
+require_report_text "## Opportunity Summary"
+require_report_text "- Total: 2"
+require_report_text "- Actionability: actionable 0, needs_review 1, blocked 1"
+require_report_text "- Top recommendation: needs_review file_reuse on nodes tool-read-1, tool-read-2"
+require_report_text "file_reuse"
+require_report_text "file fingerprint was observed 2 times"
+require_report_text "Raw file paths are omitted"
+reject_report_text "README.md"
 
 "$ROOT_DIR/scripts/migaki-latest-report"

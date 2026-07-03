@@ -126,9 +126,12 @@ mise run migaki:runs
 mise run migaki:latest
 ```
 
-The latest report should contain a prompt node, any tool call nodes, and a turn
-completion node. Raw prompt text, tool input, and tool output are omitted by
-default; Migaki stores stable fingerprints instead.
+The smoke first verifies a trusted Codex CLI turn, then records a deterministic
+file-reuse fixture through the built Codex hook. The latest report should
+contain a prompt node, repeated read-like tool call nodes, a turn completion
+node, an `Opportunity Summary`, and a `file_reuse` top recommendation. Raw
+prompt text, tool input, tool output, and file paths are omitted by default;
+Migaki stores stable fingerprints instead.
 
 Codex Desktop uses the same project hook definitions. After trusting the
 project hooks in Desktop, normal turns in this repository should emit reports
