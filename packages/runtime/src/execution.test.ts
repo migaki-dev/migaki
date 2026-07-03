@@ -172,6 +172,10 @@ describe("execution graph runtime", () => {
 
     const summary = createExecutionReportSummary(graph);
     const report = renderExecutionReport(graph);
+    const cacheOpportunityId = `cache-${stableExecutionHash({
+      fingerprint: repeatedFingerprint,
+      nodeIds: ["tool-test-1", "tool-test-2"],
+    }).slice("sha256:".length, "sha256:".length + 12)}`;
 
     expect(summary.repeatedOperations).toEqual([
       {
@@ -196,10 +200,7 @@ describe("execution graph runtime", () => {
       category: "cache",
       confidence: "high",
       estimatedAvoidableLatencyMs: 2000,
-      id: `cache-${stableExecutionHash({
-        fingerprint: repeatedFingerprint,
-        nodeIds: ["tool-test-1", "tool-test-2"],
-      }).slice("sha256:".length, "sha256:".length + 12)}`,
+      id: cacheOpportunityId,
       nodeIds: ["tool-test-1", "tool-test-2"],
       priority: "high",
       reason:
@@ -210,7 +211,25 @@ describe("execution graph runtime", () => {
       whyActionable:
         "The same successful tool_call fingerprint repeated with measured later-run latency.",
     });
+    expect(summary.opportunitySummary).toEqual({
+      actionabilityCounts: {
+        actionable: 0,
+        blocked: 1,
+        needsReview: 1,
+      },
+      topOpportunityId: cacheOpportunityId,
+      topRecommendation: "needs_review cache on nodes tool-test-1, tool-test-2",
+      total: 2,
+    });
     expect(summary.estimatedAvoidableLatencyMs).toBe(2000);
+    expect(report).toContain("## Opportunity Summary");
+    expect(report).toContain("- Total: 2");
+    expect(report).toContain(
+      "- Actionability: actionable 0, needs_review 1, blocked 1",
+    );
+    expect(report).toContain(
+      "- Top recommendation: needs_review cache on nodes tool-test-1, tool-test-2",
+    );
     expect(report).toContain("## Opportunities");
     expect(report).toContain(
       "- [needs_review high/high] cache: Bash repeated the same successful tool_call operation 2 times; later runs may be cacheable. Nodes: tool-test-1, tool-test-2; avoidable latency 2000 ms",

@@ -170,6 +170,17 @@ export interface ExecutionOpportunityReport {
   readonly whyActionable: string;
 }
 
+export interface ExecutionOpportunitySummaryReport {
+  readonly actionabilityCounts: {
+    readonly actionable: number;
+    readonly blocked: number;
+    readonly needsReview: number;
+  };
+  readonly topOpportunityId?: string;
+  readonly topRecommendation?: string;
+  readonly total: number;
+}
+
 export interface TokenEstimateReport {
   readonly cachedInputTokens?: number;
   readonly inputTokens?: number;
@@ -188,6 +199,7 @@ export interface ExecutionReportSummary {
   readonly failedNodes: readonly string[];
   readonly nodeCount: number;
   readonly opportunities: readonly ExecutionOpportunityReport[];
+  readonly opportunitySummary?: ExecutionOpportunitySummaryReport;
   readonly potentialCachePoints: readonly PotentialCachePointReport[];
   readonly potentialParallelism: readonly PotentialParallelismReport[];
   readonly repeatedFiles: readonly RepeatedArtifactReport[];
@@ -416,6 +428,7 @@ export function createExecutionReportSummary(
     repeatedFiles,
     repeatedOperations,
   });
+  const opportunitySummary = createOpportunitySummary(opportunities);
   const summary: ExecutionReportSummary = {
     criticalPath: findCriticalPath(graph),
     edgeCount: graph.edges.length,
@@ -424,6 +437,7 @@ export function createExecutionReportSummary(
       .map((node) => node.id),
     nodeCount: graph.nodes.length,
     opportunities,
+    opportunitySummary,
     potentialCachePoints,
     potentialParallelism,
     repeatedFiles,
@@ -461,6 +475,10 @@ export function renderExecutionReport(graph: ExecutionGraph): string {
     `- Edges: ${summary.edgeCount}`,
     `- Tool calls: ${summary.toolCalls}`,
     `- Failed nodes: ${summary.failedNodes.length}`,
+    "",
+    "## Opportunity Summary",
+    "",
+    ...renderOpportunitySummaryLines(summary.opportunitySummary),
     "",
     "## Opportunities",
     "",
@@ -945,6 +963,40 @@ function createExecutionOpportunities(input: {
       createParallelismOpportunity(parallelism, nodesById),
     ),
   ].sort(compareExecutionOpportunities);
+}
+
+function createOpportunitySummary(
+  opportunities: readonly ExecutionOpportunityReport[],
+): ExecutionOpportunitySummaryReport {
+  const topOpportunity = opportunities[0];
+  const summary: ExecutionOpportunitySummaryReport = {
+    actionabilityCounts: {
+      actionable: opportunities.filter(
+        (opportunity) => opportunity.actionability === "actionable",
+      ).length,
+      blocked: opportunities.filter(
+        (opportunity) => opportunity.actionability === "blocked",
+      ).length,
+      needsReview: opportunities.filter(
+        (opportunity) => opportunity.actionability === "needs_review",
+      ).length,
+    },
+    total: opportunities.length,
+    ...(topOpportunity === undefined
+      ? {}
+      : {
+          topOpportunityId: topOpportunity.id,
+          topRecommendation: formatTopOpportunityRecommendation(topOpportunity),
+        }),
+  };
+
+  return summary;
+}
+
+function formatTopOpportunityRecommendation(
+  opportunity: ExecutionOpportunityReport,
+): string {
+  return `${opportunity.actionability} ${opportunity.category} on nodes ${opportunity.nodeIds.join(", ")}`;
 }
 
 function createRepeatedFailureOpportunity(
@@ -1452,6 +1504,22 @@ function renderPotentialCachePointLines(
     (point) =>
       `- ${point.displayName ?? point.operationKind} (${point.operationKind}) ${point.fingerprint}: ${point.nodeIds.join(", ")}; avoidable latency ${formatOptionalNumber(point.avoidableLatencyMs)} ms`,
   );
+}
+
+function renderOpportunitySummaryLines(
+  summary: ExecutionOpportunitySummaryReport | undefined,
+): readonly string[] {
+  const counts = summary?.actionabilityCounts ?? {
+    actionable: 0,
+    blocked: 0,
+    needsReview: 0,
+  };
+
+  return [
+    `- Total: ${summary?.total ?? 0}`,
+    `- Actionability: actionable ${counts.actionable}, needs_review ${counts.needsReview}, blocked ${counts.blocked}`,
+    `- Top recommendation: ${summary?.topRecommendation ?? "none"}`,
+  ];
 }
 
 function renderOpportunityLines(
