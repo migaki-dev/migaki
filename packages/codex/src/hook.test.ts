@@ -271,9 +271,10 @@ describe("Codex hook adapter", () => {
       "- Actionability: actionable 0, needs_review 1, blocked 1",
     );
     expect(report).toContain(
-      "- Top recommendation: needs_review file_reuse on nodes tool-read-1, tool-read-2",
+      "- Top recommendation: needs_review file_reuse across 2 read-like calls (Read.file_path)",
     );
     expect(report).toContain("[needs_review medium/medium] file_reuse");
+    expect(report).toContain("Sources: Read.file_path");
     expect(report).not.toContain(rawPath);
     expect(report).not.toContain("secret-plan.md");
   });

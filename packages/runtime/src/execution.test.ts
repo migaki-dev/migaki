@@ -8,6 +8,7 @@ import {
   MigakiRuntime,
   buildExecutionGraph,
   createExecutionReportSummary,
+  renderExecutionAdvice,
   renderExecutionReport,
   stableExecutionHash,
   type ExecutionEvent,
@@ -390,20 +391,106 @@ describe("execution graph runtime", () => {
         blockedBy: [
           "Raw file paths are omitted.",
           "A caller-safe file identity and freshness policy is required before reuse.",
+          "Command-output equivalence must be verified before avoiding a read.",
         ],
         category: "file_reuse",
         confidence: "medium",
         nodeIds: ["tool-read-1", "tool-read-2"],
         priority: "medium",
         safetyNotes: [
-          "Raw file paths are omitted; this fingerprint alone does not prove cacheable tool input or output.",
+          "Raw file paths and commands are omitted; this fingerprint alone does not prove cacheable tool input or output.",
         ],
         whyActionable:
-          "The same redacted file fingerprint appeared across multiple tool calls.",
+          "The same redacted file identity was reopened through read-like tool calls.",
       }),
     );
     expect(report).toContain("file fingerprint was observed 2 times");
     expect(report).not.toContain("src/execution.ts");
+  });
+
+  it("renders next-session advice for repeated file artifacts using only safe source labels", () => {
+    const rawPath = "src/secret-session-plan.ts";
+    const fileFingerprint = stableExecutionHash({
+      path: rawPath,
+    });
+    const catFingerprint = stableExecutionHash({
+      input: "cat",
+      tool: "Bash",
+    });
+    const sedFingerprint = stableExecutionHash({
+      input: "sed",
+      tool: "Bash",
+    });
+    const graph = buildExecutionGraph("run-a", [
+      promptEvent(),
+      toolStartedEvent("tool-cat", "Bash", {
+        fingerprint: catFingerprint,
+        timestamp: "2026-01-01T00:00:01.000Z",
+      }),
+      toolFinishedEvent("tool-cat", "Bash", {
+        artifacts: [
+          fileArtifact("file-cat", fileFingerprint, {
+            sourceCommand: "cat",
+            sourceField: "command",
+            toolName: "Bash",
+          }),
+          toolResultArtifact("tool-cat", "Bash"),
+        ],
+        fingerprint: catFingerprint,
+        timestamp: "2026-01-01T00:00:02.000Z",
+      }),
+      toolStartedEvent("tool-sed", "Bash", {
+        fingerprint: sedFingerprint,
+        timestamp: "2026-01-01T00:00:03.000Z",
+      }),
+      toolFinishedEvent("tool-sed", "Bash", {
+        artifacts: [
+          fileArtifact("file-sed", fileFingerprint, {
+            sourceCommand: "sed",
+            sourceField: "command",
+            toolName: "Bash",
+          }),
+          toolResultArtifact("tool-sed", "Bash"),
+        ],
+        fingerprint: sedFingerprint,
+        timestamp: "2026-01-01T00:00:05.000Z",
+      }),
+    ]);
+
+    const summary = createExecutionReportSummary(graph);
+    const report = renderExecutionReport(graph);
+    const advice = renderExecutionAdvice(graph);
+
+    expect(summary.repeatedFiles).toEqual([
+      {
+        artifactIds: ["file-cat", "file-sed"],
+        count: 2,
+        fingerprint: fileFingerprint,
+        kind: "file",
+        nodeIds: ["tool-cat", "tool-sed"],
+        sourceLabels: ["Bash cat", "Bash sed"],
+      },
+    ]);
+    expect(summary.opportunitySummary).toMatchObject({
+      topRecommendation:
+        "needs_review file_reuse across 2 read-like calls (Bash cat, Bash sed)",
+    });
+    expect(report).toContain("Sources: Bash cat, Bash sed");
+    expect(advice).toContain("# Migaki Session Advice");
+    expect(advice).toContain(
+      "Top signal: file_reuse across 2 read-like calls.",
+    );
+    expect(advice).toContain("Safe source signals: Bash cat, Bash sed");
+    expect(advice).toContain(
+      "Before continuing, check the prior context for files already inspected.",
+    );
+    expect(advice).toContain(
+      "do not cache, replay, or skip reads automatically",
+    );
+    expect([report, advice].join("\n")).not.toContain(rawPath);
+    expect([report, advice].join("\n")).not.toContain("secret-session-plan.ts");
+    expect([report, advice].join("\n")).not.toContain("cat src/");
+    expect([report, advice].join("\n")).not.toContain("sed -n");
   });
 
   it("identifies deterministic parallelism candidates from sequence-only edges", () => {
@@ -832,12 +919,30 @@ function toolFinishedEvent(
 function fileArtifact(
   id: string,
   fingerprint: string,
+  source:
+    | {
+        readonly sourceCommand?: string;
+        readonly sourceField: string;
+        readonly toolName: string;
+      }
+    | undefined = undefined,
 ): NonNullable<ExecutionEvent["artifacts"]>[number] {
   return {
     fingerprint,
     id,
     kind: "file",
     metadata: {
+      ...(source === undefined
+        ? {}
+        : {
+            codex: {
+              ...(source.sourceCommand === undefined
+                ? {}
+                : { sourceCommand: source.sourceCommand }),
+              sourceField: source.sourceField,
+              toolName: source.toolName,
+            },
+          }),
       redaction: "raw file path omitted; fingerprint only",
     },
   };
