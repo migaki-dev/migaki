@@ -17,12 +17,21 @@ Supported hook events:
 - `PostCompact`
 - `SubagentStart`
 - `SubagentStop`
+- `SessionStart`
 - `Stop`
 
-The adapter scopes runs by Codex turn:
+Most supported events scope runs by Codex turn:
 
 ```ts
 runId = `codex-turn-${safeTurnId}`;
+```
+
+`SessionStart` is thread/session-scoped because Codex may emit it without a
+normal turn id. Migaki records those events in an explicit session run instead
+of silently merging them into a later turn:
+
+```ts
+runId = `codex-session-${safeSessionOrThreadId}`;
 ```
 
 Artifacts are written through `LocalStore(".migaki")`:
@@ -53,6 +62,12 @@ for delegated work with `subagent` operation kind and `workScope: "subagent"`
 metadata. Safe subagent ids, agent names, parent session/turn ids, task ids, and
 statuses may appear in metadata. Raw delegated prompts, tasks, results,
 transcripts, and nested tool payloads are fingerprinted and omitted.
+
+`SessionStart` events are recorded as point-in-time `session_boundary` nodes in
+the session-scoped run. Safe startup/resume/clear/compact boundary labels,
+session ids, thread ids, and source fields may appear in metadata. Raw startup
+prompts, reasons, compact summaries, transcript paths, and payload text are
+fingerprinted and omitted.
 
 Read-like Codex tool inputs also emit redacted `file` artifacts when the hook
 payload exposes a safe plain-string path field or a conservative read-like Bash

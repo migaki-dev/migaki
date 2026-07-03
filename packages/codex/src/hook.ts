@@ -39,6 +39,7 @@ type SupportedCodexHookEventName =
   | "PostCompact"
   | "PreCompact"
   | "PreToolUse"
+  | "SessionStart"
   | "Stop"
   | "SubagentStart"
   | "SubagentStop"
@@ -51,6 +52,7 @@ interface CodexHookInputBase {
   readonly model?: string;
   readonly permission_mode?: string;
   readonly session_id?: string;
+  readonly thread_id?: string;
   readonly transcript_path?: string | null;
   readonly turn_id?: string;
 }
@@ -65,6 +67,7 @@ const supportedHookEvents = new Set<string>([
   "PostToolUse",
   "PreCompact",
   "PreToolUse",
+  "SessionStart",
   "Stop",
   "SubagentStart",
   "SubagentStop",
@@ -117,6 +120,10 @@ export async function runCodexHook(
 export function codexHookInputToExecutionEvent(
   input: SupportedCodexHookInput,
 ): ExecutionEvent | undefined {
+  if (input.hook_event_name === "SessionStart") {
+    return sessionStartToExecutionEvent(input);
+  }
+
   if (typeof input.turn_id !== "string" || input.turn_id.trim() === "") {
     return undefined;
   }
@@ -421,6 +428,197 @@ export function codexHookInputToExecutionEvent(
   }
 
   return undefined;
+}
+
+function sessionStartToExecutionEvent(
+  input: SupportedCodexHookInput,
+): ExecutionEvent | undefined {
+  if (!hasSessionStartSignal(input)) {
+    return undefined;
+  }
+
+  const runId = codexSessionRunId(input);
+
+  if (runId === undefined) {
+    return undefined;
+  }
+
+  const boundaryKind = sessionBoundaryKind(input);
+  const sessionFingerprint = stableExecutionHash({
+    hookEventName: input.hook_event_name,
+    sessionStart: sessionStartFingerprintPayload(input),
+  });
+  const metadata = codexMetadata(input);
+
+  return {
+    version: EXECUTION_EVENT_VERSION,
+    id: `codex:${safeIdentifier(runId)}:session:${safeIdentifier(boundaryKind)}`,
+    lifecycle: "point",
+    operation: {
+      fingerprint: sessionFingerprint,
+      id: `session-${safeIdentifier(boundaryKind)}`,
+      kind: "session_boundary",
+      name: "Session boundary",
+    },
+    artifacts: sessionStartArtifacts(input, sessionFingerprint),
+    metadata: {
+      ...metadata,
+      codex: {
+        ...readRecord(metadata.codex),
+        sessionBoundaryKind: boundaryKind,
+        workScope: "session",
+        ...sessionStartMetadata(input),
+      },
+    },
+    runId,
+    runStatus: "ok",
+    status: "ok",
+  };
+}
+
+function hasSessionStartSignal(
+  input: Readonly<Record<string, unknown>>,
+): boolean {
+  return (
+    (readString(input, "session_id") !== undefined ||
+      readString(input, "thread_id") !== undefined) &&
+    (readString(input, "boundary_kind") !== undefined ||
+      readString(input, "event") !== undefined ||
+      readString(input, "prompt") !== undefined ||
+      readString(input, "reason") !== undefined ||
+      readString(input, "session_start_kind") !== undefined ||
+      readString(input, "source") !== undefined ||
+      readString(input, "startup_type") !== undefined ||
+      readString(input, "summary") !== undefined)
+  );
+}
+
+function codexSessionRunId(input: CodexHookInputBase): string | undefined {
+  const scopeId =
+    readString(input, "session_id") ?? readString(input, "thread_id");
+
+  if (scopeId === undefined || scopeId.trim() === "") {
+    return undefined;
+  }
+
+  const safeScopeId = isSafeMetadataToken(scopeId)
+    ? safeIdentifier(scopeId)
+    : stableExecutionDigest(scopeId).slice(0, 32);
+
+  return `codex-session-${safeScopeId}`;
+}
+
+function sessionBoundaryKind(input: Readonly<Record<string, unknown>>): string {
+  const value =
+    readString(input, "session_start_kind") ??
+    readString(input, "boundary_kind") ??
+    readString(input, "startup_type") ??
+    readString(input, "source") ??
+    readString(input, "event") ??
+    readString(input, "reason");
+
+  if (value === undefined) {
+    return "start";
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  return isSafeMetadataToken(normalized) ? normalized : "start";
+}
+
+function sessionStartFingerprintPayload(
+  input: Readonly<Record<string, unknown>>,
+): unknown {
+  return {
+    boundaryKind: readUnknown(input, "boundary_kind"),
+    event: readUnknown(input, "event"),
+    prompt: readUnknown(input, "prompt"),
+    reason: readUnknown(input, "reason"),
+    sessionStartKind: readUnknown(input, "session_start_kind"),
+    source: readUnknown(input, "source"),
+    startupType: readUnknown(input, "startup_type"),
+    summary: readUnknown(input, "summary"),
+    threadId: readUnknown(input, "thread_id"),
+  };
+}
+
+function sessionStartArtifacts(
+  input: Readonly<Record<string, unknown>>,
+  sessionFingerprint: string,
+): readonly Artifact[] {
+  return [
+    redactedArtifact({
+      fingerprint: sessionFingerprint,
+      id: "session-start",
+      kind: "session_start",
+      reason: "Raw Codex session-start payload is not persisted by default.",
+    }),
+    ...sessionStartStringArtifact(input, {
+      id: "session-start-prompt",
+      kind: "prompt",
+      reason: "Raw Codex session-start prompt is not persisted by default.",
+      sourceKey: "prompt",
+    }),
+    ...sessionStartStringArtifact(input, {
+      id: "session-start-reason",
+      kind: "session_reason",
+      reason: "Raw Codex session-start reason is not persisted by default.",
+      sourceKey: "reason",
+    }),
+    ...sessionStartStringArtifact(input, {
+      id: "session-start-summary",
+      kind: "summary",
+      reason: "Raw Codex session-start summary is not persisted by default.",
+      sourceKey: "summary",
+    }),
+  ];
+}
+
+function sessionStartStringArtifact(
+  input: Readonly<Record<string, unknown>>,
+  artifact: {
+    readonly id: string;
+    readonly kind: string;
+    readonly reason: string;
+    readonly sourceKey: string;
+  },
+): readonly Artifact[] {
+  const value = readString(input, artifact.sourceKey);
+
+  if (value === undefined) {
+    return [];
+  }
+
+  return [
+    redactedArtifact({
+      fingerprint: stableExecutionHash({
+        [artifact.sourceKey]: value,
+      }),
+      id: artifact.id,
+      kind: artifact.kind,
+      reason: artifact.reason,
+    }),
+  ];
+}
+
+function sessionStartMetadata(
+  input: Readonly<Record<string, unknown>>,
+): Metadata {
+  return {
+    ...safeMetadataString(input, "boundary_kind", "boundaryKind"),
+    ...safeMetadataString(input, "event", "event"),
+    ...safeMetadataString(input, "session_start_kind", "sessionStartKind"),
+    ...safeMetadataString(input, "source", "source"),
+    ...safeMetadataString(input, "startup_type", "startupType"),
+    ...safeMetadataString(input, "thread_id", "threadId"),
+    ...(readString(input, "reason") !== undefined
+      ? {
+          reasonFingerprint: stableExecutionHash({
+            reason: readString(input, "reason"),
+          }),
+        }
+      : {}),
+  };
 }
 
 function hasPermissionRequestSignal(
@@ -971,6 +1169,7 @@ function codexMetadata(input: CodexHookInputBase): Metadata {
       ...(input.session_id !== undefined
         ? { sessionId: input.session_id }
         : {}),
+      ...(input.thread_id !== undefined ? { threadId: input.thread_id } : {}),
       ...(input.transcript_path !== undefined && input.transcript_path !== null
         ? {
             transcriptPathFingerprint: stableExecutionHash(
@@ -982,9 +1181,9 @@ function codexMetadata(input: CodexHookInputBase): Metadata {
     },
     sequence: {
       scope:
-        input.turn_id === undefined
-          ? "codex-turn-unknown"
-          : codexRunId(input.turn_id),
+        input.turn_id !== undefined
+          ? codexRunId(input.turn_id)
+          : (codexSessionRunId(input) ?? "codex-turn-unknown"),
     },
     source: {
       adapter: "codex-hooks",

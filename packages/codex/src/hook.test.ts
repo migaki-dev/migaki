@@ -487,6 +487,131 @@ describe("Codex hook adapter", () => {
     });
   });
 
+  it("records SessionStart boundaries in a session-scoped run without a turn id", async () => {
+    const storeDirectory = await tempRoot();
+    const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
+
+    await runAt(
+      clock,
+      storeDirectory,
+      sessionStart({
+        prompt: "secret startup prompt",
+        reason: "secret startup reason",
+        session_start_kind: "startup",
+      }),
+    );
+    await runAt(
+      clock,
+      storeDirectory,
+      sessionStart({
+        reason: "secret resume reason",
+        session_start_kind: "resume",
+        transcript_path: "/tmp/repo/secret-resume-transcript.jsonl",
+      }),
+    );
+    await runAt(
+      clock,
+      storeDirectory,
+      sessionStart({
+        reason: "secret clear reason",
+        session_start_kind: "clear",
+      }),
+    );
+    await runAt(
+      clock,
+      storeDirectory,
+      sessionStart({
+        reason: "secret compact reason",
+        session_start_kind: "compact",
+        summary: "secret compact session summary",
+      }),
+    );
+
+    const { eventsJsonl, graph, report } = await readRunArtifactsByRunId(
+      storeDirectory,
+      "codex-session-session-1",
+    );
+    const persisted = [eventsJsonl, JSON.stringify(graph), report].join("\n");
+
+    expect(graph).toMatchObject({
+      runId: "codex-session-session-1",
+      status: "ok",
+      version: EXECUTION_GRAPH_VERSION,
+    });
+    expect(graph.nodes.map((node) => node.id)).toEqual([
+      "session-startup",
+      "session-resume",
+      "session-clear",
+      "session-compact",
+    ]);
+    expect(graph.nodes.map((node) => node.operation.kind)).toEqual([
+      "session_boundary",
+      "session_boundary",
+      "session_boundary",
+      "session_boundary",
+    ]);
+    expect(graph.nodes.map((node) => node.metadata.codex)).toEqual([
+      expect.objectContaining({
+        sessionBoundaryKind: "startup",
+        sessionId: "session-1",
+        workScope: "session",
+      }),
+      expect.objectContaining({
+        sessionBoundaryKind: "resume",
+        sessionId: "session-1",
+        workScope: "session",
+      }),
+      expect.objectContaining({
+        sessionBoundaryKind: "clear",
+        sessionId: "session-1",
+        workScope: "session",
+      }),
+      expect.objectContaining({
+        sessionBoundaryKind: "compact",
+        sessionId: "session-1",
+        workScope: "session",
+      }),
+    ]);
+    expect(
+      graph.nodes
+        .flatMap((node) => node.artifacts)
+        .every((artifact) => isSha256Fingerprint(artifact.fingerprint)),
+    ).toBe(true);
+    expect(report).toContain("- session-startup: Session boundary");
+    expect(persisted).not.toContain("secret startup prompt");
+    expect(persisted).not.toContain("secret startup reason");
+    expect(persisted).not.toContain("secret resume reason");
+    expect(persisted).not.toContain("secret-resume-transcript");
+    expect(persisted).not.toContain("secret clear reason");
+    expect(persisted).not.toContain("secret compact reason");
+    expect(persisted).not.toContain("secret compact session summary");
+  });
+
+  it("ignores malformed SessionStart payloads without failing the hook command", async () => {
+    const storeDirectory = await tempRoot();
+
+    await expect(
+      runCodexHook(
+        JSON.stringify({
+          hook_event_name: "SessionStart",
+          session_id: "session-1",
+        }),
+        {
+          storeDirectory,
+        },
+      ),
+    ).resolves.toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "",
+    });
+    await expect(
+      readRunArtifactsByRunId(storeDirectory, "codex-session-session-1"),
+    ).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("records repeated Read file fingerprints without persisting raw file paths", async () => {
     const storeDirectory = await tempRoot();
     const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
@@ -992,7 +1117,7 @@ describe("Codex hook adapter", () => {
     await expect(
       runCodexHook(
         JSON.stringify({
-          hook_event_name: "SessionStart",
+          hook_event_name: "UnknownEvent",
           session_id: "session-1",
         }),
         {
@@ -1071,6 +1196,25 @@ async function readRunArtifacts(storeDirectory: string): Promise<{
   };
 }
 
+async function readRunArtifactsByRunId(
+  storeDirectory: string,
+  runId: string,
+): Promise<{
+  readonly eventsJsonl: string;
+  readonly graph: ExecutionGraph;
+  readonly report: string;
+}> {
+  const runDirectory = join(storeDirectory, "runs", runId);
+
+  return {
+    eventsJsonl: await readFile(join(runDirectory, "events.jsonl"), "utf8"),
+    graph: JSON.parse(
+      await readFile(join(runDirectory, "graph.json"), "utf8"),
+    ) as ExecutionGraph,
+    report: await readFile(join(runDirectory, "report.md"), "utf8"),
+  };
+}
+
 function graphFileArtifacts(graph: ExecutionGraph): readonly {
   readonly artifact: ExecutionGraph["nodes"][number]["artifacts"][number];
   readonly nodeId: string;
@@ -1108,6 +1252,20 @@ function userPromptSubmit(
     session_id: "session-1",
     transcript_path: null,
     turn_id: "turn-1",
+    ...overrides,
+  };
+}
+
+function sessionStart(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    cwd: "/tmp/repo",
+    hook_event_name: "SessionStart",
+    model: "gpt-5.1-codex",
+    permission_mode: "default",
+    session_id: "session-1",
+    transcript_path: null,
     ...overrides,
   };
 }
