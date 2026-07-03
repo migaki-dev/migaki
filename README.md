@@ -93,6 +93,7 @@ mise run build
 mise run migaki:latest
 mise run migaki:runs
 mise run migaki:smoke
+mise run migaki:feature-smoke
 mise run benchmark:openai-agents repo-agent-benchmark --run-id repo-agent-fixture
 mise run bootstrap:check
 mise tasks
