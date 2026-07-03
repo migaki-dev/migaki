@@ -366,6 +366,127 @@ describe("Codex hook adapter", () => {
     });
   });
 
+  it("records subagent boundaries separately from main-session work without raw delegated text", async () => {
+    const storeDirectory = await tempRoot();
+    const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
+
+    await runAt(clock, storeDirectory, userPromptSubmit());
+    await runAt(
+      clock,
+      storeDirectory,
+      subagentStart({
+        agent_name: "repo-researcher",
+        delegated_prompt: "secret delegated prompt",
+        parent_turn_id: "turn-1",
+        subagent_id: "agent-1",
+        task: "secret delegated task",
+      }),
+    );
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        command: "cat packages/codex/src/main-session.ts",
+      },
+      toolName: "Bash",
+      toolUseId: "main-tool-1",
+    });
+    await runAt(
+      clock,
+      storeDirectory,
+      subagentStop({
+        agent_name: "repo-researcher",
+        parent_turn_id: "turn-1",
+        result: "secret delegated result",
+        status: "success",
+        subagent_id: "agent-1",
+        transcript: "secret subagent transcript",
+      }),
+    );
+    await runAt(clock, storeDirectory, stop());
+
+    const { eventsJsonl, graph, report } =
+      await readRunArtifacts(storeDirectory);
+    const persisted = [eventsJsonl, JSON.stringify(graph), report].join("\n");
+    const subagentNode = graph.nodes.find(
+      (node) => node.operation.kind === "subagent",
+    );
+
+    expect(graph.nodes.map((node) => node.operation.kind)).toContain(
+      "tool_call",
+    );
+    expect(subagentNode).toMatchObject({
+      durationMs: 3000,
+      id: "subagent-agent-1",
+      operation: {
+        kind: "subagent",
+        name: "Subagent work",
+      },
+      status: "ok",
+    });
+    expect(subagentNode?.metadata.codex).toMatchObject({
+      agentName: "repo-researcher",
+      parentTurnId: "turn-1",
+      subagentId: "agent-1",
+      subagentPhase: "stop",
+      workScope: "subagent",
+    });
+    expect(
+      subagentNode?.artifacts.map((artifact) => artifact.kind).sort(),
+    ).toEqual([
+      "delegated_prompt",
+      "subagent_result",
+      "subagent_task",
+      "transcript",
+    ]);
+    expect(
+      subagentNode?.artifacts.every((artifact) =>
+        isSha256Fingerprint(artifact.fingerprint),
+      ),
+    ).toBe(true);
+    expect(report).toContain("- subagent-agent-1: Subagent work (subagent, ok");
+    expect(persisted).not.toContain("secret delegated prompt");
+    expect(persisted).not.toContain("secret delegated task");
+    expect(persisted).not.toContain("secret delegated result");
+    expect(persisted).not.toContain("secret subagent transcript");
+  });
+
+  it("ignores malformed subagent hook payloads without failing the hook command", async () => {
+    const storeDirectory = await tempRoot();
+
+    await expect(
+      runCodexHook(
+        JSON.stringify({
+          hook_event_name: "SubagentStart",
+          turn_id: "turn-1",
+        }),
+        {
+          storeDirectory,
+        },
+      ),
+    ).resolves.toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "",
+    });
+    await expect(
+      runCodexHook(
+        JSON.stringify({
+          hook_event_name: "SubagentStop",
+          turn_id: "turn-1",
+        }),
+        {
+          storeDirectory,
+        },
+      ),
+    ).resolves.toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "",
+    });
+    await expect(readRunArtifacts(storeDirectory)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("records repeated Read file fingerprints without persisting raw file paths", async () => {
     const storeDirectory = await tempRoot();
     const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
@@ -1047,6 +1168,31 @@ function postCompact(
   return {
     ...preCompact(),
     hook_event_name: "PostCompact",
+    ...overrides,
+  };
+}
+
+function subagentStart(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    cwd: "/tmp/repo",
+    hook_event_name: "SubagentStart",
+    model: "gpt-5.1-codex",
+    permission_mode: "default",
+    session_id: "session-1",
+    transcript_path: null,
+    turn_id: "turn-1",
+    ...overrides,
+  };
+}
+
+function subagentStop(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    ...subagentStart(),
+    hook_event_name: "SubagentStop",
     ...overrides,
   };
 }
