@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import { FakeClock } from "../../../src/testing/index.js";
@@ -11,9 +14,14 @@ import {
   renderExecutionAdvice,
   renderExecutionReport,
   stableExecutionHash,
+  type AdaptivePolicyBundle,
   type ExecutionEvent,
   type ExecutionStore,
 } from "./index.js";
+
+const adaptivePolicyFixturePath = fileURLToPath(
+  new URL("./fixtures/adaptive-policy-loop.json", import.meta.url),
+);
 
 describe("execution graph runtime", () => {
   it("replays events into deterministic nodes, edges, statuses, durations, and reports", () => {
@@ -491,6 +499,96 @@ describe("execution graph runtime", () => {
     expect([report, advice].join("\n")).not.toContain("secret-session-plan.ts");
     expect([report, advice].join("\n")).not.toContain("cat src/");
     expect([report, advice].join("\n")).not.toContain("sed -n");
+  });
+
+  it("keeps advice rendering unchanged without policy input", () => {
+    const graph = fileReuseGraphWithRawSourceMetadata();
+
+    expect(renderExecutionAdvice(graph)).toBe(
+      renderExecutionAdvice(graph, { policies: [] }),
+    );
+  });
+
+  it("renders accepted advice-only file_reuse policy provenance without raw graph strings", async () => {
+    const graph = fileReuseGraphWithRawSourceMetadata();
+    const bundle = await acceptedAdaptivePolicyBundle();
+    const advice = renderExecutionAdvice(graph, {
+      policies: [bundle],
+    });
+
+    expect(advice).toContain("# Migaki Session Advice");
+    expect(advice).toContain(
+      "Top signal: file_reuse across 2 read-like calls.",
+    );
+    expect(advice).toContain("Safe source signals: Bash cat, Bash sed");
+    expect(advice).toContain("Policy:");
+    expect(advice).toContain(
+      "- Applied policy-bundle-file-reuse-priority-001: emphasized file_reuse advice.",
+    );
+    expect(advice).not.toContain("/tmp/private/secret-session-plan.ts");
+    expect(advice).not.toContain("cat /tmp/private");
+    expect(advice).not.toContain("sed -n");
+    expect(advice).not.toContain("raw prompt secret");
+    expect(advice).not.toContain(bundle.rules[0]?.action.note);
+  });
+
+  it("ignores disabled, superseded, non-advice, and unsafe policy bundles", async () => {
+    const graph = fileReuseGraphWithRawSourceMetadata();
+    const acceptedBundle = await acceptedAdaptivePolicyBundle();
+    const disabledBundle = policyBundleVariant(acceptedBundle, {
+      id: "policy-bundle-disabled",
+      status: "disabled",
+    });
+    const supersededBundle = policyBundleVariant(acceptedBundle, {
+      id: "policy-bundle-superseded",
+      status: "superseded",
+    });
+    const nonAdviceBundle = policyBundleVariant(acceptedBundle, {
+      id: "policy-bundle-execution-scope",
+      scope: "execution",
+    });
+    const unsafeBundle = policyBundleVariant(acceptedBundle, {
+      id: "policy-bundle-unsafe",
+      safety: {
+        ...acceptedBundle.safety,
+        prohibitedEffects: ["cache", "parallelize", "replay"],
+      },
+    });
+
+    const advice = renderExecutionAdvice(graph, {
+      policies: [
+        disabledBundle,
+        supersededBundle,
+        nonAdviceBundle,
+        unsafeBundle,
+      ],
+    });
+
+    expect(advice).not.toContain("Policy:");
+    expect(advice).not.toContain("policy-bundle-disabled");
+    expect(advice).not.toContain("policy-bundle-superseded");
+    expect(advice).not.toContain("policy-bundle-execution-scope");
+    expect(advice).not.toContain("policy-bundle-unsafe");
+  });
+
+  it("renders applicable policy provenance in deterministic order", async () => {
+    const graph = fileReuseGraphWithRawSourceMetadata();
+    const acceptedBundle = await acceptedAdaptivePolicyBundle();
+    const bundleB = policyBundleVariant(acceptedBundle, {
+      id: "policy-bundle-b",
+    });
+    const bundleA = policyBundleVariant(acceptedBundle, {
+      id: "policy-bundle-a",
+    });
+    const advice = renderExecutionAdvice(graph, {
+      policies: [bundleB, acceptedBundle, bundleA],
+    });
+
+    expect(policyLines(advice)).toEqual([
+      "- Applied policy-bundle-a: emphasized file_reuse advice.",
+      "- Applied policy-bundle-b: emphasized file_reuse advice.",
+      "- Applied policy-bundle-file-reuse-priority-001: emphasized file_reuse advice.",
+    ]);
   });
 
   it("identifies deterministic parallelism candidates from sequence-only edges", () => {
@@ -999,6 +1097,96 @@ function sequenceMetadata(): Record<string, unknown> {
       adapter: "test",
     },
   };
+}
+
+async function acceptedAdaptivePolicyBundle(): Promise<AdaptivePolicyBundle> {
+  const fixture = JSON.parse(
+    await readFile(adaptivePolicyFixturePath, "utf8"),
+  ) as {
+    readonly acceptedBundle: AdaptivePolicyBundle;
+  };
+
+  return fixture.acceptedBundle;
+}
+
+function policyBundleVariant(
+  bundle: AdaptivePolicyBundle,
+  overrides: Readonly<Record<string, unknown>>,
+): unknown {
+  return {
+    ...bundle,
+    ...overrides,
+  };
+}
+
+function policyLines(advice: string): readonly string[] {
+  const lines = advice.split("\n");
+  const policyIndex = lines.indexOf("Policy:");
+
+  if (policyIndex === -1) {
+    return [];
+  }
+
+  return lines
+    .slice(policyIndex + 1)
+    .filter((line) => line.startsWith("- Applied "));
+}
+
+function fileReuseGraphWithRawSourceMetadata(): ReturnType<
+  typeof buildExecutionGraph
+> {
+  const rawPath = "/tmp/private/secret-session-plan.ts";
+  const fileFingerprint = stableExecutionHash({
+    path: rawPath,
+  });
+
+  return buildExecutionGraph("run-a", [
+    promptEvent({ prompt: "raw prompt secret about private files" }),
+    toolStartedEvent("tool-cat", "Bash", {
+      fingerprint: stableExecutionHash({
+        input: `cat ${rawPath}`,
+        tool: "Bash",
+      }),
+      timestamp: "2026-01-01T00:00:01.000Z",
+    }),
+    toolFinishedEvent("tool-cat", "Bash", {
+      artifacts: [
+        fileArtifact("file-cat", fileFingerprint, {
+          sourceCommand: `cat ${rawPath}`,
+          sourceField: "command",
+          toolName: "Bash",
+        }),
+        toolResultArtifact("tool-cat", "Bash"),
+      ],
+      fingerprint: stableExecutionHash({
+        input: `cat ${rawPath}`,
+        tool: "Bash",
+      }),
+      timestamp: "2026-01-01T00:00:02.000Z",
+    }),
+    toolStartedEvent("tool-sed", "Bash", {
+      fingerprint: stableExecutionHash({
+        input: `sed -n '1,2p' ${rawPath}`,
+        tool: "Bash",
+      }),
+      timestamp: "2026-01-01T00:00:03.000Z",
+    }),
+    toolFinishedEvent("tool-sed", "Bash", {
+      artifacts: [
+        fileArtifact("file-sed", fileFingerprint, {
+          sourceCommand: `sed -n '1,2p' ${rawPath}`,
+          sourceField: "command",
+          toolName: "Bash",
+        }),
+        toolResultArtifact("tool-sed", "Bash"),
+      ],
+      fingerprint: stableExecutionHash({
+        input: `sed -n '1,2p' ${rawPath}`,
+        tool: "Bash",
+      }),
+      timestamp: "2026-01-01T00:00:05.000Z",
+    }),
+  ]);
 }
 
 class MemoryExecutionStore implements ExecutionStore {

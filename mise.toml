@@ -31,6 +31,10 @@ run = "pnpm install --lockfile-only"
 description = "Check repository formatting"
 run = "pnpm run format:check"
 
+[tasks.format]
+description = "Format repository files"
+run = "pnpm run format"
+
 [tasks.lint]
 description = "Run ESLint"
 run = "pnpm run lint"
