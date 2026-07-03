@@ -91,6 +91,7 @@ mise run test
 mise run test:e2e
 mise run build
 mise run migaki:latest
+mise run migaki:advise
 mise run migaki:runs
 mise run migaki:smoke
 mise run migaki:feature-smoke
@@ -124,6 +125,7 @@ Verification:
 mise run migaki:smoke
 mise run migaki:runs
 mise run migaki:latest
+mise run migaki:advise
 ```
 
 The smoke first verifies a trusted Codex CLI turn and asserts that the real turn
@@ -137,7 +139,10 @@ stable fingerprints instead.
 Codex Desktop uses the same project hook definitions. After trusting the
 project hooks in Desktop, normal turns in this repository should emit reports
 under `.migaki/runs/`; use `mise run migaki:runs` to scan recent runs and
-`mise run migaki:latest` to read the newest report.
+`mise run migaki:latest` to read the newest report. Use
+`mise run migaki:advise` before the next turn to print a short coaching prompt
+from the newest graph; repeated file-read evidence tells Codex to reuse prior
+context or read only the smallest missing range once.
 
 ## Repository Layout
 

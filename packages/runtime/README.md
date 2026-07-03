@@ -26,6 +26,10 @@ before the full opportunity list. When multiple sequence-only parallelism
 candidates are observed, the opportunity list aggregates them into one blocked
 candidate-review item while the Potential Parallelism section preserves the
 individual pairs as raw evidence.
+`renderExecutionAdvice` turns the same graph into next-session coaching text.
+For repeated redacted file fingerprints, it emits a concrete prompt that asks
+the next Codex turn to reuse prior context or read only the smallest missing
+range once, without exposing raw paths or commands.
 
 The v0 plan diff contract is `migaki.plan-diff.v0`. Generated diffs report
 metadata, constraint, context, node, edge, and warning changes in deterministic

@@ -1,0 +1,66 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-advise
+
+Print next-session advice from the newest local Migaki execution graph.
+
+Options:
+  -h, --help  Show this help.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  "")
+    ;;
+  *)
+    printf '%s\n' "Unknown argument: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+RUNS_DIR="$ROOT_DIR/.migaki/runs"
+RUNTIME_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/execution.js"
+
+if [ ! -d "$RUNS_DIR" ]; then
+  printf '%s\n' "No Migaki runs found at .migaki/runs." >&2
+  exit 1
+fi
+
+graph_path=$(find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name graph.json -exec ls -t {} + 2>/dev/null | sed -n '1p')
+
+if [ -z "$graph_path" ]; then
+  printf '%s\n' "No Migaki graph.json files found under .migaki/runs." >&2
+  exit 1
+fi
+
+if [ ! -f "$RUNTIME_ENTRYPOINT" ]; then
+  printf '%s\n' "Built runtime entrypoint was not found: $RUNTIME_ENTRYPOINT" >&2
+  printf '%s\n' "Run this through mise with \`mise run migaki:advise\`, or run \`mise run build\` first." >&2
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+
+node --input-type=module - "$graph_path" <<'EOF'
+import { readFileSync } from "node:fs";
+import { renderExecutionAdvice } from "./packages/runtime/dist/execution.js";
+
+const graphPath = process.argv[2];
+
+if (graphPath === undefined) {
+  throw new Error("graph path argument is required");
+}
+
+const graph = JSON.parse(readFileSync(graphPath, "utf8"));
+
+console.log(renderExecutionAdvice(graph));
+EOF

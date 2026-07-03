@@ -60,6 +60,11 @@ run = "node packages/migaki-openai-agents-js/dist/cli.js"
 description = "Print the newest local Migaki execution report"
 run = "scripts/migaki-latest-report"
 
+[tasks."migaki:advise"]
+description = "Print next-session advice from the newest local Migaki execution graph"
+depends = ["build"]
+run = "scripts/migaki-advise"
+
 [tasks."migaki:runs"]
 description = "List recent local Migaki execution reports"
 run = "scripts/migaki-runs"
@@ -86,6 +91,7 @@ set -eu
 sh -n scripts/env
 sh -n scripts/bootstrap
 sh -n scripts/install-git-hooks
+sh -n scripts/migaki-advise
 sh -n scripts/migaki-latest-report
 sh -n scripts/migaki-runs
 sh -n scripts/migaki-feature-smoke
@@ -95,6 +101,7 @@ sh -n scripts/run-git-hook-check
 sh -n .githooks/pre-commit
 sh -n .githooks/pre-push
 scripts/bootstrap --help >/dev/null
+scripts/migaki-advise --help >/dev/null
 scripts/migaki-latest-report --help >/dev/null
 scripts/migaki-runs --help >/dev/null
 scripts/migaki-feature-smoke --help >/dev/null

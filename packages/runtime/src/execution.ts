@@ -128,6 +128,7 @@ export interface RepeatedArtifactReport {
   readonly fingerprint: string;
   readonly kind: string;
   readonly nodeIds: readonly string[];
+  readonly sourceLabels?: readonly string[];
 }
 
 export interface PotentialCachePointReport {
@@ -168,6 +169,7 @@ export interface ExecutionOpportunityReport {
   readonly relatedCandidateCount?: number;
   readonly reason: string;
   readonly safetyNotes: readonly string[];
+  readonly sourceLabels?: readonly string[];
   readonly whyActionable: string;
 }
 
@@ -533,6 +535,77 @@ export function renderExecutionReport(graph: ExecutionGraph): string {
   ].join("\n");
 }
 
+export function renderExecutionAdvice(graph: ExecutionGraph): string {
+  const summary = createExecutionReportSummary(graph);
+  const fileReuse = summary.opportunities.find(
+    (opportunity) => opportunity.category === "file_reuse",
+  );
+
+  if (fileReuse !== undefined) {
+    return renderFileReuseAdvice(graph, fileReuse);
+  }
+
+  const topOpportunity = summary.opportunities[0];
+
+  if (topOpportunity === undefined) {
+    return [
+      "# Migaki Session Advice",
+      "",
+      `Run: ${graph.runId}`,
+      "",
+      "Top signal: none",
+      "",
+      "Next Codex move:",
+      "- No repeated file, cache, or parallelism recommendation is available yet.",
+      "- Keep working normally; Migaki needs more observed execution evidence before it can coach the next turn.",
+      "",
+    ].join("\n");
+  }
+
+  return [
+    "# Migaki Session Advice",
+    "",
+    `Run: ${graph.runId}`,
+    "",
+    `Top signal: ${topOpportunity.actionability} ${topOpportunity.category}`,
+    "",
+    "Next Codex move:",
+    `- Review the ${topOpportunity.category} opportunity before starting the next turn.`,
+    `- ${topOpportunity.whyActionable}`,
+    "",
+    "Safety:",
+    `- ${topOpportunity.safetyNotes.join(" ")}`,
+    "",
+  ].join("\n");
+}
+
+function renderFileReuseAdvice(
+  graph: ExecutionGraph,
+  opportunity: ExecutionOpportunityReport,
+): string {
+  return [
+    "# Migaki Session Advice",
+    "",
+    `Run: ${graph.runId}`,
+    "",
+    `Top signal: file_reuse across ${opportunity.nodeIds.length} read-like calls.`,
+    `Safe source signals: ${formatSourceLabels(opportunity.sourceLabels)}`,
+    "",
+    "Next Codex move:",
+    "- Reuse prior file context before reading the same redacted file identity again.",
+    "- If more detail is needed, name the missing fact first, then read the smallest useful range once.",
+    "- Keep a short note of what the read contained so later turns can use that context instead of reopening it.",
+    "",
+    "Suggested next prompt:",
+    "Before continuing, check the prior context for files already inspected. Do not reopen the same file unless you need a specific missing range; if you do, read the smallest useful range once and summarize what you learned for later turns.",
+    "",
+    "Safety:",
+    "- Raw paths and commands are omitted; this advice uses only fingerprints and safe source labels.",
+    "- Observation only: do not cache, replay, or skip reads automatically until freshness, caller-safe file identity, and command-output equivalence are defined.",
+    "",
+  ].join("\n");
+}
+
 export function stableExecutionHash(value: unknown): string {
   return `sha256:${stableExecutionDigest(value)}`;
 }
@@ -877,6 +950,7 @@ function findRepeatedArtifacts(
     {
       artifactIds: string[];
       nodeIds: string[];
+      sourceLabels: string[];
     }
   >();
 
@@ -892,10 +966,16 @@ function findRepeatedArtifacts(
         groups.set(artifact.fingerprint, {
           artifactIds: [artifact.id],
           nodeIds: [node.id],
+          sourceLabels: optionalString(artifactSourceLabel(artifact)),
         });
       } else {
         existing.artifactIds.push(artifact.id);
         existing.nodeIds.push(node.id);
+        const sourceLabel = artifactSourceLabel(artifact);
+
+        if (sourceLabel !== undefined) {
+          existing.sourceLabels.push(sourceLabel);
+        }
       }
     }
   }
@@ -908,8 +988,49 @@ function findRepeatedArtifacts(
       fingerprint,
       kind,
       nodeIds: group.nodeIds,
+      ...optionalSourceLabels(group.sourceLabels),
     }))
     .sort((left, right) => left.fingerprint.localeCompare(right.fingerprint));
+}
+
+function artifactSourceLabel(artifact: Artifact): string | undefined {
+  const metadata = artifact.metadata;
+
+  if (metadata === undefined) {
+    return undefined;
+  }
+
+  const codex = metadata.codex;
+
+  if (!isRecord(codex)) {
+    return undefined;
+  }
+
+  const toolName = readStringValue(codex, "toolName");
+  const sourceCommand = readStringValue(codex, "sourceCommand");
+  const sourceField = readStringValue(codex, "sourceField");
+
+  if (toolName === "Bash" && sourceCommand !== undefined) {
+    return `Bash ${sourceCommand}`;
+  }
+
+  if (toolName !== undefined && sourceField !== undefined) {
+    return `${toolName}.${sourceField}`;
+  }
+
+  return toolName;
+}
+
+function optionalSourceLabels(
+  sourceLabels: readonly string[],
+): Pick<RepeatedArtifactReport, "sourceLabels"> | Record<string, never> {
+  const unique = uniqueStrings(sourceLabels);
+
+  return unique.length === 0 ? {} : { sourceLabels: unique };
+}
+
+function optionalString(value: string | undefined): string[] {
+  return value === undefined ? [] : [value];
 }
 
 function createPotentialCachePoint(
@@ -997,6 +1118,12 @@ function formatTopOpportunityRecommendation(
 ): string {
   if (opportunity.relatedCandidateCount !== undefined) {
     return `${opportunity.actionability} ${opportunity.category} across ${opportunity.relatedCandidateCount} related candidates on ${opportunity.nodeIds.length} nodes`;
+  }
+
+  if (opportunity.category === "file_reuse") {
+    const sources = formatSourceLabels(opportunity.sourceLabels);
+
+    return `${opportunity.actionability} file_reuse across ${opportunity.nodeIds.length} read-like calls${sources === "unavailable" ? "" : ` (${sources})`}`;
   }
 
   return `${opportunity.actionability} ${opportunity.category} on nodes ${opportunity.nodeIds.join(", ")}`;
@@ -1095,6 +1222,7 @@ function createFileReuseOpportunity(
     blockedBy: [
       "Raw file paths are omitted.",
       "A caller-safe file identity and freshness policy is required before reuse.",
+      "Command-output equivalence must be verified before avoiding a read.",
     ],
     category: "file_reuse",
     confidence: "medium",
@@ -1105,12 +1233,15 @@ function createFileReuseOpportunity(
     }),
     nodeIds: artifact.nodeIds,
     priority: "medium",
-    reason: `A ${artifact.kind} fingerprint was observed ${artifact.count} times across tool activity.`,
+    reason: `A ${artifact.kind} fingerprint was observed ${artifact.count} times across read-like tool activity.`,
     safetyNotes: [
-      "Raw file paths are omitted; this fingerprint alone does not prove cacheable tool input or output.",
+      "Raw file paths and commands are omitted; this fingerprint alone does not prove cacheable tool input or output.",
     ],
+    ...(artifact.sourceLabels === undefined
+      ? {}
+      : { sourceLabels: artifact.sourceLabels }),
     whyActionable:
-      "The same redacted file fingerprint appeared across multiple tool calls.",
+      "The same redacted file identity was reopened through read-like tool calls.",
   };
 }
 
@@ -1195,16 +1326,20 @@ function createParallelismOpportunities(
 }
 
 function uniqueNodeIds(nodeIds: readonly string[]): readonly string[] {
+  return uniqueStrings(nodeIds);
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
   const seen = new Set<string>();
   const unique: string[] = [];
 
-  for (const nodeId of nodeIds) {
-    if (seen.has(nodeId)) {
+  for (const value of values) {
+    if (seen.has(value)) {
       continue;
     }
 
-    seen.add(nodeId);
-    unique.push(nodeId);
+    seen.add(value);
+    unique.push(value);
   }
 
   return unique;
@@ -1601,6 +1736,9 @@ function renderOpportunityLines(
       ...(opportunity.relatedCandidateCount === undefined
         ? []
         : [`Related candidates: ${opportunity.relatedCandidateCount}`]),
+      ...(opportunity.sourceLabels === undefined
+        ? []
+        : [`Sources: ${formatSourceLabels(opportunity.sourceLabels)}`]),
       `avoidable latency ${formatOptionalNumber(opportunity.estimatedAvoidableLatencyMs)} ms`,
       `Why actionable: ${opportunity.whyActionable}`,
       `Blocked by: ${opportunity.blockedBy.length > 0 ? opportunity.blockedBy.join(" ") : "none"}`,
@@ -1619,6 +1757,16 @@ function formatOpportunityNodes(
   }
 
   return opportunity.nodeIds.join(", ");
+}
+
+function formatSourceLabels(
+  sourceLabels: readonly string[] | undefined,
+): string {
+  if (sourceLabels === undefined || sourceLabels.length === 0) {
+    return "unavailable";
+  }
+
+  return sourceLabels.join(", ");
 }
 
 function renderPotentialParallelismLines(
@@ -1665,6 +1813,15 @@ function readSequenceScope(metadata: Metadata): string | undefined {
   }
 
   return typeof sequence.scope === "string" ? sequence.scope : undefined;
+}
+
+function readStringValue(
+  input: Readonly<Record<string, unknown>>,
+  key: string,
+): string | undefined {
+  const value = input[key];
+
+  return typeof value === "string" ? value : undefined;
 }
 
 function dependencyKey(dependency: Dependency): string {
