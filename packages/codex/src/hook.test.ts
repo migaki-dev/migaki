@@ -239,6 +239,45 @@ describe("Codex hook adapter", () => {
     expect(report).not.toContain("secret-plan.md");
   });
 
+  it("surfaces file reuse as the top report recommendation when repeated reads differ only by safe metadata", async () => {
+    const storeDirectory = await tempRoot();
+    const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
+    const rawPath = "/tmp/repo/packages/codex/src/secret-plan.md";
+
+    await runAt(clock, storeDirectory, userPromptSubmit());
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        file_path: rawPath,
+        offset: 1,
+      },
+      toolName: "Read",
+      toolUseId: "read-1",
+    });
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        file_path: rawPath,
+        offset: 2,
+      },
+      toolName: "Read",
+      toolUseId: "read-2",
+    });
+    await runAt(clock, storeDirectory, stop());
+
+    const { report } = await readRunArtifacts(storeDirectory);
+
+    expect(report).toContain("## Opportunity Summary");
+    expect(report).toContain("- Total: 2");
+    expect(report).toContain(
+      "- Actionability: actionable 0, needs_review 1, blocked 1",
+    );
+    expect(report).toContain(
+      "- Top recommendation: needs_review file_reuse on nodes tool-read-1, tool-read-2",
+    );
+    expect(report).toContain("[needs_review medium/medium] file_reuse");
+    expect(report).not.toContain(rawPath);
+    expect(report).not.toContain("secret-plan.md");
+  });
+
   it("records safe Grep, Glob, and LS path fields as file artifacts", async () => {
     const storeDirectory = await tempRoot();
     const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
