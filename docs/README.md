@@ -20,6 +20,9 @@ downstream integrators.
 - [Evidence Bundles v0](./evidence-bundles-v0.md) describes evidence events,
   evidence bundles, redaction behavior, and mock trace replay artifacts.
 - [CLI v0](./cli-v0.md) describes the `report` and `replay` command surfaces.
+- [Adaptive Policies v0](./adaptive-policies-v0.md) describes
+  meta-observations, policy proposals, policy diffs, and accepted policy
+  bundles for auditable advice-only adaptation.
 
 ## Wiki Context
 

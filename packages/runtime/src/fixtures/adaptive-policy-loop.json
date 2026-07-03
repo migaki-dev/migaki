@@ -1,0 +1,144 @@
+{
+  "acceptedBundle": {
+    "acceptedAt": "2026-01-01T00:05:00.000Z",
+    "createdAt": "2026-01-01T00:05:00.000Z",
+    "createdFrom": {
+      "metaObservationIds": ["meta-observation-file-reuse-001"],
+      "policyDiffId": "policy-diff-file-reuse-priority-001",
+      "proposalId": "policy-proposal-file-reuse-priority-001"
+    },
+    "evidenceRefs": [
+      "meta-observation://meta-observation-file-reuse-001",
+      "execution-report://codex-turn-redacted-file-reuse"
+    ],
+    "id": "policy-bundle-file-reuse-priority-001",
+    "name": "Prefer concrete file-reuse coaching after repeated safe observations",
+    "privacy": {
+      "privacyClass": "internal",
+      "replayMode": "metadata"
+    },
+    "redaction": {
+      "mode": "omitted",
+      "reason": "Raw prompts, file paths, commands, and tool outputs are omitted from adaptive policy bundles."
+    },
+    "rules": [
+      {
+        "action": {
+          "kind": "emphasize",
+          "note": "Prefer the concrete smallest-range read guidance when repeated file-reuse evidence recurs.",
+          "weightDelta": 1
+        },
+        "description": "Raise advice ranking for file_reuse when Migaki repeatedly observes safe redacted file identity reuse.",
+        "enabled": true,
+        "evidenceRefs": ["meta-observation://meta-observation-file-reuse-001"],
+        "id": "rule-file-reuse-priority-001",
+        "match": {
+          "category": "file_reuse",
+          "signal": "advice_outcome_observed"
+        },
+        "target": "advice_ranking"
+      }
+    ],
+    "safety": {
+      "effectMode": "advice_only",
+      "prohibitedEffects": ["cache", "parallelize", "replay", "skip_reads"],
+      "rollback": "Disable or remove policy-bundle-file-reuse-priority-001; no execution artifacts depend on it."
+    },
+    "scope": "advice",
+    "status": "accepted",
+    "version": "migaki.policy-bundle.v0"
+  },
+  "metaObservation": {
+    "evidenceRefs": [
+      "execution-graph://codex-turn-redacted-file-reuse",
+      "execution-report://codex-turn-redacted-file-reuse"
+    ],
+    "id": "meta-observation-file-reuse-001",
+    "observedAt": "2026-01-01T00:00:00.000Z",
+    "privacy": {
+      "privacyClass": "internal",
+      "replayMode": "metadata"
+    },
+    "redaction": {
+      "mode": "omitted",
+      "reason": "Raw prompts, file paths, commands, and tool outputs are omitted from adaptive policy observations."
+    },
+    "signal": "advice_outcome_observed",
+    "source": {
+      "kind": "advice",
+      "runId": "codex-turn-redacted-file-reuse"
+    },
+    "subject": {
+      "kind": "opportunity",
+      "ref": "opportunity://file-reuse",
+      "safeLabel": "file_reuse"
+    },
+    "summary": "Migaki emitted advice for repeated read-like file activity using only redacted fingerprints and safe source labels.",
+    "version": "migaki.meta-observation.v0"
+  },
+  "proposal": {
+    "createdAt": "2026-01-01T00:01:00.000Z",
+    "createdFrom": {
+      "metaObservationIds": ["meta-observation-file-reuse-001"],
+      "runIds": ["codex-turn-redacted-file-reuse"]
+    },
+    "diff": {
+      "changes": [
+        {
+          "after": {
+            "action": {
+              "kind": "emphasize",
+              "note": "Prefer the concrete smallest-range read guidance when repeated file-reuse evidence recurs.",
+              "weightDelta": 1
+            },
+            "description": "Raise advice ranking for file_reuse when Migaki repeatedly observes safe redacted file identity reuse.",
+            "enabled": true,
+            "evidenceRefs": [
+              "meta-observation://meta-observation-file-reuse-001"
+            ],
+            "id": "rule-file-reuse-priority-001",
+            "match": {
+              "category": "file_reuse",
+              "signal": "advice_outcome_observed"
+            },
+            "target": "advice_ranking"
+          },
+          "evidenceRefs": [
+            "meta-observation://meta-observation-file-reuse-001"
+          ],
+          "operation": "add_rule",
+          "path": "$.rules[rule-file-reuse-priority-001]",
+          "rationale": "Repeated safe file-reuse evidence is a clearer next-session coaching signal than generic blocked parallelism.",
+          "risk": "low"
+        }
+      ],
+      "createdAt": "2026-01-01T00:01:00.000Z",
+      "id": "policy-diff-file-reuse-priority-001",
+      "summary": "Add an advice-ranking rule for repeated file_reuse observations.",
+      "version": "migaki.policy-diff.v0"
+    },
+    "id": "policy-proposal-file-reuse-priority-001",
+    "privacy": {
+      "privacyClass": "internal",
+      "replayMode": "metadata"
+    },
+    "rationale": "The proposal changes only advice ranking and keeps raw paths and commands out of policy evidence.",
+    "redaction": {
+      "mode": "omitted",
+      "reason": "Raw prompts, file paths, commands, and tool outputs are omitted from adaptive policy proposals."
+    },
+    "safety": {
+      "effectMode": "advice_only",
+      "prohibitedEffects": ["cache", "parallelize", "replay", "skip_reads"],
+      "rollback": "Reject the proposal or disable the accepted bundle; no execution behavior changes are produced."
+    },
+    "scope": "advice",
+    "status": "proposed",
+    "summary": "Prefer concrete file-reuse advice after repeated safe observations.",
+    "validation": {
+      "status": "not_run",
+      "validatorRefs": []
+    },
+    "version": "migaki.policy-proposal.v0"
+  }
+}
