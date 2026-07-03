@@ -94,6 +94,7 @@ mise run migaki:latest
 mise run migaki:runs
 mise run migaki:smoke
 mise run migaki:feature-smoke
+mise run migaki:provider-smoke
 mise run benchmark:openai-agents repo-agent-benchmark --run-id repo-agent-fixture
 mise run bootstrap:check
 mise tasks
@@ -145,7 +146,7 @@ under `.migaki/runs/`; use `mise run migaki:runs` to scan recent runs and
 - `packages/codex/` owns the Codex lifecycle-hook adapter for observation-only
   execution reports.
 - `packages/cli/` owns developer-facing report and replay command surfaces.
-- `examples/rag-dedup-cache/` contains the v0 RAG deduplication and cache-layout example workspace.
+- `examples/rag-dedup-cache/` contains the v0 RAG deduplication, cache-layout, and provider-lowering example workspace.
 - `scripts/bootstrap` bootstraps a development machine.
 - `CONTRIBUTING.md` defines contribution standards for humans and coding
   agents.

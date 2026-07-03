@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-provider-smoke [--json]
+
+Run deterministic RAG provider lowering smoke checks without live provider calls.
+
+Options:
+  --json      Print the stable JSON report instead of text.
+  -h, --help  Show this help.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+if ! command -v pnpm >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+pnpm was not found on PATH.
+
+Run this through mise with `mise run migaki:provider-smoke`, or source scripts/env first.
+EOF
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+
+exec pnpm exec jiti examples/rag-dedup-cache/src/provider-smoke.ts "$@"
