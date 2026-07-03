@@ -90,12 +90,40 @@ mise run typecheck
 mise run test
 mise run test:e2e
 mise run build
+mise run migaki:latest
 mise run benchmark:openai-agents repo-agent-benchmark --run-id repo-agent-fixture
 mise run bootstrap:check
 mise tasks
 ```
 
 Use `mise run setup:update-lockfile` after intentional dependency changes.
+
+## Codex Hook Dogfooding
+
+The repository includes `.codex/hooks.json` for recording local Codex lifecycle
+events into `.migaki/runs/<runId>/`.
+
+Setup:
+
+```sh
+mise run build
+codex -C "$PWD"
+```
+
+In the interactive Codex CLI, run `/hooks` and trust the Migaki project hooks.
+Codex records trust per hook definition, so changed hook commands must be
+reviewed again.
+
+Verification:
+
+```sh
+codex -a never exec -C "$PWD" -s read-only "Run pwd with the shell tool, then reply exactly: MIGAKI_HOOK_SMOKE"
+mise run migaki:latest
+```
+
+The latest report should contain a prompt node, any tool call nodes, and a turn
+completion node. Raw prompt text, tool input, and tool output are omitted by
+default; Migaki stores stable fingerprints instead.
 
 ## Repository Layout
 
