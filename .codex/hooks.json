@@ -91,6 +91,17 @@
         ]
       }
     ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "statusMessage": "Recording Migaki session boundary"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
