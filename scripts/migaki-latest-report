@@ -1,0 +1,57 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-latest-report [--path]
+
+Print the newest Migaki Codex execution report from .migaki/runs.
+
+Options:
+  --path       Print only the report path.
+  -h, --help  Show this help.
+EOF
+}
+
+path_only=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --path)
+      path_only=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+RUNS_DIR="$ROOT_DIR/.migaki/runs"
+
+if [ ! -d "$RUNS_DIR" ]; then
+  printf '%s\n' "No Migaki runs found at .migaki/runs." >&2
+  exit 1
+fi
+
+report_path=$(find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name report.md -exec ls -t {} + 2>/dev/null | sed -n '1p')
+
+if [ -z "$report_path" ]; then
+  printf '%s\n' "No Migaki report.md files found under .migaki/runs." >&2
+  exit 1
+fi
+
+if [ "$path_only" -eq 1 ]; then
+  printf '%s\n' "$report_path"
+  exit 0
+fi
+
+printf 'Latest Migaki report: %s\n\n' "$report_path"
+cat "$report_path"
