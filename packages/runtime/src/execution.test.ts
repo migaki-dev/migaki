@@ -189,6 +189,10 @@ describe("execution graph runtime", () => {
       },
     ]);
     expect(summary.opportunities[0]).toEqual({
+      actionability: "needs_review",
+      blockedBy: [
+        "Verify input equivalence, side effects, and freshness requirements before adding a cache.",
+      ],
       category: "cache",
       confidence: "high",
       estimatedAvoidableLatencyMs: 2000,
@@ -203,11 +207,19 @@ describe("execution graph runtime", () => {
       safetyNotes: [
         "Observation only: verify inputs, side effects, and freshness requirements before caching.",
       ],
+      whyActionable:
+        "The same successful tool_call fingerprint repeated with measured later-run latency.",
     });
     expect(summary.estimatedAvoidableLatencyMs).toBe(2000);
     expect(report).toContain("## Opportunities");
     expect(report).toContain(
-      "- [high/high] cache: Bash repeated the same successful tool_call operation 2 times; later runs may be cacheable. Nodes: tool-test-1, tool-test-2; avoidable latency 2000 ms",
+      "- [needs_review high/high] cache: Bash repeated the same successful tool_call operation 2 times; later runs may be cacheable. Nodes: tool-test-1, tool-test-2; avoidable latency 2000 ms",
+    );
+    expect(report).toContain(
+      "Why actionable: The same successful tool_call fingerprint repeated with measured later-run latency.",
+    );
+    expect(report).toContain(
+      "Blocked by: Verify input equivalence, side effects, and freshness requirements before adding a cache.",
     );
     expect(report).toContain("- tool-test-1: Bash");
   });
@@ -247,6 +259,8 @@ describe("execution graph runtime", () => {
     expect(summary.estimatedAvoidableLatencyMs).toBeUndefined();
     expect(summary.opportunities).toContainEqual(
       expect.objectContaining({
+        actionability: "actionable",
+        blockedBy: ["Inspect the failure cause before choosing a fix."],
         category: "failure",
         confidence: "high",
         estimatedAvoidableLatencyMs: 5000,
@@ -254,6 +268,8 @@ describe("execution graph runtime", () => {
         priority: "high",
         reason:
           "Bash failed repeatedly for the same tool_call operation fingerprint.",
+        whyActionable:
+          "The same tool_call fingerprint failed more than once, creating a concrete reliability group to investigate.",
       }),
     );
   });
@@ -291,6 +307,10 @@ describe("execution graph runtime", () => {
     expect(summary.potentialCachePoints).toEqual([]);
     expect(summary.opportunities).toContainEqual(
       expect.objectContaining({
+        actionability: "needs_review",
+        blockedBy: [
+          "Mixed success and failure statuses must be explained before retry, cache, or fallback work.",
+        ],
         category: "failure",
         confidence: "medium",
         nodeIds: ["tool-test-1", "tool-test-2"],
@@ -298,6 +318,8 @@ describe("execution graph runtime", () => {
         safetyNotes: [
           "Mixed success and failure statuses: inspect reliability before treating this as reusable work.",
         ],
+        whyActionable:
+          "The same tool_call fingerprint produced both success and failure, making the reliability boundary visible.",
       }),
     );
   });
@@ -344,7 +366,12 @@ describe("execution graph runtime", () => {
     ]);
     expect(summary.opportunities).toContainEqual(
       expect.objectContaining({
+        actionability: "needs_review",
         artifactIds: ["file-read-1", "file-read-2"],
+        blockedBy: [
+          "Raw file paths are omitted.",
+          "A caller-safe file identity and freshness policy is required before reuse.",
+        ],
         category: "file_reuse",
         confidence: "medium",
         nodeIds: ["tool-read-1", "tool-read-2"],
@@ -352,6 +379,8 @@ describe("execution graph runtime", () => {
         safetyNotes: [
           "Raw file paths are omitted; this fingerprint alone does not prove cacheable tool input or output.",
         ],
+        whyActionable:
+          "The same redacted file fingerprint appeared across multiple tool calls.",
       }),
     );
     expect(report).toContain("file fingerprint was observed 2 times");
@@ -463,6 +492,89 @@ describe("execution graph runtime", () => {
       ["tool-c", "tool-d"],
       ["tool-d", "tool-a"],
     ]);
+  });
+
+  it("ranks blocked opportunities after actionable repeated work even when latency is higher", () => {
+    const repeatedFingerprint = stableExecutionHash({
+      input: "same",
+      tool: "Read",
+    });
+    const slowAFingerprint = stableExecutionHash({
+      input: "slow-a",
+      tool: "Read",
+    });
+    const slowBFingerprint = stableExecutionHash({
+      input: "slow-b",
+      tool: "Read",
+    });
+    const graph = buildExecutionGraph("run-a", [
+      promptEvent(),
+      toolStartedEvent("tool-cache-1", "Read", {
+        fingerprint: repeatedFingerprint,
+        timestamp: "2026-01-01T00:00:01.000Z",
+      }),
+      toolFinishedEvent("tool-cache-1", "Read", {
+        fingerprint: repeatedFingerprint,
+        timestamp: "2026-01-01T00:00:02.000Z",
+      }),
+      toolStartedEvent("tool-cache-2", "Read", {
+        fingerprint: repeatedFingerprint,
+        timestamp: "2026-01-01T00:00:03.000Z",
+      }),
+      toolFinishedEvent("tool-cache-2", "Read", {
+        fingerprint: repeatedFingerprint,
+        timestamp: "2026-01-01T00:00:04.000Z",
+      }),
+      toolStartedEvent("tool-slow-a", "Read", {
+        fingerprint: slowAFingerprint,
+        timestamp: "2026-01-01T00:00:05.000Z",
+      }),
+      toolFinishedEvent("tool-slow-a", "Read", {
+        fingerprint: slowAFingerprint,
+        timestamp: "2026-01-01T00:00:15.000Z",
+      }),
+      toolStartedEvent("tool-slow-b", "Read", {
+        fingerprint: slowBFingerprint,
+        timestamp: "2026-01-01T00:00:16.000Z",
+      }),
+      toolFinishedEvent("tool-slow-b", "Read", {
+        fingerprint: slowBFingerprint,
+        timestamp: "2026-01-01T00:00:24.000Z",
+      }),
+    ]);
+
+    const opportunities = createExecutionReportSummary(graph).opportunities;
+    const firstBlockedIndex = opportunities.findIndex(
+      (opportunity) => opportunity.actionability === "blocked",
+    );
+    const highLatencyParallelismIndex = opportunities.findIndex(
+      (opportunity) =>
+        opportunity.category === "parallelism" &&
+        opportunity.estimatedAvoidableLatencyMs === 8000,
+    );
+
+    expect(firstBlockedIndex).toBeGreaterThan(0);
+    expect(highLatencyParallelismIndex).toBeGreaterThan(firstBlockedIndex - 1);
+    expect(
+      opportunities
+        .slice(0, firstBlockedIndex)
+        .every((opportunity) => opportunity.actionability === "needs_review"),
+    ).toBe(true);
+    expect(
+      opportunities
+        .slice(firstBlockedIndex)
+        .every((opportunity) => opportunity.actionability === "blocked"),
+    ).toBe(true);
+    expect(opportunities[0]).toMatchObject({
+      actionability: "needs_review",
+      category: "cache",
+      estimatedAvoidableLatencyMs: 1000,
+    });
+    expect(opportunities[1]).toMatchObject({
+      actionability: "blocked",
+      category: "parallelism",
+      estimatedAvoidableLatencyMs: 8000,
+    });
   });
 
   it("appends events, reloads prior JSONL events, and writes reports only when the run completes", async () => {

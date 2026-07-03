@@ -148,11 +148,17 @@ export type ExecutionOpportunityCategory =
   | "failure"
   | "file_reuse"
   | "parallelism";
+export type ExecutionOpportunityActionability =
+  | "actionable"
+  | "blocked"
+  | "needs_review";
 export type ExecutionOpportunityConfidence = "high" | "low" | "medium";
 export type ExecutionOpportunityPriority = "high" | "low" | "medium";
 
 export interface ExecutionOpportunityReport {
+  readonly actionability: ExecutionOpportunityActionability;
   readonly artifactIds?: readonly string[];
+  readonly blockedBy: readonly string[];
   readonly category: ExecutionOpportunityCategory;
   readonly confidence: ExecutionOpportunityConfidence;
   readonly estimatedAvoidableLatencyMs?: number;
@@ -161,6 +167,7 @@ export interface ExecutionOpportunityReport {
   readonly priority: ExecutionOpportunityPriority;
   readonly reason: string;
   readonly safetyNotes: readonly string[];
+  readonly whyActionable: string;
 }
 
 export interface TokenEstimateReport {
@@ -959,6 +966,12 @@ function createRepeatedFailureOpportunity(
   const displayName = operation.displayName ?? operation.operationKind;
   const latency = sumDefined(failedNodes.map((node) => node.durationMs));
   const opportunity: ExecutionOpportunityReport = {
+    actionability: hasSuccessfulNodes ? "needs_review" : "actionable",
+    blockedBy: hasSuccessfulNodes
+      ? [
+          "Mixed success and failure statuses must be explained before retry, cache, or fallback work.",
+        ]
+      : ["Inspect the failure cause before choosing a fix."],
     category: "failure",
     confidence: hasSuccessfulNodes ? "medium" : "high",
     id: opportunityId("failure", {
@@ -977,6 +990,9 @@ function createRepeatedFailureOpportunity(
       : [
           "Failure repeats are reliability signals, not clean cache candidates.",
         ],
+    whyActionable: hasSuccessfulNodes
+      ? `The same ${operation.operationKind} fingerprint produced both success and failure, making the reliability boundary visible.`
+      : `The same ${operation.operationKind} fingerprint failed more than once, creating a concrete reliability group to investigate.`,
     ...(latency !== undefined ? { estimatedAvoidableLatencyMs: latency } : {}),
   };
 
@@ -989,6 +1005,10 @@ function createCacheOpportunity(
   const displayName = point.displayName ?? point.operationKind;
 
   return {
+    actionability: "needs_review",
+    blockedBy: [
+      "Verify input equivalence, side effects, and freshness requirements before adding a cache.",
+    ],
     category: "cache",
     confidence: point.avoidableLatencyMs === undefined ? "medium" : "high",
     id: opportunityId("cache", {
@@ -1001,6 +1021,10 @@ function createCacheOpportunity(
     safetyNotes: [
       "Observation only: verify inputs, side effects, and freshness requirements before caching.",
     ],
+    whyActionable:
+      point.avoidableLatencyMs === undefined
+        ? `The same successful ${point.operationKind} fingerprint repeated across the run.`
+        : `The same successful ${point.operationKind} fingerprint repeated with measured later-run latency.`,
     ...(point.avoidableLatencyMs !== undefined
       ? { estimatedAvoidableLatencyMs: point.avoidableLatencyMs }
       : {}),
@@ -1011,7 +1035,12 @@ function createFileReuseOpportunity(
   artifact: RepeatedArtifactReport,
 ): ExecutionOpportunityReport {
   return {
+    actionability: "needs_review",
     artifactIds: artifact.artifactIds,
+    blockedBy: [
+      "Raw file paths are omitted.",
+      "A caller-safe file identity and freshness policy is required before reuse.",
+    ],
     category: "file_reuse",
     confidence: "medium",
     id: opportunityId("file_reuse", {
@@ -1025,6 +1054,8 @@ function createFileReuseOpportunity(
     safetyNotes: [
       "Raw file paths are omitted; this fingerprint alone does not prove cacheable tool input or output.",
     ],
+    whyActionable:
+      "The same redacted file fingerprint appeared across multiple tool calls.",
   };
 }
 
@@ -1041,6 +1072,10 @@ function createParallelismOpportunity(
       : undefined;
 
   return {
+    actionability: "blocked",
+    blockedBy: [
+      "Verify no data dependency, side effect ordering, or user-visible sequencing before parallelizing.",
+    ],
     category: "parallelism",
     confidence: "low",
     id: opportunityId("parallelism", {
@@ -1052,6 +1087,8 @@ function createParallelismOpportunity(
     safetyNotes: [
       "Sequence-only adjacency is not proof of independence; verify data dependencies and side effects first.",
     ],
+    whyActionable:
+      "The observed nodes were adjacent with only sequence-order evidence, so they are a candidate for dependency review.",
     ...(estimatedAvoidableLatencyMs !== undefined
       ? { estimatedAvoidableLatencyMs }
       : {}),
@@ -1062,21 +1099,12 @@ function compareExecutionOpportunities(
   left: ExecutionOpportunityReport,
   right: ExecutionOpportunityReport,
 ): number {
-  const leftLatency = left.estimatedAvoidableLatencyMs;
-  const rightLatency = right.estimatedAvoidableLatencyMs;
+  const actionabilityComparison =
+    opportunityActionabilityRank(right.actionability) -
+    opportunityActionabilityRank(left.actionability);
 
-  if (leftLatency !== undefined || rightLatency !== undefined) {
-    if (leftLatency === undefined) {
-      return 1;
-    }
-
-    if (rightLatency === undefined) {
-      return -1;
-    }
-
-    if (leftLatency !== rightLatency) {
-      return rightLatency - leftLatency;
-    }
+  if (actionabilityComparison !== 0) {
+    return actionabilityComparison;
   }
 
   const priorityComparison =
@@ -1095,6 +1123,23 @@ function compareExecutionOpportunities(
     return confidenceComparison;
   }
 
+  const leftLatency = left.estimatedAvoidableLatencyMs;
+  const rightLatency = right.estimatedAvoidableLatencyMs;
+
+  if (leftLatency !== undefined || rightLatency !== undefined) {
+    if (leftLatency === undefined) {
+      return 1;
+    }
+
+    if (rightLatency === undefined) {
+      return -1;
+    }
+
+    if (leftLatency !== rightLatency) {
+      return rightLatency - leftLatency;
+    }
+  }
+
   const categoryComparison = left.category.localeCompare(right.category);
 
   if (categoryComparison !== 0) {
@@ -1110,6 +1155,19 @@ function compareExecutionOpportunities(
   }
 
   return left.id.localeCompare(right.id);
+}
+
+function opportunityActionabilityRank(
+  actionability: ExecutionOpportunityActionability,
+): number {
+  switch (actionability) {
+    case "actionable":
+      return 3;
+    case "needs_review":
+      return 2;
+    case "blocked":
+      return 1;
+  }
 }
 
 function opportunityPriorityRank(
@@ -1410,10 +1468,12 @@ function renderOpportunityLines(
         ? []
         : [`Artifacts: ${opportunity.artifactIds.join(", ")}`]),
       `avoidable latency ${formatOptionalNumber(opportunity.estimatedAvoidableLatencyMs)} ms`,
+      `Why actionable: ${opportunity.whyActionable}`,
+      `Blocked by: ${opportunity.blockedBy.length > 0 ? opportunity.blockedBy.join(" ") : "none"}`,
       `Safety: ${opportunity.safetyNotes.join(" ")}`,
     ];
 
-    return `- [${opportunity.priority}/${opportunity.confidence}] ${opportunity.category}: ${opportunity.reason} ${details.join("; ")}`;
+    return `- [${opportunity.actionability} ${opportunity.priority}/${opportunity.confidence}] ${opportunity.category}: ${opportunity.reason} ${details.join("; ")}`;
   });
 }
 
