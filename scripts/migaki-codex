@@ -1,0 +1,77 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-codex [--dry-run] [--] <prompt>
+
+Run codex exec with the latest Migaki session advice prepended to the prompt.
+
+Options:
+  --dry-run    Print the combined prompt instead of invoking Codex.
+  -h, --help   Show this help.
+
+Environment:
+  MIGAKI_CODEX_ADVICE_COMMAND  Override the advice command for deterministic tests.
+EOF
+}
+
+DRY_RUN=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [ "$#" -eq 0 ]; then
+  printf '%s\n' "Prompt is required." >&2
+  usage >&2
+  exit 2
+fi
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ADVICE_COMMAND=${MIGAKI_CODEX_ADVICE_COMMAND:-"$ROOT_DIR/scripts/migaki-advise"}
+USER_PROMPT=$*
+
+ADVICE=$("$ADVICE_COMMAND")
+COMBINED_PROMPT=$(cat <<EOF
+$ADVICE
+
+Use the Migaki session advice above as prompt guidance only. Do not cache,
+replay, skip reads, or parallelize based on it automatically.
+
+# User Prompt
+
+$USER_PROMPT
+EOF
+)
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf '%s\n' "$COMBINED_PROMPT"
+  exit 0
+fi
+
+printf '%s\n' "Migaki: prepending latest session advice to the Codex prompt." >&2
+printf '%s\n' "$ADVICE" >&2
+
+codex -a never exec --json -C "$PWD" -s read-only "$COMBINED_PROMPT"
