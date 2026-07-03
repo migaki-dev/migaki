@@ -91,6 +91,8 @@ mise run test
 mise run test:e2e
 mise run build
 mise run migaki:latest
+mise run migaki:runs
+mise run migaki:smoke
 mise run benchmark:openai-agents repo-agent-benchmark --run-id repo-agent-fixture
 mise run bootstrap:check
 mise tasks
@@ -117,13 +119,19 @@ reviewed again.
 Verification:
 
 ```sh
-codex -a never exec -C "$PWD" -s read-only "Run pwd with the shell tool, then reply exactly: MIGAKI_HOOK_SMOKE"
+mise run migaki:smoke
+mise run migaki:runs
 mise run migaki:latest
 ```
 
 The latest report should contain a prompt node, any tool call nodes, and a turn
 completion node. Raw prompt text, tool input, and tool output are omitted by
 default; Migaki stores stable fingerprints instead.
+
+Codex Desktop uses the same project hook definitions. After trusting the
+project hooks in Desktop, normal turns in this repository should emit reports
+under `.migaki/runs/`; use `mise run migaki:runs` to scan recent runs and
+`mise run migaki:latest` to read the newest report.
 
 ## Repository Layout
 

@@ -1,0 +1,88 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-runs [--limit N]
+
+List recent local Migaki execution reports from .migaki/runs.
+
+Options:
+  --limit N    Number of runs to show. Defaults to 10.
+  -h, --help   Show this help.
+EOF
+}
+
+limit=10
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --limit)
+      shift
+      if [ "$#" -eq 0 ]; then
+        printf '%s\n' "--limit requires a value." >&2
+        exit 2
+      fi
+      limit=$1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+case "$limit" in
+  *[!0-9]*|"")
+    printf '%s\n' "--limit must be a positive integer." >&2
+    exit 2
+    ;;
+  0)
+    printf '%s\n' "--limit must be greater than zero." >&2
+    exit 2
+    ;;
+esac
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+RUNS_DIR="$ROOT_DIR/.migaki/runs"
+
+if [ ! -d "$RUNS_DIR" ]; then
+  printf '%s\n' "No Migaki runs found at .migaki/runs." >&2
+  exit 1
+fi
+
+reports=$(find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name report.md -exec ls -t {} + 2>/dev/null | sed -n "1,${limit}p")
+
+if [ -z "$reports" ]; then
+  printf '%s\n' "No Migaki report.md files found under .migaki/runs." >&2
+  exit 1
+fi
+
+printf '%-36s %-24s %-7s %5s %5s %8s %s\n' "RUN" "STARTED" "STATUS" "NODES" "TOOLS" "MS" "REPORT"
+
+printf '%s\n' "$reports" | while IFS= read -r report_path; do
+  run_id=$(basename -- "$(dirname -- "$report_path")")
+  awk -v run_id="$run_id" -v report_path="$report_path" '
+    BEGIN {
+      started = "-"
+      status = "-"
+      nodes = "-"
+      tools = "-"
+      duration = "-"
+    }
+    /^Started: / { started = $2 }
+    /^Status: / { status = $2 }
+    /^- Nodes: / { nodes = $3 }
+    /^- Tool calls: / { tools = $4 }
+    /^- Duration ms: / && duration == "-" { duration = $4 }
+    END {
+      printf "%-36s %-24s %-7s %5s %5s %8s %s\n", run_id, started, status, nodes, tools, duration, report_path
+    }
+  ' "$report_path"
+done
