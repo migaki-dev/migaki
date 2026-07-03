@@ -165,6 +165,7 @@ export interface ExecutionOpportunityReport {
   readonly id: string;
   readonly nodeIds: readonly string[];
   readonly priority: ExecutionOpportunityPriority;
+  readonly relatedCandidateCount?: number;
   readonly reason: string;
   readonly safetyNotes: readonly string[];
   readonly whyActionable: string;
@@ -959,9 +960,7 @@ function createExecutionOpportunities(input: {
     ),
     ...input.potentialCachePoints.map(createCacheOpportunity),
     ...input.repeatedFiles.map(createFileReuseOpportunity),
-    ...input.potentialParallelism.map((parallelism) =>
-      createParallelismOpportunity(parallelism, nodesById),
-    ),
+    ...createParallelismOpportunities(input.potentialParallelism, nodesById),
   ].sort(compareExecutionOpportunities);
 }
 
@@ -996,6 +995,10 @@ function createOpportunitySummary(
 function formatTopOpportunityRecommendation(
   opportunity: ExecutionOpportunityReport,
 ): string {
+  if (opportunity.relatedCandidateCount !== undefined) {
+    return `${opportunity.actionability} ${opportunity.category} across ${opportunity.relatedCandidateCount} related candidates on ${opportunity.nodeIds.length} nodes`;
+  }
+
   return `${opportunity.actionability} ${opportunity.category} on nodes ${opportunity.nodeIds.join(", ")}`;
 }
 
@@ -1145,6 +1148,66 @@ function createParallelismOpportunity(
       ? { estimatedAvoidableLatencyMs }
       : {}),
   };
+}
+
+function createParallelismOpportunities(
+  candidates: readonly PotentialParallelismReport[],
+  nodesById: ReadonlyMap<string, ExecutionNode>,
+): readonly ExecutionOpportunityReport[] {
+  if (candidates.length === 0) {
+    return [];
+  }
+
+  if (candidates.length === 1) {
+    const candidate = candidates[0];
+
+    return candidate === undefined
+      ? []
+      : [createParallelismOpportunity(candidate, nodesById)];
+  }
+
+  const nodeIds = uniqueNodeIds(
+    candidates.flatMap((candidate) => candidate.nodeIds),
+  );
+
+  return [
+    {
+      actionability: "blocked",
+      blockedBy: [
+        "Verify no data dependency, side effect ordering, or user-visible sequencing before parallelizing.",
+      ],
+      category: "parallelism",
+      confidence: "low",
+      id: opportunityId("parallelism", {
+        candidates: candidates.map((candidate) => candidate.nodeIds),
+      }),
+      nodeIds,
+      priority: "low",
+      relatedCandidateCount: candidates.length,
+      reason: `${candidates.length} adjacent tool-call pairs are ordered only by observation sequence; verify side effects before parallelizing.`,
+      safetyNotes: [
+        "Sequence-only adjacency is not proof of independence; verify data dependencies and side effects first.",
+      ],
+      whyActionable:
+        "Multiple adjacent tool-call pairs were observed with only sequence-order evidence, so they are candidates for dependency review.",
+    },
+  ];
+}
+
+function uniqueNodeIds(nodeIds: readonly string[]): readonly string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const nodeId of nodeIds) {
+    if (seen.has(nodeId)) {
+      continue;
+    }
+
+    seen.add(nodeId);
+    unique.push(nodeId);
+  }
+
+  return unique;
 }
 
 function compareExecutionOpportunities(
@@ -1531,10 +1594,13 @@ function renderOpportunityLines(
 
   return opportunities.map((opportunity) => {
     const details = [
-      `Nodes: ${opportunity.nodeIds.join(", ")}`,
+      `Nodes: ${formatOpportunityNodes(opportunity)}`,
       ...(opportunity.artifactIds === undefined
         ? []
         : [`Artifacts: ${opportunity.artifactIds.join(", ")}`]),
+      ...(opportunity.relatedCandidateCount === undefined
+        ? []
+        : [`Related candidates: ${opportunity.relatedCandidateCount}`]),
       `avoidable latency ${formatOptionalNumber(opportunity.estimatedAvoidableLatencyMs)} ms`,
       `Why actionable: ${opportunity.whyActionable}`,
       `Blocked by: ${opportunity.blockedBy.length > 0 ? opportunity.blockedBy.join(" ") : "none"}`,
@@ -1543,6 +1609,16 @@ function renderOpportunityLines(
 
     return `- [${opportunity.actionability} ${opportunity.priority}/${opportunity.confidence}] ${opportunity.category}: ${opportunity.reason} ${details.join("; ")}`;
   });
+}
+
+function formatOpportunityNodes(
+  opportunity: ExecutionOpportunityReport,
+): string {
+  if (opportunity.relatedCandidateCount !== undefined) {
+    return `${opportunity.nodeIds.length} unique nodes`;
+  }
+
+  return opportunity.nodeIds.join(", ");
 }
 
 function renderPotentialParallelismLines(

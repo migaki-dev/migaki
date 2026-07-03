@@ -5,8 +5,9 @@ usage() {
   cat <<'EOF'
 Usage: scripts/migaki-smoke
 
-Run a trusted Codex CLI smoke turn, then assert a deterministic file-reuse
-Codex hook fixture surfaces Migaki opportunity evidence.
+Run a trusted Codex CLI smoke turn, assert it writes a Migaki report, then
+assert a deterministic file-reuse Codex hook fixture surfaces opportunity
+evidence.
 
 The project Codex hooks must already be reviewed and trusted with /hooks.
 EOF
@@ -28,13 +29,14 @@ esac
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUTPUT_FILE="${TMPDIR:-/tmp}/migaki-codex-smoke-$$.jsonl"
+REPORT_SNAPSHOT="${TMPDIR:-/tmp}/migaki-codex-smoke-reports-$$.txt"
 HOOK_FILE="$ROOT_DIR/packages/codex/dist/hook.js"
 FIXTURE_TURN_ID="migaki-smoke-file-reuse-$$"
 FIXTURE_RUN_DIR="$ROOT_DIR/.migaki/runs/codex-turn-$FIXTURE_TURN_ID"
 FIXTURE_REPORT="$FIXTURE_RUN_DIR/report.md"
 
 cleanup() {
-  rm -f "$OUTPUT_FILE"
+  rm -f "$OUTPUT_FILE" "$REPORT_SNAPSHOT"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -49,6 +51,28 @@ fi
 
 cd "$ROOT_DIR"
 
+snapshot_reports() {
+  if [ -d "$ROOT_DIR/.migaki/runs" ]; then
+    find "$ROOT_DIR/.migaki/runs" -path "$ROOT_DIR/.migaki/runs/codex-turn-*/report.md" -type f | sort > "$REPORT_SNAPSHOT"
+  else
+    : > "$REPORT_SNAPSHOT"
+  fi
+}
+
+find_new_real_report() {
+  if [ ! -d "$ROOT_DIR/.migaki/runs" ]; then
+    return 0
+  fi
+
+  find "$ROOT_DIR/.migaki/runs" -path "$ROOT_DIR/.migaki/runs/codex-turn-*/report.md" -type f | sort | while IFS= read -r report_path; do
+    if ! grep -Fqx -- "$report_path" "$REPORT_SNAPSHOT"; then
+      printf '%s\n' "$report_path"
+    fi
+  done | tail -1
+}
+
+snapshot_reports
+
 codex -a never exec --json -C "$ROOT_DIR" -s read-only "Run pwd with the shell tool, then reply exactly: MIGAKI_HOOK_SMOKE" > "$OUTPUT_FILE" 2>&1
 
 if ! grep -Fq "MIGAKI_HOOK_SMOKE" "$OUTPUT_FILE"; then
@@ -56,6 +80,58 @@ if ! grep -Fq "MIGAKI_HOOK_SMOKE" "$OUTPUT_FILE"; then
   tail -40 "$OUTPUT_FILE" >&2
   exit 1
 fi
+
+REAL_REPORT=$(find_new_real_report)
+
+if [ -z "$REAL_REPORT" ]; then
+  printf '%s\n' "Codex smoke turn did not write a new Migaki report." >&2
+  tail -40 "$OUTPUT_FILE" >&2
+  exit 1
+fi
+
+REAL_RUN_DIR=$(dirname "$REAL_REPORT")
+
+require_real_artifact() {
+  artifact_path=$1
+  if [ ! -f "$artifact_path" ]; then
+    printf '%s\n' "Expected real Codex smoke artifact was not written: $artifact_path" >&2
+    printf '%s\n' "Report path: $REAL_REPORT" >&2
+    exit 1
+  fi
+}
+
+require_real_report_text() {
+  text=$1
+  if ! grep -Fq -- "$text" "$REAL_REPORT"; then
+    printf '%s\n' "Expected real Codex smoke report to contain: $text" >&2
+    printf '%s\n' "Report path: $REAL_REPORT" >&2
+    exit 1
+  fi
+}
+
+reject_real_artifact_text() {
+  text=$1
+  for artifact_path in "$REAL_RUN_DIR/events.jsonl" "$REAL_RUN_DIR/graph.json" "$REAL_REPORT"; do
+    if grep -Fq -- "$text" "$artifact_path"; then
+      printf '%s\n' "Real Codex smoke artifact unexpectedly contained: $text" >&2
+      printf '%s\n' "Artifact path: $artifact_path" >&2
+      printf '%s\n' "Report path: $REAL_REPORT" >&2
+      exit 1
+    fi
+  done
+}
+
+require_real_artifact "$REAL_RUN_DIR/events.jsonl"
+require_real_artifact "$REAL_RUN_DIR/graph.json"
+require_real_artifact "$REAL_REPORT"
+require_real_report_text "# Migaki Execution Report"
+require_real_report_text "## Opportunity Summary"
+require_real_report_text "- prompt: User prompt"
+require_real_report_text ": Bash ("
+require_real_report_text "- turn: Turn completed"
+reject_real_artifact_text "Run pwd with the shell tool"
+reject_real_artifact_text "MIGAKI_HOOK_SMOKE"
+reject_real_artifact_text "$ROOT_DIR"
 
 run_hook_fixture() {
   hook_event_name=$1
