@@ -9,6 +9,7 @@ export * from "./constraints.js";
 export * from "./diff.js";
 export * from "./evidence-bundle.js";
 export * from "./evidence.js";
+export * from "./execution-advice.js";
 export * from "./execution.js";
 export * from "./exact-duplicate-context.js";
 export * from "./mock-trace.js";

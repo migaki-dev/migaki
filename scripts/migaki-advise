@@ -3,42 +3,44 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: scripts/migaki-advise
+Usage: scripts/migaki-advise [--include-smoke]
 
 Print next-session advice from the newest local Migaki execution graph.
+Smoke fixture runs are skipped by default.
 
 Options:
-  -h, --help  Show this help.
+  --include-smoke  Allow smoke fixture runs to be selected.
+  -h, --help       Show this help.
 EOF
 }
 
-case "${1:-}" in
-  -h|--help)
-    usage
-    exit 0
-    ;;
-  "")
-    ;;
-  *)
-    printf '%s\n' "Unknown argument: $1" >&2
-    usage >&2
-    exit 2
-    ;;
-esac
+include_smoke=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --include-smoke)
+      include_smoke=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 RUNS_DIR="$ROOT_DIR/.migaki/runs"
 RUNTIME_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/execution.js"
+ADVICE_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/execution-advice.js"
 
 if [ ! -d "$RUNS_DIR" ]; then
   printf '%s\n' "No Migaki runs found at .migaki/runs." >&2
-  exit 1
-fi
-
-graph_path=$(find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name graph.json -exec ls -t {} + 2>/dev/null | sed -n '1p')
-
-if [ -z "$graph_path" ]; then
-  printf '%s\n' "No Migaki graph.json files found under .migaki/runs." >&2
   exit 1
 fi
 
@@ -48,19 +50,66 @@ if [ ! -f "$RUNTIME_ENTRYPOINT" ]; then
   exit 1
 fi
 
+if [ ! -f "$ADVICE_ENTRYPOINT" ]; then
+  printf '%s\n' "Built advice entrypoint was not found: $ADVICE_ENTRYPOINT" >&2
+  printf '%s\n' "Run this through mise with \`mise run migaki:advise\`, or run \`mise run build\` first." >&2
+  exit 1
+fi
+
 cd "$ROOT_DIR"
 
-node --input-type=module - "$graph_path" <<'EOF'
-import { readFileSync } from "node:fs";
+node --input-type=module - "$RUNS_DIR" "$include_smoke" <<'EOF'
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { selectExecutionAdviceGraphCandidate } from "./packages/runtime/dist/execution-advice.js";
 import { renderExecutionAdvice } from "./packages/runtime/dist/execution.js";
 
-const graphPath = process.argv[2];
+const runsDir = process.argv[2];
+const includeSmoke = process.argv[3] === "1";
 
-if (graphPath === undefined) {
-  throw new Error("graph path argument is required");
+if (runsDir === undefined) {
+  throw new Error("runs directory argument is required");
 }
 
-const graph = JSON.parse(readFileSync(graphPath, "utf8"));
+const candidates = readdirSync(runsDir, { withFileTypes: true }).flatMap(
+  (entry) => {
+    if (!entry.isDirectory()) {
+      return [];
+    }
+
+    const graphPath = join(runsDir, entry.name, "graph.json");
+
+    if (!existsSync(graphPath)) {
+      return [];
+    }
+
+    return [
+      {
+        graphPath,
+        modifiedAtMs: statSync(graphPath).mtimeMs,
+        runId: entry.name,
+      },
+    ];
+  },
+);
+
+const selected = selectExecutionAdviceGraphCandidate(candidates, {
+  includeSmoke,
+});
+
+if (selected === undefined) {
+  if (candidates.length === 0) {
+    console.error("No Migaki graph.json files found under .migaki/runs.");
+  } else {
+    console.error(
+      "No non-smoke Migaki graph.json files found under .migaki/runs. Use --include-smoke to inspect smoke fixture advice.",
+    );
+  }
+
+  process.exit(1);
+}
+
+const graph = JSON.parse(readFileSync(selected.graphPath, "utf8"));
 
 console.log(renderExecutionAdvice(graph));
 EOF

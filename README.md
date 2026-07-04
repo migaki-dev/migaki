@@ -145,7 +145,10 @@ under `.migaki/runs/`; use `mise run migaki:runs` to scan recent runs and
 from the newest graph. Repeated file-read evidence is `needs_review` coaching:
 it can remind Codex to reuse prior context or read only the smallest missing
 range once, but it is not proof that a future read can be skipped unless
-freshness and command-output equivalence are captured.
+freshness and command-output equivalence are captured. Advice skips
+`migaki-smoke` fixture runs by default so normal dogfooding follows real local
+work; use `mise run migaki:advise -- --include-smoke` only when you
+intentionally want fixture advice.
 
 Local run evidence under `.migaki/runs/<runId>/` is working-session state and
 stays gitignored. To preserve selected findings as project knowledge, promote a
