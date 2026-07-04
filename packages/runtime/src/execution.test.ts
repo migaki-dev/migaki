@@ -483,12 +483,44 @@ describe("execution graph runtime", () => {
       topRecommendation:
         "needs_review file_reuse across 2 read-like calls (Bash cat, Bash sed)",
     });
+    expect(
+      summary.opportunities.find(
+        (opportunity) => opportunity.category === "file_reuse",
+      ),
+    ).toMatchObject({
+      actionability: "needs_review",
+      fileReuseEvidence: {
+        automaticSkip: {
+          allowed: false,
+          reason: "Freshness and source equivalence are unknown.",
+        },
+        freshness: {
+          evidence:
+            "No file version, content digest, or modification timestamp was captured for each read-like call.",
+          status: "unknown",
+        },
+        repeatedIdentity: {
+          mode: "redacted_fingerprint",
+          status: "observed",
+        },
+        sourceEquivalence: {
+          assumption:
+            "Safe source labels identify the read-like caller, not equivalent bytes, ranges, or output transforms.",
+          status: "unknown",
+        },
+      },
+    });
     expect(report).toContain("Sources: Bash cat, Bash sed");
+    expect(report).toContain("Freshness: unknown");
+    expect(report).toContain("Source equivalence: unknown");
+    expect(report).toContain("Automatic skip: disallowed");
     expect(advice).toContain("# Migaki Session Advice");
     expect(advice).toContain(
-      "Top signal: file_reuse across 2 read-like calls.",
+      "Top signal: needs_review file_reuse across 2 read-like calls.",
     );
     expect(advice).toContain("Safe source signals: Bash cat, Bash sed");
+    expect(advice).toContain("Freshness: unknown");
+    expect(advice).toContain("Source equivalence: unknown");
     expect(advice).toContain(
       "Before continuing, check the prior context for files already inspected.",
     );
@@ -518,7 +550,7 @@ describe("execution graph runtime", () => {
 
     expect(advice).toContain("# Migaki Session Advice");
     expect(advice).toContain(
-      "Top signal: file_reuse across 2 read-like calls.",
+      "Top signal: needs_review file_reuse across 2 read-like calls.",
     );
     expect(advice).toContain("Safe source signals: Bash cat, Bash sed");
     expect(advice).toContain("Policy:");

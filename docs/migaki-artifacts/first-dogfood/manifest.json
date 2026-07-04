@@ -117,8 +117,8 @@
       "promoted": true
     },
     {
-      "bytes": 2613,
-      "fingerprint": "sha256:e55e95b46a7bacf3bd8a64520c526e31a95902f2b43a61f8f3a6a30247bcee6a",
+      "bytes": 2736,
+      "fingerprint": "sha256:13b08b544252cdeed3a6c4a9c5e12934e230decbc858ffb30d2fd52411318fb5",
       "path": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/report.md",
       "promoted": true
     }

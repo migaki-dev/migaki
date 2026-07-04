@@ -114,6 +114,63 @@ describe("promoteExecutionRun", () => {
     expect(graphSummary).toContain("sha256:");
   });
 
+  it("keeps raw file paths and commands out of promoted file-reuse artifacts", async () => {
+    const root = await tempRoot();
+    const sourceRoot = join(root, ".migaki");
+    const artifactRoot = join(root, "docs", "migaki-artifacts");
+    const rawPath = "/tmp/repo/README.md";
+    const catCommand = "cat README.md";
+    const sedCommand = "sed -n 1,20p README.md";
+    await writeRun(sourceRoot, runId, [
+      promptEvent(),
+      bashToolStartEvent("tool-cat", catCommand, "2026-01-01T00:00:01.000Z"),
+      bashToolFinishEvent({
+        command: catCommand,
+        eventId: "event-tool-cat-finish",
+        fileArtifactId: "tool-cat-file-path",
+        operationId: "tool-cat",
+        rawPath,
+        sourceCommand: "cat",
+        timestamp: "2026-01-01T00:00:02.000Z",
+      }),
+      bashToolStartEvent("tool-sed", sedCommand, "2026-01-01T00:00:03.000Z"),
+      bashToolFinishEvent({
+        command: sedCommand,
+        eventId: "event-tool-sed-finish",
+        fileArtifactId: "tool-sed-file-path",
+        operationId: "tool-sed",
+        rawPath,
+        sourceCommand: "sed",
+        timestamp: "2026-01-01T00:00:04.000Z",
+      }),
+      stopEvent(runId, "2026-01-01T00:00:05.000Z"),
+    ]);
+
+    const result = await promoteExecutionRun({
+      artifactRoot,
+      clock: fixedClock(),
+      name: "redacted-file-reuse",
+      runId,
+      sourceRoot,
+    });
+    const promotedContents = (
+      await Promise.all(
+        ["manifest.json", "report.md", "graph-summary.json"].map((fileName) =>
+          readFile(join(result.bundleDirectory, fileName), "utf8"),
+        ),
+      )
+    ).join("\n");
+
+    expect(promotedContents).toContain("file_reuse");
+    expect(promotedContents).toContain("Freshness: unknown");
+    expect(promotedContents).toContain("Source equivalence: unknown");
+    expect(promotedContents).not.toContain(rawPath);
+    expect(promotedContents).not.toContain("README.md");
+    expect(promotedContents).not.toContain(catCommand);
+    expect(promotedContents).not.toContain(sedCommand);
+    expect(promotedContents).not.toContain("sed -n");
+  });
+
   it("selects the newest local run by report mtime", async () => {
     const root = await tempRoot();
     const sourceRoot = join(root, ".migaki");
@@ -331,11 +388,97 @@ function toolFinishEvent(eventRunId = runId): ExecutionEvent {
   };
 }
 
-function stopEvent(eventRunId = runId): ExecutionEvent {
+function bashToolStartEvent(
+  operationId: string,
+  command: string,
+  timestamp: string,
+  eventRunId = runId,
+): ExecutionEvent {
+  return {
+    id: `event-${operationId}-start`,
+    lifecycle: "start",
+    occurredAt: timestamp,
+    operation: {
+      fingerprint: stableExecutionHash({ command }),
+      id: operationId,
+      kind: "tool_call",
+      name: "Bash",
+    },
+    runId: eventRunId,
+    version: EXECUTION_EVENT_VERSION,
+  };
+}
+
+function bashToolFinishEvent(input: {
+  readonly command: string;
+  readonly eventId: string;
+  readonly eventRunId?: string;
+  readonly fileArtifactId: string;
+  readonly operationId: string;
+  readonly rawPath: string;
+  readonly sourceCommand: string;
+  readonly timestamp: string;
+}): ExecutionEvent {
+  return {
+    artifacts: [
+      {
+        fingerprint: stableExecutionHash({
+          kind: "codex.file_path.v0",
+          path: input.rawPath,
+        }),
+        id: input.fileArtifactId,
+        kind: "file",
+        metadata: {
+          codex: {
+            fingerprintVersion: "codex.file_path.v0",
+            sourceCommand: input.sourceCommand,
+            sourceField: "command",
+            toolName: "Bash",
+          },
+          redaction: {
+            mode: "omitted",
+            reason: "Raw Codex file path is not persisted by default.",
+          },
+        },
+      },
+      {
+        fingerprint: stableExecutionHash({
+          operationId: input.operationId,
+          output: "redacted",
+        }),
+        id: `${input.operationId}-output`,
+        kind: "tool_result",
+        metadata: {
+          redaction: {
+            mode: "omitted",
+            reason: "Raw tool output omitted in fixture.",
+          },
+        },
+      },
+    ],
+    id: input.eventId,
+    lifecycle: "finish",
+    occurredAt: input.timestamp,
+    operation: {
+      fingerprint: stableExecutionHash({ command: input.command }),
+      id: input.operationId,
+      kind: "tool_call",
+      name: "Bash",
+    },
+    runId: input.eventRunId ?? runId,
+    status: "ok",
+    version: EXECUTION_EVENT_VERSION,
+  };
+}
+
+function stopEvent(
+  eventRunId = runId,
+  timestamp = "2026-01-01T00:00:03.000Z",
+): ExecutionEvent {
   return {
     id: "event-stop",
     lifecycle: "point",
-    occurredAt: "2026-01-01T00:00:03.000Z",
+    occurredAt: timestamp,
     operation: {
       id: "turn",
       kind: "turn",

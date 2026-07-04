@@ -167,6 +167,25 @@ export type ExecutionOpportunityActionability =
 export type ExecutionOpportunityConfidence = "high" | "low" | "medium";
 export type ExecutionOpportunityPriority = "high" | "low" | "medium";
 
+export interface FileReuseEvidenceReport {
+  readonly automaticSkip: {
+    readonly allowed: boolean;
+    readonly reason: string;
+  };
+  readonly freshness: {
+    readonly evidence: string;
+    readonly status: "unknown" | "verified";
+  };
+  readonly repeatedIdentity: {
+    readonly mode: "redacted_fingerprint";
+    readonly status: "observed";
+  };
+  readonly sourceEquivalence: {
+    readonly assumption: string;
+    readonly status: "unknown" | "verified";
+  };
+}
+
 export interface ExecutionOpportunityReport {
   readonly actionability: ExecutionOpportunityActionability;
   readonly artifactIds?: readonly string[];
@@ -174,6 +193,7 @@ export interface ExecutionOpportunityReport {
   readonly category: ExecutionOpportunityCategory;
   readonly confidence: ExecutionOpportunityConfidence;
   readonly estimatedAvoidableLatencyMs?: number;
+  readonly fileReuseEvidence?: FileReuseEvidenceReport;
   readonly id: string;
   readonly nodeIds: readonly string[];
   readonly priority: ExecutionOpportunityPriority;
@@ -613,23 +633,39 @@ function renderFileReuseAdvice(
     "",
     `Run: ${graph.runId}`,
     "",
-    `Top signal: file_reuse across ${opportunity.nodeIds.length} read-like calls.`,
+    `Top signal: ${opportunity.actionability} file_reuse across ${opportunity.nodeIds.length} read-like calls.`,
     `Safe source signals: ${formatSourceLabels(opportunity.sourceLabels)}`,
+    ...renderFileReuseEvidenceAdviceLines(opportunity.fileReuseEvidence),
     "",
     "Next Codex move:",
-    "- Reuse prior file context before reading the same redacted file identity again.",
+    "- Treat the repeated file identity as coaching evidence, not permission to skip a read.",
+    "- Reuse prior file context when it already answers the current question.",
     "- If more detail is needed, name the missing fact first, then read the smallest useful range once.",
     "- Keep a short note of what the read contained so later turns can use that context instead of reopening it.",
     "",
     "Suggested next prompt:",
-    "Before continuing, check the prior context for files already inspected. Do not reopen the same file unless you need a specific missing range; if you do, read the smallest useful range once and summarize what you learned for later turns.",
+    "Before continuing, check the prior context for files already inspected. Do not reopen the same file unless you need a specific missing range; do not skip reads automatically from this signal alone. If you do read, use the smallest useful range once and summarize what you learned for later turns.",
     "",
     ...renderPolicyProvenanceLines(policies),
     "Safety:",
     "- Raw paths and commands are omitted; this advice uses only fingerprints and safe source labels.",
-    "- Observation only: do not cache, replay, or skip reads automatically until freshness, caller-safe file identity, and command-output equivalence are defined.",
+    "- Observation only: do not cache, replay, or skip reads automatically until freshness and source equivalence are verified.",
     "",
   ].join("\n");
+}
+
+function renderFileReuseEvidenceAdviceLines(
+  evidence: FileReuseEvidenceReport | undefined,
+): readonly string[] {
+  if (evidence === undefined) {
+    return [];
+  }
+
+  return [
+    `Freshness: ${evidence.freshness.status}. ${evidence.freshness.evidence}`,
+    `Source equivalence: ${evidence.sourceEquivalence.status}. ${evidence.sourceEquivalence.assumption}`,
+    `Automatic skip: ${evidence.automaticSkip.allowed ? "allowed" : "disallowed"}. ${evidence.automaticSkip.reason}`,
+  ];
 }
 
 function appliedAdvicePolicies(
@@ -1365,6 +1401,26 @@ function createFileReuseOpportunity(
     ],
     category: "file_reuse",
     confidence: "medium",
+    fileReuseEvidence: {
+      automaticSkip: {
+        allowed: false,
+        reason: "Freshness and source equivalence are unknown.",
+      },
+      freshness: {
+        evidence:
+          "No file version, content digest, or modification timestamp was captured for each read-like call.",
+        status: "unknown",
+      },
+      repeatedIdentity: {
+        mode: "redacted_fingerprint",
+        status: "observed",
+      },
+      sourceEquivalence: {
+        assumption:
+          "Safe source labels identify the read-like caller, not equivalent bytes, ranges, or output transforms.",
+        status: "unknown",
+      },
+    },
     id: opportunityId("file_reuse", {
       artifactIds: artifact.artifactIds,
       fingerprint: artifact.fingerprint,
@@ -1878,6 +1934,7 @@ function renderOpportunityLines(
       ...(opportunity.sourceLabels === undefined
         ? []
         : [`Sources: ${formatSourceLabels(opportunity.sourceLabels)}`]),
+      ...renderFileReuseEvidenceDetailLines(opportunity.fileReuseEvidence),
       `avoidable latency ${formatOptionalNumber(opportunity.estimatedAvoidableLatencyMs)} ms`,
       `Why actionable: ${opportunity.whyActionable}`,
       `Blocked by: ${opportunity.blockedBy.length > 0 ? opportunity.blockedBy.join(" ") : "none"}`,
@@ -1886,6 +1943,21 @@ function renderOpportunityLines(
 
     return `- [${opportunity.actionability} ${opportunity.priority}/${opportunity.confidence}] ${opportunity.category}: ${opportunity.reason} ${details.join("; ")}`;
   });
+}
+
+function renderFileReuseEvidenceDetailLines(
+  evidence: FileReuseEvidenceReport | undefined,
+): readonly string[] {
+  if (evidence === undefined) {
+    return [];
+  }
+
+  return [
+    `File identity: ${evidence.repeatedIdentity.status} ${evidence.repeatedIdentity.mode}`,
+    `Freshness: ${evidence.freshness.status}`,
+    `Source equivalence: ${evidence.sourceEquivalence.status}`,
+    `Automatic skip: ${evidence.automaticSkip.allowed ? "allowed" : "disallowed"}`,
+  ];
 }
 
 function formatOpportunityNodes(

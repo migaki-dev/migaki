@@ -142,8 +142,10 @@ project hooks in Desktop, normal turns in this repository should emit reports
 under `.migaki/runs/`; use `mise run migaki:runs` to scan recent runs and
 `mise run migaki:latest` to read the newest report. Use
 `mise run migaki:advise` before the next turn to print a short coaching prompt
-from the newest graph; repeated file-read evidence tells Codex to reuse prior
-context or read only the smallest missing range once.
+from the newest graph. Repeated file-read evidence is `needs_review` coaching:
+it can remind Codex to reuse prior context or read only the smallest missing
+range once, but it is not proof that a future read can be skipped unless
+freshness and command-output equivalence are captured.
 
 Local run evidence under `.migaki/runs/<runId>/` is working-session state and
 stays gitignored. To preserve selected findings as project knowledge, promote a

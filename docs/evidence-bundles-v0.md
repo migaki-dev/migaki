@@ -91,6 +91,28 @@ Evidence bundles should carry metadata needed to audit decisions without
 copying prompts, customer data, raw provider responses, or credentials into
 fixtures by default.
 
+## File-Reuse Evidence Semantics
+
+Repeated redacted file fingerprints are useful coaching evidence, but they are
+advisory by default. A repeated fingerprint means Migaki observed the same
+caller-safe redacted identity more than once; it does not prove that the file was
+unchanged, that two source commands returned equivalent bytes, or that a future
+read can be skipped.
+
+The `file_reuse` opportunity report represents this explicitly:
+
+- repeated identity is `observed` through a `redacted_fingerprint`
+- freshness is `unknown` unless the run captures comparable file-version,
+  content-digest, or modification-time evidence for each read-like call
+- source equivalence is `unknown` unless the run captures enough evidence to
+  prove the commands, ranges, and output transforms are equivalent
+- automatic skip is disallowed while freshness or source equivalence is unknown
+
+When those fields are unknown, `file_reuse` stays `needs_review`. Reports and
+advice may coach an agent to check prior context or read the smallest missing
+range once, but they must not imply cache, replay, suppressed reads, or other
+hidden execution behavior.
+
 ## Compatibility
 
 Changing event kinds, required event fields, bundle section names, redaction

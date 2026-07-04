@@ -27,9 +27,13 @@ candidates are observed, the opportunity list aggregates them into one blocked
 candidate-review item while the Potential Parallelism section preserves the
 individual pairs as raw evidence.
 `renderExecutionAdvice` turns the same graph into next-session coaching text.
-For repeated redacted file fingerprints, it emits a concrete prompt that asks
-the next Codex turn to reuse prior context or read only the smallest missing
-range once, without exposing raw paths or commands.
+For repeated redacted file fingerprints, it emits `needs_review` coaching that
+asks the next Codex turn to check prior context or read only the smallest missing
+range once, without exposing raw paths or commands. File-reuse opportunities
+carry explicit evidence for repeated redacted identity, freshness, source
+equivalence, and automatic-skip safety. Today the Codex hook records repeated
+identity but not freshness or command-output equivalence, so automatic skip
+remains disallowed.
 
 The v0 plan diff contract is `migaki.plan-diff.v0`. Generated diffs report
 metadata, constraint, context, node, edge, and warning changes in deterministic
