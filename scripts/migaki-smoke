@@ -6,8 +6,8 @@ usage() {
 Usage: scripts/migaki-smoke
 
 Run a trusted Codex CLI smoke turn, assert it writes a Migaki report, then
-assert a deterministic file-reuse Codex hook fixture surfaces opportunity
-evidence.
+assert deterministic Codex hook fixtures cover expanded lifecycle events and
+file-reuse opportunity evidence.
 
 The project Codex hooks must already be reviewed and trusted with /hooks.
 EOF
@@ -34,6 +34,12 @@ HOOK_FILE="$ROOT_DIR/packages/codex/dist/hook.js"
 FIXTURE_TURN_ID="migaki-smoke-file-reuse-$$"
 FIXTURE_RUN_DIR="$ROOT_DIR/.migaki/runs/codex-turn-$FIXTURE_TURN_ID"
 FIXTURE_REPORT="$FIXTURE_RUN_DIR/report.md"
+EXPANDED_FIXTURE_TURN_ID="migaki-smoke-expanded-hooks-$$"
+EXPANDED_FIXTURE_RUN_DIR="$ROOT_DIR/.migaki/runs/codex-turn-$EXPANDED_FIXTURE_TURN_ID"
+EXPANDED_FIXTURE_REPORT="$EXPANDED_FIXTURE_RUN_DIR/report.md"
+SESSION_FIXTURE_ID="migaki-smoke-session-$$"
+SESSION_FIXTURE_RUN_DIR="$ROOT_DIR/.migaki/runs/codex-session-$SESSION_FIXTURE_ID"
+SESSION_FIXTURE_REPORT="$SESSION_FIXTURE_RUN_DIR/report.md"
 
 cleanup() {
   rm -f "$OUTPUT_FILE" "$REPORT_SNAPSHOT"
@@ -121,6 +127,46 @@ reject_real_artifact_text() {
   done
 }
 
+require_fixture_artifact() {
+  artifact_path=$1
+  if [ ! -f "$artifact_path" ]; then
+    printf '%s\n' "Expected deterministic Migaki artifact was not written: $artifact_path" >&2
+    exit 1
+  fi
+}
+
+require_fixture_artifact_text() {
+  run_dir=$1
+  text=$2
+  if ! grep -Fq -- "$text" "$run_dir/events.jsonl" "$run_dir/graph.json" "$run_dir/report.md"; then
+    printf '%s\n' "Expected deterministic Migaki artifacts to contain: $text" >&2
+    printf '%s\n' "Run path: $run_dir" >&2
+    exit 1
+  fi
+}
+
+require_fixture_report_text() {
+  report_path=$1
+  text=$2
+  if ! grep -Fq -- "$text" "$report_path"; then
+    printf '%s\n' "Expected deterministic Migaki report to contain: $text" >&2
+    printf '%s\n' "Report path: $report_path" >&2
+    exit 1
+  fi
+}
+
+reject_fixture_artifact_text() {
+  run_dir=$1
+  text=$2
+  for artifact_path in "$run_dir/events.jsonl" "$run_dir/graph.json" "$run_dir/report.md"; do
+    if grep -Fq -- "$text" "$artifact_path"; then
+      printf '%s\n' "Deterministic Migaki artifact unexpectedly contained: $text" >&2
+      printf '%s\n' "Artifact path: $artifact_path" >&2
+      exit 1
+    fi
+  done
+}
+
 require_real_artifact "$REAL_RUN_DIR/events.jsonl"
 require_real_artifact "$REAL_RUN_DIR/graph.json"
 require_real_artifact "$REAL_REPORT"
@@ -132,6 +178,109 @@ require_real_report_text "- turn: Turn completed"
 reject_real_artifact_text "Run pwd with the shell tool"
 reject_real_artifact_text "MIGAKI_HOOK_SMOKE"
 reject_real_artifact_text "$ROOT_DIR"
+
+run_expanded_hook_fixture() {
+  hook_event_name=$1
+
+  case "$hook_event_name" in
+    UserPromptSubmit)
+      printf '{"cwd":"%s","hook_event_name":"UserPromptSubmit","model":"gpt-5.1-codex","permission_mode":"on-request","prompt":"SECRET_MIGAKI_EXPANDED_PROMPT","session_id":"migaki-smoke","transcript_path":"%s/secret-expanded-transcript.jsonl","turn_id":"%s"}\n' "$ROOT_DIR" "$ROOT_DIR" "$EXPANDED_FIXTURE_TURN_ID"
+      ;;
+    PermissionRequestApproved)
+      printf '{"approval_status":"approved","cwd":"%s","hook_event_name":"PermissionRequest","model":"gpt-5.1-codex","pause_reason":"SECRET_MIGAKI_PERMISSION_ALLOW_PAUSE","permission_decision":"allow","permission_mode":"on-request","permission_request_id":"smoke-permission-allow","sandbox_mode":"workspace-write","sandbox_permissions":"require_escalated","session_id":"migaki-smoke","tool_input":{"command":"cat %s/secret-permission-allow.md","justification":"SECRET_MIGAKI_PERMISSION_ALLOW_JUSTIFICATION"},"tool_name":"Bash","tool_use_id":"smoke-permission-tool-allow","transcript_path":"%s/secret-expanded-transcript.jsonl","turn_id":"%s"}\n' "$ROOT_DIR" "$ROOT_DIR" "$ROOT_DIR" "$EXPANDED_FIXTURE_TURN_ID"
+      ;;
+    PermissionRequestDenied)
+      printf '{"approval_status":"denied","cwd":"%s","hook_event_name":"PermissionRequest","model":"gpt-5.1-codex","pause_reason":"SECRET_MIGAKI_PERMISSION_DENY_PAUSE","permission_decision":"deny","permission_mode":"on-request","permission_request_id":"smoke-permission-deny","sandbox_mode":"read-only","session_id":"migaki-smoke","tool_input":{"command":"rm -rf %s/secret-permission-deny"},"tool_name":"Bash","tool_use_id":"smoke-permission-tool-deny","transcript_path":"%s/secret-expanded-transcript.jsonl","turn_id":"%s"}\n' "$ROOT_DIR" "$ROOT_DIR" "$ROOT_DIR" "$EXPANDED_FIXTURE_TURN_ID"
+      ;;
+    PreCompact)
+      printf '{"acceptance_criteria":"SECRET_MIGAKI_COMPACT_ACCEPTANCE_BEFORE","compaction_id":"smoke-compact-1","context_window_percent":91,"cwd":"%s","hook_event_name":"PreCompact","inspected_files_summary":"SECRET_MIGAKI_COMPACT_FILES_BEFORE","model":"gpt-5.1-codex","permission_mode":"on-request","reason":"SECRET_MIGAKI_COMPACT_REASON","session_id":"migaki-smoke","transcript_path":"%s/secret-expanded-transcript.jsonl","trigger":"context_pressure","turn_id":"%s"}\n' "$ROOT_DIR" "$ROOT_DIR" "$EXPANDED_FIXTURE_TURN_ID"
+      ;;
+    PostCompact)
+      printf '{"acceptance_criteria":"SECRET_MIGAKI_COMPACT_ACCEPTANCE_AFTER","compaction_id":"smoke-compact-1","context_window_percent":42,"cwd":"%s","hook_event_name":"PostCompact","inspected_files_summary":"SECRET_MIGAKI_COMPACT_FILES_AFTER","model":"gpt-5.1-codex","permission_mode":"on-request","session_id":"migaki-smoke","summary":"SECRET_MIGAKI_COMPACT_SUMMARY","transcript_path":"%s/secret-expanded-transcript.jsonl","trigger":"context_pressure","turn_id":"%s"}\n' "$ROOT_DIR" "$ROOT_DIR" "$EXPANDED_FIXTURE_TURN_ID"
+      ;;
+    SubagentStart)
+      printf '{"agent_name":"repo-researcher","cwd":"%s","delegated_prompt":"SECRET_MIGAKI_DELEGATED_PROMPT","hook_event_name":"SubagentStart","model":"gpt-5.1-codex","parent_turn_id":"%s","permission_mode":"on-request","session_id":"migaki-smoke","subagent_id":"smoke-subagent-1","task":"SECRET_MIGAKI_DELEGATED_TASK","transcript_path":"%s/secret-expanded-transcript.jsonl","turn_id":"%s"}\n' "$ROOT_DIR" "$EXPANDED_FIXTURE_TURN_ID" "$ROOT_DIR" "$EXPANDED_FIXTURE_TURN_ID"
+      ;;
+    SubagentStop)
+      printf '{"agent_name":"repo-researcher","cwd":"%s","hook_event_name":"SubagentStop","model":"gpt-5.1-codex","parent_turn_id":"%s","permission_mode":"on-request","result":"SECRET_MIGAKI_DELEGATED_RESULT","session_id":"migaki-smoke","status":"success","subagent_id":"smoke-subagent-1","transcript":"SECRET_MIGAKI_SUBAGENT_TRANSCRIPT","transcript_path":"%s/secret-expanded-transcript.jsonl","turn_id":"%s"}\n' "$ROOT_DIR" "$EXPANDED_FIXTURE_TURN_ID" "$ROOT_DIR" "$EXPANDED_FIXTURE_TURN_ID"
+      ;;
+    Stop)
+      printf '{"cwd":"%s","hook_event_name":"Stop","last_assistant_message":"SECRET_MIGAKI_ASSISTANT_MESSAGE","model":"gpt-5.1-codex","permission_mode":"on-request","session_id":"migaki-smoke","stop_hook_active":false,"transcript_path":"%s/secret-expanded-transcript.jsonl","turn_id":"%s"}\n' "$ROOT_DIR" "$ROOT_DIR" "$EXPANDED_FIXTURE_TURN_ID"
+      ;;
+    *)
+      printf '%s\n' "Unsupported expanded fixture hook event: $hook_event_name" >&2
+      exit 2
+      ;;
+  esac | node "$HOOK_FILE"
+}
+
+run_session_hook_fixture() {
+  session_start_kind=$1
+
+  case "$session_start_kind" in
+    startup)
+      printf '{"cwd":"%s","hook_event_name":"SessionStart","model":"gpt-5.1-codex","permission_mode":"default","prompt":"SECRET_MIGAKI_SESSION_STARTUP_PROMPT","reason":"SECRET_MIGAKI_SESSION_STARTUP_REASON","session_id":"%s","session_start_kind":"startup","transcript_path":"%s/secret-session-transcript.jsonl"}\n' "$ROOT_DIR" "$SESSION_FIXTURE_ID" "$ROOT_DIR"
+      ;;
+    resume)
+      printf '{"cwd":"%s","hook_event_name":"SessionStart","model":"gpt-5.1-codex","permission_mode":"default","reason":"SECRET_MIGAKI_SESSION_RESUME_REASON","session_id":"%s","session_start_kind":"resume","summary":"SECRET_MIGAKI_SESSION_RESUME_SUMMARY","transcript_path":"%s/secret-session-transcript.jsonl"}\n' "$ROOT_DIR" "$SESSION_FIXTURE_ID" "$ROOT_DIR"
+      ;;
+    *)
+      printf '%s\n' "Unsupported session fixture boundary: $session_start_kind" >&2
+      exit 2
+      ;;
+  esac | node "$HOOK_FILE"
+}
+
+run_expanded_hook_fixture UserPromptSubmit
+run_expanded_hook_fixture PermissionRequestApproved
+run_expanded_hook_fixture PermissionRequestDenied
+run_expanded_hook_fixture PreCompact
+run_expanded_hook_fixture PostCompact
+run_expanded_hook_fixture SubagentStart
+run_expanded_hook_fixture SubagentStop
+run_expanded_hook_fixture Stop
+
+require_fixture_artifact "$EXPANDED_FIXTURE_RUN_DIR/events.jsonl"
+require_fixture_artifact "$EXPANDED_FIXTURE_RUN_DIR/graph.json"
+require_fixture_artifact "$EXPANDED_FIXTURE_REPORT"
+require_fixture_report_text "$EXPANDED_FIXTURE_REPORT" "- Failed nodes: 1"
+require_fixture_report_text "$EXPANDED_FIXTURE_REPORT" "- permission-smoke-permission-allow: Permission request (permission_request, ok"
+require_fixture_report_text "$EXPANDED_FIXTURE_REPORT" "- permission-smoke-permission-deny: Permission request (permission_request, error"
+require_fixture_report_text "$EXPANDED_FIXTURE_REPORT" "- compaction-smoke-compact-1: Context compaction (context_compaction, ok"
+require_fixture_report_text "$EXPANDED_FIXTURE_REPORT" "- subagent-smoke-subagent-1: Subagent work (subagent, ok"
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"hookEventName":"PermissionRequest"'
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"hookEventName":"PreCompact"'
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"hookEventName":"PostCompact"'
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"hookEventName":"SubagentStart"'
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"hookEventName":"SubagentStop"'
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"permissionDecision":"allow"'
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"permissionDecision":"deny"'
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"sandboxPermissions":"require_escalated"'
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"contextWindowPercent":42'
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"trigger":"context_pressure"'
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"agentName":"repo-researcher"'
+require_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" '"subagentStatus":"success"'
+reject_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" "SECRET_MIGAKI_"
+reject_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" "$ROOT_DIR"
+reject_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" "secret-expanded-transcript"
+reject_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" "secret-permission-allow"
+reject_fixture_artifact_text "$EXPANDED_FIXTURE_RUN_DIR" "secret-permission-deny"
+
+run_session_hook_fixture startup
+run_session_hook_fixture resume
+
+require_fixture_artifact "$SESSION_FIXTURE_RUN_DIR/events.jsonl"
+require_fixture_artifact "$SESSION_FIXTURE_RUN_DIR/graph.json"
+require_fixture_artifact "$SESSION_FIXTURE_REPORT"
+require_fixture_report_text "$SESSION_FIXTURE_REPORT" "- session-startup: Session boundary (session_boundary, ok"
+require_fixture_report_text "$SESSION_FIXTURE_REPORT" "- session-resume: Session boundary (session_boundary, ok"
+require_fixture_artifact_text "$SESSION_FIXTURE_RUN_DIR" '"hookEventName":"SessionStart"'
+require_fixture_artifact_text "$SESSION_FIXTURE_RUN_DIR" '"sessionBoundaryKind":"startup"'
+require_fixture_artifact_text "$SESSION_FIXTURE_RUN_DIR" '"sessionBoundaryKind":"resume"'
+require_fixture_artifact_text "$SESSION_FIXTURE_RUN_DIR" '"workScope":"session"'
+reject_fixture_artifact_text "$SESSION_FIXTURE_RUN_DIR" "SECRET_MIGAKI_"
+reject_fixture_artifact_text "$SESSION_FIXTURE_RUN_DIR" "$ROOT_DIR"
+reject_fixture_artifact_text "$SESSION_FIXTURE_RUN_DIR" "secret-session-transcript"
 
 run_hook_fixture() {
   hook_event_name=$1
