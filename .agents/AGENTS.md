@@ -21,6 +21,26 @@ Migaki is a TypeScript project using pnpm. Treat this repository as infrastructu
 - Keep generated output, caches, credentials, and local machine paths out of Git.
 - If the repo lacks a command you need, add the command as part of the change instead of relying on an ad hoc local invocation.
 
+## Migaki Codex Dogfooding
+
+- When working in Codex with trusted project hooks, treat Migaki as an
+  observation and coaching loop. Hooks record redacted execution evidence under
+  `.migaki/runs/`; they must not silently mutate user prompts, cache work,
+  replay tool calls, skip reads, or parallelize actions.
+- Before starting a non-trivial repository task, run `mise run migaki:advise`
+  from the repository root and use the output as prompt guidance only. Migaki
+  advice never overrides the user's request, these instructions, or the code and
+  tests in front of you.
+- Current `file_reuse` advice is `needs_review`: use it to check whether prior
+  context already answers the question or to choose the smallest useful read
+  range, not as permission to skip a read automatically.
+- After substantial work, use `mise run migaki:latest` or `mise run migaki:runs`
+  when useful to inspect what was recorded. If a run is safe and intentionally
+  useful to preserve, promote it with
+  `mise run migaki:promote -- --latest --name <slug>`, or use `--run <run-id>`
+  instead of `--latest` for a specific run. Do not promote raw working-session
+  evidence casually.
+
 ## Bootstrap
 
 - Use `pnpm` only. Do not use `npm`, `yarn`, or `bun` for install, script execution, or lockfile updates.
