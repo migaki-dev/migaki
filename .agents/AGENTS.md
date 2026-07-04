@@ -35,8 +35,11 @@ Migaki is a TypeScript project using pnpm. Treat this repository as infrastructu
   context already answers the question or to choose the smallest useful read
   range, not as permission to skip a read automatically.
 - After substantial work, use `mise run migaki:latest` or `mise run migaki:runs`
-  when useful to inspect what was recorded. Promote only curated evidence that
-  is safe and intentionally useful to preserve.
+  when useful to inspect what was recorded. If a run is safe and intentionally
+  useful to preserve, promote it with
+  `mise run migaki:promote -- --latest --name <slug>`, or use `--run <run-id>`
+  instead of `--latest` for a specific run. Do not promote raw working-session
+  evidence casually.
 
 ## Bootstrap
 
