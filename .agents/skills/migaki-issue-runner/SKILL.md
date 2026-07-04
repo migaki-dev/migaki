@@ -1,6 +1,6 @@
 ---
 name: migaki-issue-runner
-description: Pick up and complete a GitHub issue from Migaki by explicit issue number or by the next unblocked issue in a named milestone such as v0. Use when asked to work an issue queue, continue a loop/goal that processes issues, claim an issue with a label semaphore, check active work and dependencies, consult the wiki for product conflicts, implement under AGENTS.md and CONTRIBUTING.md, open an auto-merge PR, and ensure the issue closes after merge.
+description: Pick up and complete a GitHub issue from Migaki by explicit issue number or by the next open, non-blocked issue in the repository-wide queue. Use when asked to work an issue queue, continue a loop/goal that processes issues, claim an issue with a label semaphore, check active work and dependencies, optionally scope by an explicit milestone, consult the wiki for product conflicts, implement under AGENTS.md and CONTRIBUTING.md, open an auto-merge PR, and ensure the issue closes after merge.
 ---
 
 # Migaki Issue Runner
@@ -9,9 +9,14 @@ Use this skill to run GitHub issue work for `migaki-dev/migaki` one issue at a
 time. It supports either:
 
 - an explicit issue number, for example `#42`
-- the next unblocked issue in a named milestone, for example `v0`
+- the next open, non-blocked issue in the repository-wide queue
+- the next unblocked issue in a named milestone, only when the user explicitly
+  requests that milestone
 
-If the user asks for the current stage without naming one, use milestone `v0`.
+If the user asks for the current stage, next issue, issue queue, or loop without
+naming a specific issue or milestone, use the repository-wide open issue queue.
+Do not restrict selection to milestone `v0` unless the user explicitly asks for
+that milestone.
 
 ## State Labels
 
@@ -69,14 +74,16 @@ If dependency text is ambiguous, comment with the ambiguity, add
 Resolve the user request into one of these scopes:
 
 - **Explicit issue**: work only that issue, even if it is outside a milestone.
-- **Milestone queue**: work the next unblocked issue in the named milestone.
-- **Default stage queue**: when the user says "current stage" or "v0 queue",
-  use milestone `v0`.
+- **Repository-wide queue**: work the next open, non-blocked issue in the
+  repository, regardless of milestone. Use this by default when the user asks
+  for the current stage, next issue, issue queue, or loop without naming a
+  specific issue or milestone.
+- **Milestone queue**: work the next unblocked issue in the named milestone only
+  when the user explicitly names a milestone, for example `v0`.
 
 Do not silently reinterpret outdated stage names as milestones. If issue text
-uses an old stage name while the intended stage is `v0`, use `v0` and update
-issue wording only when that is part of the requested scope or the user
-confirms it.
+uses an old stage name, keep the selected scope unchanged and update issue
+wording only when that is part of the requested scope or the user confirms it.
 
 ### 2. Prepare The Repository
 
@@ -129,11 +136,18 @@ gh issue view <issue-number> --repo migaki-dev/migaki \
   --json number,title,body,state,labels,assignees,milestone
 ```
 
-For a milestone queue:
+For the repository-wide queue:
+
+```sh
+gh issue list --repo migaki-dev/migaki --state open --limit 100 \
+  --json number,title,body,labels,assignees,milestone,createdAt,updatedAt
+```
+
+For an explicitly named milestone queue:
 
 ```sh
 gh issue list --repo migaki-dev/migaki --milestone "<milestone>" --state open \
-  --limit 100 --json number,title,body,labels,assignees,createdAt,updatedAt
+  --limit 100 --json number,title,body,labels,assignees,milestone,createdAt,updatedAt
 ```
 
 Select the first issue that satisfies all conditions:
@@ -250,7 +264,7 @@ When running under a loop/goal:
 - If there is any open issue-work PR, continue that PR first.
 - If any issue is `status:claimed`, continue that issue first.
 - If the last PR merged and the issue closed, return to active-work checks and
-  pick the next unblocked issue in the same scope.
+  pick the next unblocked issue in the same queue scope.
 - Stop when the queue is empty, all remaining issues are blocked, a user
   decision is required, or a non-recoverable check/permission failure occurs.
 
