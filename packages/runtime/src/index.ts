@@ -13,6 +13,7 @@ export * from "./execution.js";
 export * from "./exact-duplicate-context.js";
 export * from "./mock-trace.js";
 export * from "./pass.js";
+export * from "./promotion.js";
 export * from "./prompt-cache-layout.js";
 export * from "./retry-fallback-planning.js";
 export * from "./runner.js";

@@ -23,6 +23,9 @@ downstream integrators.
 - [Adaptive Policies v0](./adaptive-policies-v0.md) describes
   meta-observations, policy proposals, policy diffs, and accepted policy
   bundles for auditable advice-only adaptation.
+- [Promoted Migaki Artifacts](./migaki-artifacts/README.md) describes the
+  tracked location for curated project-level artifacts promoted from local
+  `.migaki/runs` evidence.
 
 ## Wiki Context
 

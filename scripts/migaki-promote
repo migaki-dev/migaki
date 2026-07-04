@@ -1,0 +1,33 @@
+#!/usr/bin/env sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-promote --run <run-id> --name <slug> [options]
+
+Promote a local Migaki run into tracked project artifacts.
+
+Options:
+  --source-root <path>    Local Migaki store root. Defaults to .migaki.
+  --artifact-root <path>  Promoted artifact root. Defaults to docs/migaki-artifacts.
+  -h, --help              Show this help.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+RUNTIME_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/promotion-cli.js"
+
+if [ ! -f "$RUNTIME_ENTRYPOINT" ]; then
+  printf '%s\n' "Built runtime entrypoint was not found: $RUNTIME_ENTRYPOINT" >&2
+  printf '%s\n' "Run this through mise with \`mise run migaki:promote\`, or run \`mise run build\` first." >&2
+  exit 1
+fi
+
+node "$RUNTIME_ENTRYPOINT" "$@"
