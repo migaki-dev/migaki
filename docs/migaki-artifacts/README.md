@@ -29,3 +29,8 @@ It does not promote raw `events.jsonl` by default. Raw prompts, tool input and
 output, transcript paths, file paths, summaries, and delegated task/result text
 must stay omitted or represented only by fingerprints and explicit redaction
 metadata.
+
+Promoted `file_reuse` findings are advisory unless the report includes explicit
+freshness evidence and source-equivalence evidence. A repeated redacted file
+identity is useful coaching signal, not proof that a later read can be cached,
+replayed, or skipped.

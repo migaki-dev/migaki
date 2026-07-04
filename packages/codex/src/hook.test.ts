@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FakeClock } from "../../../src/testing/index.js";
-import { EXECUTION_GRAPH_VERSION, type ExecutionGraph } from "@migaki/runtime";
+import {
+  EXECUTION_GRAPH_VERSION,
+  createExecutionReportSummary,
+  renderExecutionAdvice,
+  type ExecutionGraph,
+} from "@migaki/runtime";
 import { runCodexHook } from "./index.js";
 
 const tempDirectories: string[] = [];
@@ -816,6 +821,89 @@ describe("Codex hook adapter", () => {
     expect(report).not.toContain(rawCommand);
     expect(report).not.toContain(rawPath);
     expect(report).not.toContain("secret-bash-plan.md");
+  });
+
+  it("keeps cat and sed reads of the same redacted file identity advisory only", async () => {
+    const storeDirectory = await tempRoot();
+    const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
+    const catCommand = "cat README.md";
+    const sedCommand = "sed -n 1,20p README.md";
+
+    await runAt(clock, storeDirectory, userPromptSubmit());
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        command: catCommand,
+      },
+      toolName: "Bash",
+      toolUseId: "bash-cat",
+    });
+    await recordToolCall(clock, storeDirectory, {
+      toolInput: {
+        command: sedCommand,
+      },
+      toolName: "Bash",
+      toolUseId: "bash-sed",
+    });
+    await runAt(clock, storeDirectory, stop());
+
+    const { eventsJsonl, graph, report } =
+      await readRunArtifacts(storeDirectory);
+    const summary = createExecutionReportSummary(graph);
+    const advice = renderExecutionAdvice(graph);
+    const persisted = [eventsJsonl, JSON.stringify(graph), report, advice].join(
+      "\n",
+    );
+    const fileArtifacts = graphFileArtifacts(graph);
+    const fingerprints = fileArtifacts.map(
+      ({ artifact }) => artifact.fingerprint,
+    );
+
+    expect(fileArtifacts.map(({ nodeId }) => nodeId)).toEqual([
+      "tool-bash-cat",
+      "tool-bash-sed",
+    ]);
+    expect(fileArtifacts.map(({ artifact }) => artifact.id)).toEqual([
+      "tool-bash-cat-file-path",
+      "tool-bash-sed-file-path",
+    ]);
+    expect(fingerprints.every(isSha256Fingerprint)).toBe(true);
+    expect(new Set(fingerprints).size).toBe(1);
+    expect(
+      summary.opportunities.find(
+        (opportunity) => opportunity.category === "file_reuse",
+      ),
+    ).toMatchObject({
+      actionability: "needs_review",
+      fileReuseEvidence: {
+        automaticSkip: {
+          allowed: false,
+          reason: "Freshness and source equivalence are unknown.",
+        },
+        freshness: {
+          status: "unknown",
+        },
+        sourceEquivalence: {
+          status: "unknown",
+        },
+      },
+      sourceLabels: ["Bash cat", "Bash sed"],
+    });
+    expect(report).toContain(
+      "- Top recommendation: needs_review file_reuse across 2 read-like calls (Bash cat, Bash sed)",
+    );
+    expect(report).toContain("Freshness: unknown");
+    expect(report).toContain("Source equivalence: unknown");
+    expect(report).toContain("Automatic skip: disallowed");
+    expect(advice).toContain(
+      "Top signal: needs_review file_reuse across 2 read-like calls.",
+    );
+    expect(advice).toContain("Freshness: unknown");
+    expect(advice).toContain("Source equivalence: unknown");
+    expect(advice).toContain("do not skip reads automatically");
+    expect(persisted).not.toContain("README.md");
+    expect(persisted).not.toContain(catCommand);
+    expect(persisted).not.toContain(sedCommand);
+    expect(persisted).not.toContain("sed -n");
   });
 
   it("records safe Grep, Glob, and LS path fields as file artifacts", async () => {
