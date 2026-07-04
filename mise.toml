@@ -78,6 +78,11 @@ run = "scripts/migaki-codex"
 description = "List recent local Migaki execution reports"
 run = "scripts/migaki-runs"
 
+[tasks."migaki:promote"]
+description = "Promote a local Migaki run into tracked project artifacts"
+depends = ["build"]
+run = "scripts/migaki-promote"
+
 [tasks."migaki:smoke"]
 description = "Run a trusted Codex hook smoke test and print the newest report"
 depends = ["build"]
@@ -103,6 +108,7 @@ sh -n scripts/install-git-hooks
 sh -n scripts/migaki-advise
 sh -n scripts/migaki-codex
 sh -n scripts/migaki-latest-report
+sh -n scripts/migaki-promote
 sh -n scripts/migaki-runs
 sh -n scripts/migaki-feature-smoke
 sh -n scripts/migaki-provider-smoke
@@ -114,6 +120,7 @@ scripts/bootstrap --help >/dev/null
 scripts/migaki-advise --help >/dev/null
 scripts/migaki-codex --help >/dev/null
 scripts/migaki-latest-report --help >/dev/null
+scripts/migaki-promote --help >/dev/null
 scripts/migaki-runs --help >/dev/null
 scripts/migaki-feature-smoke --help >/dev/null
 scripts/migaki-provider-smoke --help >/dev/null

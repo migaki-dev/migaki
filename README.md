@@ -92,6 +92,7 @@ mise run test:e2e
 mise run build
 mise run migaki:latest
 mise run migaki:advise
+mise run migaki:promote -- --run <run-id> --name <slug>
 mise run migaki:runs
 mise run migaki:smoke
 mise run migaki:feature-smoke
@@ -144,9 +145,26 @@ under `.migaki/runs/`; use `mise run migaki:runs` to scan recent runs and
 from the newest graph; repeated file-read evidence tells Codex to reuse prior
 context or read only the smallest missing range once.
 
+Local run evidence under `.migaki/runs/<runId>/` is working-session state and
+stays gitignored. To preserve selected findings as project knowledge, promote a
+run into the tracked artifact area:
+
+```sh
+mise run migaki:promote -- --run <run-id> --name <slug>
+```
+
+Promotion writes `docs/migaki-artifacts/<slug>/manifest.json`, `report.md`, and
+`graph-summary.json`. It validates the local run's `events.jsonl`,
+`graph.json`, and `report.md`, records source fingerprints and provenance, and
+omits raw event streams by default. The promoted graph summary includes only
+selected redacted graph data; raw prompts, tool input/output, transcript paths,
+file paths, and delegated task/result text remain omitted.
+
 ## Repository Layout
 
 - `docs/` contains repository-versioned technical contract docs for v0.
+- `docs/migaki-artifacts/` contains curated, promoted Migaki run artifacts that
+  are safe and useful to preserve as project knowledge.
 - `src/` contains root TypeScript exports and shared test helpers for the workspace.
 - `packages/mir/` owns mIR schemas, validators, and example plan contracts.
 - `packages/runtime/` owns planning, pass execution, evidence, tracing, and replay plumbing.

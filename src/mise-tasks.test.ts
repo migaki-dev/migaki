@@ -29,6 +29,17 @@ describe("mise tasks", () => {
     expect(task).toContain('depends = ["build"]');
     expect(task).toContain('run = "scripts/migaki-codex"');
   });
+
+  it("wires project artifact promotion behind a build", async () => {
+    const config = await readFile(`${repositoryRoot}/mise.toml`, "utf8");
+    const task = readTask(config, "migaki:promote");
+
+    expect(task).toContain(
+      'description = "Promote a local Migaki run into tracked project artifacts"',
+    );
+    expect(task).toContain('depends = ["build"]');
+    expect(task).toContain('run = "scripts/migaki-promote"');
+  });
 });
 
 function readTask(config: string, taskName: string): string {
