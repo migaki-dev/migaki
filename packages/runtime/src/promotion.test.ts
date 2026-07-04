@@ -4,6 +4,7 @@ import {
   readFile,
   readdir,
   rm,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,6 +16,7 @@ import {
   EXECUTION_EVENT_VERSION,
   PROMOTED_ARTIFACT_VERSION,
   buildExecutionGraph,
+  findLatestExecutionRun,
   promoteExecutionRun,
   renderExecutionReport,
   serializeExecutionJson,
@@ -42,7 +44,7 @@ describe("promoteExecutionRun", () => {
     const root = await tempRoot();
     const sourceRoot = join(root, ".migaki");
     const artifactRoot = join(root, "docs", "migaki-artifacts");
-    await writeRun(sourceRoot, [
+    await writeRun(sourceRoot, runId, [
       promptEvent(),
       toolStartEvent(),
       toolFinishEvent(),
@@ -112,6 +114,44 @@ describe("promoteExecutionRun", () => {
     expect(graphSummary).toContain("sha256:");
   });
 
+  it("selects the newest local run by report mtime", async () => {
+    const root = await tempRoot();
+    const sourceRoot = join(root, ".migaki");
+
+    await writeRun(sourceRoot, "older-run", [
+      promptEvent("older-run"),
+      stopEvent("older-run"),
+    ]);
+    await writeRun(sourceRoot, "newer-run", [
+      promptEvent("newer-run"),
+      stopEvent("newer-run"),
+    ]);
+    await utimes(
+      join(sourceRoot, "runs", "older-run", "report.md"),
+      new Date(Date.UTC(2026, 0, 1, 0, 0, 0)),
+      new Date(Date.UTC(2026, 0, 1, 0, 0, 0)),
+    );
+    await utimes(
+      join(sourceRoot, "runs", "newer-run", "report.md"),
+      new Date(Date.UTC(2026, 0, 1, 1, 0, 0)),
+      new Date(Date.UTC(2026, 0, 1, 1, 0, 0)),
+    );
+
+    await expect(findLatestExecutionRun({ sourceRoot })).resolves.toBe(
+      "newer-run",
+    );
+  });
+
+  it("fails closed when latest promotion has no local reports", async () => {
+    const root = await tempRoot();
+
+    await expect(
+      findLatestExecutionRun({ sourceRoot: join(root, ".migaki") }),
+    ).rejects.toMatchObject({
+      code: "missing_required_artifact",
+    });
+  });
+
   it("fails closed when a required source artifact is missing", async () => {
     const root = await tempRoot();
     const sourceRoot = join(root, ".migaki");
@@ -169,10 +209,11 @@ async function tempRoot(): Promise<string> {
 
 async function writeRun(
   sourceRoot: string,
+  writeRunId: string,
   events: readonly ExecutionEvent[],
 ): Promise<void> {
-  const runDirectory = join(sourceRoot, "runs", runId);
-  const graph = buildExecutionGraph(runId, events);
+  const runDirectory = join(sourceRoot, "runs", writeRunId);
+  const graph = buildExecutionGraph(writeRunId, events);
   await mkdir(runDirectory, { recursive: true });
   await writeFile(
     join(runDirectory, "events.jsonl"),
@@ -197,7 +238,7 @@ function fixedClock(): { readonly now: () => Date } {
   };
 }
 
-function promptEvent(): ExecutionEvent {
+function promptEvent(eventRunId = runId): ExecutionEvent {
   const promptFingerprint = stableExecutionHash({
     prompt: "secret prompt",
   });
@@ -225,13 +266,13 @@ function promptEvent(): ExecutionEvent {
       kind: "user_prompt",
       name: "User prompt",
     },
-    runId,
+    runId: eventRunId,
     status: "ok",
     version: EXECUTION_EVENT_VERSION,
   };
 }
 
-function toolStartEvent(): ExecutionEvent {
+function toolStartEvent(eventRunId = runId): ExecutionEvent {
   return {
     artifacts: [
       {
@@ -255,12 +296,12 @@ function toolStartEvent(): ExecutionEvent {
       kind: "tool_call",
       name: "Bash",
     },
-    runId,
+    runId: eventRunId,
     version: EXECUTION_EVENT_VERSION,
   };
 }
 
-function toolFinishEvent(): ExecutionEvent {
+function toolFinishEvent(eventRunId = runId): ExecutionEvent {
   return {
     artifacts: [
       {
@@ -284,13 +325,13 @@ function toolFinishEvent(): ExecutionEvent {
       kind: "tool_call",
       name: "Bash",
     },
-    runId,
+    runId: eventRunId,
     status: "ok",
     version: EXECUTION_EVENT_VERSION,
   };
 }
 
-function stopEvent(): ExecutionEvent {
+function stopEvent(eventRunId = runId): ExecutionEvent {
   return {
     id: "event-stop",
     lifecycle: "point",
@@ -300,7 +341,7 @@ function stopEvent(): ExecutionEvent {
       kind: "turn",
       name: "Turn completed",
     },
-    runId,
+    runId: eventRunId,
     runStatus: "ok",
     status: "ok",
     version: EXECUTION_EVENT_VERSION,

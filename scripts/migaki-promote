@@ -3,11 +3,13 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: scripts/migaki-promote --run <run-id> --name <slug> [options]
+Usage: scripts/migaki-promote (--run <run-id> | --latest) --name <slug> [options]
 
 Promote a local Migaki run into tracked project artifacts.
 
 Options:
+  --latest               Promote the newest local Migaki run with report.md.
+  --run <run-id>         Promote a specific local Migaki run.
   --source-root <path>    Local Migaki store root. Defaults to .migaki.
   --artifact-root <path>  Promoted artifact root. Defaults to docs/migaki-artifacts.
   -h, --help              Show this help.

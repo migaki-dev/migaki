@@ -1,0 +1,127 @@
+{
+  "artifacts": [
+    {
+      "mediaType": "application/json",
+      "path": "manifest.json",
+      "role": "manifest"
+    },
+    {
+      "mediaType": "text/markdown",
+      "path": "report.md",
+      "role": "report"
+    },
+    {
+      "mediaType": "application/json",
+      "path": "graph-summary.json",
+      "role": "graph_summary"
+    }
+  ],
+  "createdAt": "2026-07-04T03:06:33.272Z",
+  "name": "first-dogfood",
+  "redactions": [
+    {
+      "mode": "omitted",
+      "path": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/events.jsonl",
+      "reason": "Raw local event streams are not promoted by default.",
+      "sourceArtifact": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/events.jsonl"
+    },
+    {
+      "artifactId": "prompt-input",
+      "kind": "prompt",
+      "mode": "omitted",
+      "nodeId": "prompt",
+      "path": "graph.nodes.prompt.artifacts.prompt-input",
+      "reason": "Raw Codex prompt text is not persisted by default.",
+      "sourceArtifact": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/graph.json"
+    },
+    {
+      "artifactId": "tool-read-1-file-path",
+      "kind": "file",
+      "mode": "omitted",
+      "nodeId": "tool-read-1",
+      "path": "graph.nodes.tool-read-1.artifacts.tool-read-1-file-path",
+      "reason": "Raw Codex file path is not persisted by default.",
+      "sourceArtifact": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/graph.json"
+    },
+    {
+      "artifactId": "tool-read-1-input",
+      "kind": "tool_input",
+      "mode": "omitted",
+      "nodeId": "tool-read-1",
+      "path": "graph.nodes.tool-read-1.artifacts.tool-read-1-input",
+      "reason": "Raw Codex tool input is not persisted by default.",
+      "sourceArtifact": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/graph.json"
+    },
+    {
+      "artifactId": "tool-read-1-output",
+      "kind": "tool_result",
+      "mode": "omitted",
+      "nodeId": "tool-read-1",
+      "path": "graph.nodes.tool-read-1.artifacts.tool-read-1-output",
+      "reason": "Raw Codex tool output is not persisted by default.",
+      "sourceArtifact": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/graph.json"
+    },
+    {
+      "artifactId": "tool-read-2-file-path",
+      "kind": "file",
+      "mode": "omitted",
+      "nodeId": "tool-read-2",
+      "path": "graph.nodes.tool-read-2.artifacts.tool-read-2-file-path",
+      "reason": "Raw Codex file path is not persisted by default.",
+      "sourceArtifact": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/graph.json"
+    },
+    {
+      "artifactId": "tool-read-2-input",
+      "kind": "tool_input",
+      "mode": "omitted",
+      "nodeId": "tool-read-2",
+      "path": "graph.nodes.tool-read-2.artifacts.tool-read-2-input",
+      "reason": "Raw Codex tool input is not persisted by default.",
+      "sourceArtifact": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/graph.json"
+    },
+    {
+      "artifactId": "tool-read-2-output",
+      "kind": "tool_result",
+      "mode": "omitted",
+      "nodeId": "tool-read-2",
+      "path": "graph.nodes.tool-read-2.artifacts.tool-read-2-output",
+      "reason": "Raw Codex tool output is not persisted by default.",
+      "sourceArtifact": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/graph.json"
+    },
+    {
+      "artifactId": "last-assistant-message",
+      "kind": "assistant_message",
+      "mode": "omitted",
+      "nodeId": "turn",
+      "path": "graph.nodes.turn.artifacts.last-assistant-message",
+      "reason": "Raw Codex assistant message text is not persisted by default.",
+      "sourceArtifact": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/graph.json"
+    }
+  ],
+  "source": {
+    "localRunPath": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845",
+    "runId": "codex-turn-migaki-smoke-file-reuse-14845"
+  },
+  "sourceArtifacts": [
+    {
+      "bytes": 7711,
+      "fingerprint": "sha256:ce29280dcf4a4564b21a5669f22f29c6f0ca8dbe0fa3df3fbb6cc90fa827941d",
+      "path": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/events.jsonl",
+      "promoted": false,
+      "reason": "Raw local event streams are not promoted by default."
+    },
+    {
+      "bytes": 8692,
+      "fingerprint": "sha256:f026bd4d3c263b76a59b2438d7529842ba3e03ef5c04c0e1a426806721cf78f3",
+      "path": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/graph.json",
+      "promoted": true
+    },
+    {
+      "bytes": 2613,
+      "fingerprint": "sha256:e55e95b46a7bacf3bd8a64520c526e31a95902f2b43a61f8f3a6a30247bcee6a",
+      "path": ".migaki/runs/codex-turn-migaki-smoke-file-reuse-14845/report.md",
+      "promoted": true
+    }
+  ],
+  "version": "migaki.promoted-artifact.v0"
+}

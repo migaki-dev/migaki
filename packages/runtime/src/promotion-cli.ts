@@ -4,12 +4,14 @@ import { fileURLToPath } from "node:url";
 
 import {
   PromotedArtifactValidationFailure,
+  findLatestExecutionRun,
   promoteExecutionRun,
 } from "./promotion.js";
 
 interface ParsedArgs {
   readonly artifactRoot?: string;
   readonly help: boolean;
+  readonly latest: boolean;
   readonly name?: string;
   readonly runId?: string;
   readonly sourceRoot?: string;
@@ -44,27 +46,53 @@ export async function runPromotionCli(
     return 0;
   }
 
-  if (parsed.runId === undefined || parsed.name === undefined) {
-    stderr.write("Both --run and --name are required.\n\n");
+  if (parsed.name === undefined) {
+    stderr.write("--name is required.\n\n");
+    stderr.write(usage());
+
+    return 2;
+  }
+
+  if (parsed.latest && parsed.runId !== undefined) {
+    stderr.write("Use either --latest or --run, not both.\n\n");
+    stderr.write(usage());
+
+    return 2;
+  }
+
+  if (!parsed.latest && parsed.runId === undefined) {
+    stderr.write("Either --latest or --run is required.\n\n");
     stderr.write(usage());
 
     return 2;
   }
 
   try {
+    const runId = parsed.latest
+      ? await findLatestExecutionRun({
+          ...(parsed.sourceRoot !== undefined
+            ? { sourceRoot: parsed.sourceRoot }
+            : {}),
+        })
+      : parsed.runId;
+
+    if (runId === undefined) {
+      throw new UsageError("Either --latest or --run is required.");
+    }
+
     const result = await promoteExecutionRun({
       ...(parsed.artifactRoot !== undefined
         ? { artifactRoot: parsed.artifactRoot }
         : {}),
       name: parsed.name,
-      runId: parsed.runId,
+      runId,
       ...(parsed.sourceRoot !== undefined
         ? { sourceRoot: parsed.sourceRoot }
         : {}),
     });
     stdout.write(
       [
-        `Promoted Migaki run ${parsed.runId} to ${formatPath(result.bundleDirectory)}.`,
+        `Promoted Migaki run ${runId} to ${formatPath(result.bundleDirectory)}.`,
         `Manifest: ${formatPath(result.manifestPath)}`,
         `Report: ${formatPath(result.reportPath)}`,
         `Graph summary: ${formatPath(result.graphSummaryPath)}`,
@@ -88,11 +116,13 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   const parsed: {
     artifactRoot?: string;
     help: boolean;
+    latest: boolean;
     name?: string;
     runId?: string;
     sourceRoot?: string;
   } = {
     help: false,
+    latest: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -112,6 +142,15 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     }
 
     const [name, inlineValue] = splitInlineOption(arg);
+    if (name === "--latest") {
+      if (inlineValue !== undefined) {
+        throw new UsageError("--latest does not accept a value.");
+      }
+
+      parsed.latest = true;
+      continue;
+    }
+
     if (name === "--run") {
       parsed.runId = inlineValue ?? readOptionValue(args, index, name);
       index += inlineValue === undefined ? 1 : 0;
@@ -168,9 +207,11 @@ function readOptionValue(
 
 function usage(): string {
   return [
-    "Usage: scripts/migaki-promote --run <run-id> --name <slug> [options]",
+    "Usage: scripts/migaki-promote (--run <run-id> | --latest) --name <slug> [options]",
     "",
     "Options:",
+    "  --latest               Promote the newest local Migaki run with report.md.",
+    "  --run <run-id>         Promote a specific local Migaki run.",
     "  --source-root <path>    Local Migaki store root. Defaults to .migaki.",
     "  --artifact-root <path>  Promoted artifact root. Defaults to docs/migaki-artifacts.",
     "  -h, --help              Show this help.",

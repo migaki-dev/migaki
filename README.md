@@ -92,7 +92,7 @@ mise run test:e2e
 mise run build
 mise run migaki:latest
 mise run migaki:advise
-mise run migaki:promote -- --run <run-id> --name <slug>
+mise run migaki:promote -- --latest --name <slug>
 mise run migaki:runs
 mise run migaki:smoke
 mise run migaki:feature-smoke
@@ -148,6 +148,12 @@ context or read only the smallest missing range once.
 Local run evidence under `.migaki/runs/<runId>/` is working-session state and
 stays gitignored. To preserve selected findings as project knowledge, promote a
 run into the tracked artifact area:
+
+```sh
+mise run migaki:promote -- --latest --name <slug>
+```
+
+Use `--run <run-id>` instead of `--latest` when promoting a specific run:
 
 ```sh
 mise run migaki:promote -- --run <run-id> --name <slug>
