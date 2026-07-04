@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -29,6 +30,10 @@ export interface PromoteExecutionRunOptions {
   readonly clock?: ExecutionClock;
   readonly name: string;
   readonly runId: string;
+  readonly sourceRoot?: string;
+}
+
+export interface FindLatestExecutionRunOptions {
   readonly sourceRoot?: string;
 }
 
@@ -152,6 +157,58 @@ const requiredSourceArtifacts = [
     promoted: true,
   },
 ] as const;
+
+export async function findLatestExecutionRun(
+  options: FindLatestExecutionRunOptions = {},
+): Promise<string> {
+  const sourceRoot = options.sourceRoot ?? ".migaki";
+  const runsDirectory = join(sourceRoot, "runs");
+  let entries: Dirent[];
+
+  try {
+    entries = await readdir(runsDirectory, { withFileTypes: true });
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      throw new PromotedArtifactValidationFailure({
+        code: "missing_required_artifact",
+        message: `No Migaki runs directory found at ${displayRunsPath(sourceRoot)}.`,
+        path: displayRunsPath(sourceRoot),
+      });
+    }
+
+    throw error;
+  }
+
+  const candidates = (
+    await Promise.all(
+      entries.flatMap((entry) => {
+        if (!entry.isDirectory() || !isSafeRunId(entry.name)) {
+          return [];
+        }
+
+        return [latestRunCandidate(runsDirectory, entry.name)];
+      }),
+    )
+  )
+    .filter((candidate) => candidate !== undefined)
+    .sort(
+      (left, right) =>
+        right.reportMtimeMs - left.reportMtimeMs ||
+        right.runId.localeCompare(left.runId),
+    );
+
+  const latest = candidates[0];
+
+  if (latest === undefined) {
+    throw new PromotedArtifactValidationFailure({
+      code: "missing_required_artifact",
+      message: `No Migaki report.md files found under ${displayRunsPath(sourceRoot)}.`,
+      path: displayRunsPath(sourceRoot),
+    });
+  }
+
+  return latest.runId;
+}
 
 export async function promoteExecutionRun(
   options: PromoteExecutionRunOptions,
@@ -553,6 +610,40 @@ function assertSafeArtifactName(name: string): void {
       path: name,
     });
   }
+}
+
+function isSafeRunId(runId: string): boolean {
+  return /^[A-Za-z0-9._-]+$/.test(runId);
+}
+
+async function latestRunCandidate(
+  runsDirectory: string,
+  runId: string,
+): Promise<
+  { readonly reportMtimeMs: number; readonly runId: string } | undefined
+> {
+  try {
+    const reportStat = await stat(join(runsDirectory, runId, "report.md"));
+
+    if (!reportStat.isFile()) {
+      return undefined;
+    }
+
+    return {
+      reportMtimeMs: reportStat.mtimeMs,
+      runId,
+    };
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+function displayRunsPath(sourceRoot: string): string {
+  return sourceRoot === ".migaki" ? ".migaki/runs" : join(sourceRoot, "runs");
 }
 
 function sha256(contents: string): string {

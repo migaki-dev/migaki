@@ -1,0 +1,156 @@
+{
+  "edgeCount": 3,
+  "endedAt": "2026-07-04T03:06:20.059Z",
+  "nodes": [
+    {
+      "artifacts": [
+        {
+          "fingerprint": "sha256:f24bdf675f38f440e0fe7ecfd80c395d5c7d9572357647dae63359acced43bab",
+          "id": "prompt-input",
+          "kind": "prompt",
+          "redaction": {
+            "mode": "omitted",
+            "reason": "Raw Codex prompt text is not persisted by default."
+          }
+        }
+      ],
+      "durationMs": 0,
+      "endedAt": "2026-07-04T03:06:19.857Z",
+      "id": "prompt",
+      "operation": {
+        "id": "prompt",
+        "kind": "user_prompt",
+        "name": "User prompt"
+      },
+      "startedAt": "2026-07-04T03:06:19.857Z",
+      "status": "ok"
+    },
+    {
+      "artifacts": [
+        {
+          "fingerprint": "sha256:f64bdc58958472cd2901cd0c540cb7a045e56afc968007aabe7517986e7b5f04",
+          "id": "tool-read-1-file-path",
+          "kind": "file",
+          "redaction": {
+            "mode": "omitted",
+            "reason": "Raw Codex file path is not persisted by default."
+          }
+        },
+        {
+          "fingerprint": "sha256:092f115eafd492244a3b96c7c8fc6bc3c672060234b732ba74a844ac617a1fb0",
+          "id": "tool-read-1-input",
+          "kind": "tool_input",
+          "redaction": {
+            "mode": "omitted",
+            "reason": "Raw Codex tool input is not persisted by default."
+          }
+        },
+        {
+          "fingerprint": "sha256:98e1553104d3e7d72c660753b809cfb4307a8825dde1f4c21b038bb6b1badf91",
+          "id": "tool-read-1-output",
+          "kind": "tool_result",
+          "redaction": {
+            "mode": "omitted",
+            "reason": "Raw Codex tool output is not persisted by default."
+          }
+        }
+      ],
+      "durationMs": 40,
+      "endedAt": "2026-07-04T03:06:19.933Z",
+      "id": "tool-read-1",
+      "operation": {
+        "id": "tool-read-1",
+        "kind": "tool_call",
+        "name": "Bash"
+      },
+      "startedAt": "2026-07-04T03:06:19.893Z",
+      "status": "ok"
+    },
+    {
+      "artifacts": [
+        {
+          "fingerprint": "sha256:f64bdc58958472cd2901cd0c540cb7a045e56afc968007aabe7517986e7b5f04",
+          "id": "tool-read-2-file-path",
+          "kind": "file",
+          "redaction": {
+            "mode": "omitted",
+            "reason": "Raw Codex file path is not persisted by default."
+          }
+        },
+        {
+          "fingerprint": "sha256:b13c822f7ea7b083f945c3d0f0f1c16bc7821e0c32a977a45db892aa059e3bbe",
+          "id": "tool-read-2-input",
+          "kind": "tool_input",
+          "redaction": {
+            "mode": "omitted",
+            "reason": "Raw Codex tool input is not persisted by default."
+          }
+        },
+        {
+          "fingerprint": "sha256:98e1553104d3e7d72c660753b809cfb4307a8825dde1f4c21b038bb6b1badf91",
+          "id": "tool-read-2-output",
+          "kind": "tool_result",
+          "redaction": {
+            "mode": "omitted",
+            "reason": "Raw Codex tool output is not persisted by default."
+          }
+        }
+      ],
+      "durationMs": 41,
+      "endedAt": "2026-07-04T03:06:20.015Z",
+      "id": "tool-read-2",
+      "operation": {
+        "id": "tool-read-2",
+        "kind": "tool_call",
+        "name": "Bash"
+      },
+      "startedAt": "2026-07-04T03:06:19.974Z",
+      "status": "ok"
+    },
+    {
+      "artifacts": [
+        {
+          "fingerprint": "sha256:4557e928532f5fe5b99c7fbeb5b83a6c530ef16b89c54d3f9801dd9e216b3e3e",
+          "id": "last-assistant-message",
+          "kind": "assistant_message",
+          "redaction": {
+            "mode": "omitted",
+            "reason": "Raw Codex assistant message text is not persisted by default."
+          }
+        }
+      ],
+      "durationMs": 0,
+      "endedAt": "2026-07-04T03:06:20.059Z",
+      "id": "turn",
+      "operation": {
+        "id": "turn",
+        "kind": "turn",
+        "name": "Turn completed"
+      },
+      "startedAt": "2026-07-04T03:06:20.059Z",
+      "status": "ok"
+    }
+  ],
+  "reportSummary": {
+    "failedNodes": [],
+    "nodeCount": 4,
+    "opportunitySummary": {
+      "actionabilityCounts": {
+        "actionable": 0,
+        "blocked": 1,
+        "needsReview": 1
+      },
+      "topOpportunityId": "file_reuse-906c2fb4ff8a",
+      "topRecommendation": "needs_review file_reuse across 2 read-like calls (Bash cat, Bash sed)",
+      "total": 2
+    },
+    "runId": "codex-turn-migaki-smoke-file-reuse-14845",
+    "status": "ok",
+    "toolCalls": 2,
+    "version": "migaki.execution-report.v0"
+  },
+  "runId": "codex-turn-migaki-smoke-file-reuse-14845",
+  "startedAt": "2026-07-04T03:06:19.857Z",
+  "status": "ok",
+  "version": "migaki.promoted-graph-summary.v0"
+}

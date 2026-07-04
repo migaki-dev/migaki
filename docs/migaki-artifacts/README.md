@@ -11,8 +11,10 @@ for review or long-term repository memory.
 Use promotion to graduate a selected run:
 
 ```sh
-mise run migaki:promote -- --run <run-id> --name <slug>
+mise run migaki:promote -- --latest --name <slug>
 ```
+
+Use `--run <run-id>` instead of `--latest` to promote a specific local run.
 
 Each promoted bundle is written to `docs/migaki-artifacts/<slug>/` and includes:
 
