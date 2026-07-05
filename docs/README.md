@@ -31,8 +31,11 @@ downstream integrators.
 
 - [Repository Shape](https://github.com/migaki-dev/migaki/wiki/Repository-Shape)
   explains why technical contracts live in the repository.
-- [v0 Roadmap](https://github.com/migaki-dev/migaki/wiki/v0-Roadmap) tracks
-  product milestone scope.
+- [v0 Roadmap](https://github.com/migaki-dev/migaki/wiki/v0-Roadmap) tracks the
+  v0.4 evidence-first product loop: observed trajectories -> reusable evidence
+  graphs -> optimized mIR plans -> capability-aware execution -> new evidence.
+  The v0 contract docs in this directory remain the repository-versioned
+  technical surfaces that implement that direction.
 - [mIR](https://github.com/migaki-dev/migaki/wiki/mIR),
   [Optimization Passes](https://github.com/migaki-dev/migaki/wiki/Optimization-Passes),
   [Provider Capabilities](https://github.com/migaki-dev/migaki/wiki/Provider-Capabilities),

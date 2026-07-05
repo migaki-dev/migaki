@@ -23,8 +23,10 @@ Core areas:
 - container-backed e2e tests and evals for adapter/runtime behavior
 
 The implemented v0 contract docs live under `docs/`. The wiki holds living
-product design and roadmap context; repository docs hold technical contracts
-that ship with code.
+product design and roadmap context, including the v0.4 evidence-first loop:
+observed trajectories -> reusable evidence graphs -> optimized mIR plans ->
+capability-aware execution -> new evidence. Repository docs hold technical
+contracts that ship with code.
 
 This repository is still early scaffolding. Public package boundaries, schemas,
 and adapters should be treated as pre-release unless a repository contract doc
