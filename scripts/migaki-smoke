@@ -370,3 +370,6 @@ reject_report_text "sed -n"
 printf '%s\n' "Real Codex smoke report: $REAL_REPORT"
 printf '\n'
 cat "$REAL_REPORT"
+
+printf '\n'
+"$ROOT_DIR/scripts/migaki-latest-report" --include-smoke

@@ -3,20 +3,27 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: scripts/migaki-runs [--limit N]
+Usage: scripts/migaki-runs [--limit N] [--include-smoke] [--source-root <path>]
 
 List recent local Migaki execution reports from .migaki/runs.
 
 Options:
-  --limit N    Number of runs to show. Defaults to 10.
-  -h, --help   Show this help.
+  --limit N            Number of runs to show. Defaults to 10.
+  --include-smoke      Include deterministic smoke and fixture runs.
+  --source-root <path> Local Migaki store root. Defaults to .migaki.
+  -h, --help           Show this help.
 EOF
 }
 
+include_smoke=0
 limit=10
+source_root=
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --include-smoke)
+      include_smoke=1
+      ;;
     --limit)
       shift
       if [ "$#" -eq 0 ]; then
@@ -24,6 +31,14 @@ while [ "$#" -gt 0 ]; do
         exit 2
       fi
       limit=$1
+      ;;
+    --source-root)
+      shift
+      if [ "$#" -eq 0 ]; then
+        printf '%s\n' "--source-root requires a value." >&2
+        exit 2
+      fi
+      source_root=$1
       ;;
     -h|--help)
       usage
@@ -50,18 +65,57 @@ case "$limit" in
 esac
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-RUNS_DIR="$ROOT_DIR/.migaki/runs"
+if [ -z "$source_root" ]; then
+  source_root="$ROOT_DIR/.migaki"
+else
+  case "$source_root" in
+    /*) ;;
+    *) source_root="$ROOT_DIR/$source_root" ;;
+  esac
+fi
+RUNS_DIR="$source_root/runs"
+
+is_smoke_run_id() {
+  case "$1" in
+    codex-turn-migaki-smoke-*|codex-session-migaki-smoke-*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+all_reports() {
+  if [ ! -d "$RUNS_DIR" ]; then
+    return 0
+  fi
+
+  find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name report.md -exec ls -t {} + 2>/dev/null
+}
+
+filtered_reports() {
+  all_reports | while IFS= read -r candidate; do
+    run_id=$(basename -- "$(dirname -- "$candidate")")
+    if [ "$include_smoke" -eq 1 ] || ! is_smoke_run_id "$run_id"; then
+      printf '%s\n' "$candidate"
+    fi
+  done | sed -n "1,${limit}p"
+}
 
 if [ ! -d "$RUNS_DIR" ]; then
-  printf '%s\n' "No Migaki runs found at .migaki/runs." >&2
-  exit 1
+  printf '%s\n' "No Migaki runs found at ${source_root}/runs."
+  printf '%s\n' "Run \`mise run migaki:doctor\` to verify hook readiness, then complete a normal Codex turn in this repository."
+  exit 0
 fi
 
-reports=$(find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name report.md -exec ls -t {} + 2>/dev/null | sed -n "1,${limit}p")
+reports=$(filtered_reports)
 
 if [ -z "$reports" ]; then
-  printf '%s\n' "No Migaki report.md files found under .migaki/runs." >&2
-  exit 1
+  if [ -n "$(all_reports | sed -n '1p')" ]; then
+    printf '%s\n' "Only Migaki smoke or fixture reports were found under ${source_root}/runs."
+    printf '%s\n' "Pass --include-smoke to list them, or run a normal Codex turn after trusting project hooks."
+  else
+    printf '%s\n' "No Migaki report.md files found under ${source_root}/runs."
+    printf '%s\n' "Run \`mise run migaki:doctor\` to verify hook readiness."
+  fi
+  exit 0
 fi
 
 printf '%-36s %-24s %-7s %5s %5s %8s %s\n' "RUN" "STARTED" "STATUS" "NODES" "TOOLS" "MS" "REPORT"

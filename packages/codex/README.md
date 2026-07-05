@@ -45,6 +45,13 @@ reasons, tool input, tool output, assistant messages, transcript paths, and
 working directories are not persisted by default. The adapter stores stable
 fingerprints and redaction metadata instead.
 
+When `MIGAKI_CODEX_LOCAL_CONTEXT=1` is set by a trusted project hook, file
+artifacts may also include local dogfood hints for the current machine:
+repo-relative paths, simple line-range labels, safe command shapes, and a
+git-blob or stat version hint. This mode is for local `.migaki` coaching only;
+raw prompts, raw commands, raw outputs, transcript paths, and absolute paths are
+still omitted.
+
 `PermissionRequest` events are recorded as point-in-time observations of
 approval and sandbox friction. Safe enum-like fields such as approval status,
 permission decision, sandbox mode, sandbox permission mode, tool name, and
@@ -93,9 +100,11 @@ The repository-level `.codex/hooks.json` registers the supported hook
 events and points them at the built hook entrypoint:
 
 ```sh
-node "$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js"
+MIGAKI_CODEX_LOCAL_CONTEXT=1 node "$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js"
 ```
 
 Run `pnpm build` before trusting or using these hooks so the entrypoint exists.
 Project hooks must also be reviewed and trusted in Codex, for example through
-`/hooks` in the CLI.
+`/hooks` in the CLI. Hook trust is path-scoped, so Codex-created worktrees must
+be trusted independently. Use `mise run migaki:doctor` from a worktree to check
+project trust, hook trust, store writability, and latest real-run evidence.

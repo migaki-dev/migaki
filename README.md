@@ -91,6 +91,7 @@ mise run test
 mise run test:e2e
 mise run build
 mise run migaki:latest
+mise run migaki:doctor
 mise run migaki:advise
 mise run migaki:doctor
 mise run migaki:ready
@@ -127,11 +128,14 @@ codex -C "$PWD"
 
 In the interactive Codex CLI, run `/hooks` and trust the Migaki project hooks.
 Codex records trust per hook definition, so changed hook commands must be
-reviewed again.
+reviewed again. Trust is path-scoped; each Codex-created worktree must be
+trusted separately before normal Desktop or CLI turns in that worktree will
+emit Migaki runs.
 
 Verification:
 
 ```sh
+mise run migaki:doctor
 mise run migaki:smoke
 mise run migaki:runs
 mise run migaki:latest
@@ -141,16 +145,20 @@ mise run migaki:ready
 mise run migaki:hook-probe
 ```
 
-The smoke first verifies a trusted Codex CLI turn and asserts that the
-smoke-created turn writes a redacted Migaki report, then records a deterministic
-file-reuse fixture through the built Codex hook. The fixture report should
-contain a prompt node, repeated read-like tool call nodes, a turn completion
-node, an `Opportunity Summary`, and a `file_reuse` top recommendation.
-`migaki:smoke` marks its real CLI report as smoke-harness evidence, so default
-`latest`, `advise`, `doctor`, and `dogfood` selection does not mistake it for
-organic Codex work. Historical smoke harness turns are also recognized by their
-redacted prompt fingerprint. Raw prompt text, tool input, tool output, and file
-paths are omitted by default; Migaki stores stable fingerprints instead.
+`migaki:doctor` checks this exact worktree path, hook trust, the built hook
+entrypoint, `.migaki` writability, the latest real run, and whether default
+advice is driven by real or fixture evidence. The smoke first verifies a trusted
+Codex CLI turn and asserts that the real turn writes a redacted Migaki report,
+then records a deterministic file-reuse fixture through the built Codex hook.
+The fixture report should contain a prompt node, repeated read-like tool call
+nodes, a turn completion node, an `Opportunity Summary`, and a `file_reuse` top
+recommendation. `migaki:smoke` marks its real CLI report as smoke-harness
+evidence, so default `runs`, `latest`, `advise`, `doctor`, and `dogfood`
+selection does not mistake it for organic Codex work. Historical smoke harness
+turns are also recognized by their redacted prompt fingerprint. Pass
+`--include-smoke` to inspect fixtures explicitly. Raw prompt text, tool input,
+tool output, and file paths are omitted by default; Migaki stores stable
+fingerprints instead.
 
 Codex Desktop uses the same project hook definitions. After trusting the
 project hooks in Desktop, normal turns in this repository should emit reports
@@ -301,6 +309,16 @@ simple read-like commands (`cat`, `sed`, `nl`, `head`, `tail`, and `wc`), it
 records file fingerprints plus local freshness metadata so the normal report
 path can surface repeated file reads even when Codex lifecycle hooks did not
 emit tool events.
+
+The repository hook commands opt into local-only dogfood context with
+`MIGAKI_CODEX_LOCAL_CONTEXT=1`. Local `.migaki` graphs may include repo-relative
+paths, simple line-range labels, safe command shapes, and git-blob or stat
+version hints so advice can say which already-inspected range to reuse. Regular
+reports stay redacted, and promoted artifacts omit raw event streams and graph
+metadata by default. Repeated file-read evidence remains `needs_review`
+coaching: it can remind Codex to reuse prior context or read only the smallest
+missing range once, but it is not permission to skip reads unless freshness and
+command-output equivalence are established.
 
 Local run evidence under `.migaki/runs/<runId>/` is working-session state and
 stays gitignored. To preserve selected findings as project knowledge, promote a

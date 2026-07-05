@@ -1,7 +1,9 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { stdin as processStdin } from "node:process";
-import { isAbsolute, normalize, resolve } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { isAbsolute, normalize, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -1216,7 +1218,10 @@ function codexFilePathObservations(input: {
   readonly toolInput: unknown;
   readonly toolName: string;
 }): readonly {
+  readonly commandShape?: string;
+  readonly localDogfood?: Metadata;
   readonly normalizedPath: string;
+  readonly rangeLabel?: string;
   readonly sourceCommand?: string;
   readonly sourceField: string;
 }[] {
@@ -1231,12 +1236,24 @@ function codexFilePathObservations(input: {
       readStringValue(input.toolInput, sourceField),
       input.cwd,
     );
+    const commandShape = `${input.toolName}.${sourceField}`;
+    const rangeLabel = codexReadToolRangeLabel(input.toolInput);
 
     return normalizedPath === undefined
       ? []
       : [
           {
+            commandShape,
+            ...optionalLocalDogfood(
+              codexLocalDogfoodReadContext({
+                commandShape,
+                cwd: input.cwd,
+                normalizedPath,
+                rangeLabel,
+              }),
+            ),
             normalizedPath,
+            ...optionalRangeLabel(rangeLabel),
             sourceField,
           },
         ];
@@ -1253,8 +1270,11 @@ function codexFilePathObservations(input: {
 }
 
 function codexFilePathArtifact(input: {
+  readonly commandShape?: string;
+  readonly localDogfood?: Metadata;
   readonly normalizedPath: string;
   readonly operationId: string;
+  readonly rangeLabel?: string;
   readonly sourceCommand?: string;
   readonly sourceField: string;
   readonly sourceIndex?: number;
@@ -1273,6 +1293,14 @@ function codexFilePathArtifact(input: {
     metadata: {
       codex: {
         fingerprintVersion: CODEX_FILE_PATH_FINGERPRINT_VERSION,
+        ...(input.localDogfood === undefined
+          ? {}
+          : {
+              ...(input.commandShape === undefined
+                ? {}
+                : { commandShape: input.commandShape }),
+              localDogfood: input.localDogfood,
+            }),
         ...(input.sourceCommand !== undefined
           ? { sourceCommand: input.sourceCommand }
           : {}),
@@ -1294,7 +1322,10 @@ function bashReadLikeFilePathObservations(
   command: string | undefined,
   cwd: string | undefined,
 ): readonly {
+  readonly commandShape?: string;
+  readonly localDogfood?: Metadata;
   readonly normalizedPath: string;
+  readonly rangeLabel?: string;
   readonly sourceCommand: string;
   readonly sourceField: string;
 }[] {
@@ -1313,16 +1344,29 @@ function bashReadLikeFilePathObservations(
   );
 
   return normalizedPaths.map((normalizedPath) => ({
+    commandShape: parsed.commandShape,
+    ...optionalLocalDogfood(
+      codexLocalDogfoodReadContext({
+        commandShape: parsed.commandShape,
+        cwd,
+        normalizedPath,
+        rangeLabel: parsed.rangeLabel,
+      }),
+    ),
     normalizedPath,
+    ...optionalRangeLabel(parsed.rangeLabel),
     sourceCommand: parsed.commandName,
     sourceField: "command",
   }));
 }
 
-function parseSupportedBashReadLikeCommand(
-  command: string | undefined,
-):
-  | { readonly commandName: string; readonly pathTokens: readonly string[] }
+function parseSupportedBashReadLikeCommand(command: string | undefined):
+  | {
+      readonly commandName: string;
+      readonly commandShape: string;
+      readonly pathTokens: readonly string[];
+      readonly rangeLabel?: string;
+    }
   | undefined {
   if (command === undefined || command.trim() === "") {
     return undefined;
@@ -1341,16 +1385,27 @@ function parseSupportedBashReadLikeCommand(
 
   const commandName = readTokens[0];
   const args = readTokens.slice(1);
+  let commandShape = `${commandName} FILE`;
   let pathTokens: readonly string[] | undefined;
+  let rangeLabel: string | undefined;
 
   switch (commandName) {
     case "cat":
       pathTokens = readOptionOnlyCommandPathTokens(args, {
         optionsWithValues: new Set(),
       });
+      rangeLabel = "full file";
       break;
     case "head":
+      rangeLabel = headTailRangeLabel(args, "head");
+      commandShape = rangeLabel === undefined ? "head FILE" : "head -n N FILE";
+      pathTokens = readOptionOnlyCommandPathTokens(args, {
+        optionsWithValues: new Set(["-c", "-n", "--bytes", "--lines"]),
+      });
+      break;
     case "tail":
+      rangeLabel = headTailRangeLabel(args, "tail");
+      commandShape = rangeLabel === undefined ? "tail FILE" : "tail -n N FILE";
       pathTokens = readOptionOnlyCommandPathTokens(args, {
         optionsWithValues: new Set(["-c", "-n", "--bytes", "--lines"]),
       });
@@ -1361,7 +1416,16 @@ function parseSupportedBashReadLikeCommand(
       });
       break;
     case "sed":
-      pathTokens = readSedCommandPathTokens(args);
+      {
+        const sedRead = readSedCommand(args);
+
+        pathTokens = sedRead?.pathTokens;
+        rangeLabel = sedRead?.rangeLabel;
+        commandShape =
+          sedRead?.rangeLabel === undefined
+            ? "sed SCRIPT FILE"
+            : "sed -n RANGE FILE";
+      }
       break;
     case "wc":
       pathTokens = readOptionOnlyCommandPathTokens(args, {
@@ -1382,7 +1446,9 @@ function parseSupportedBashReadLikeCommand(
 
   return {
     commandName,
+    commandShape,
     pathTokens,
+    ...(rangeLabel === undefined ? {} : { rangeLabel }),
   };
 }
 
@@ -1493,11 +1559,15 @@ function readOptionOnlyCommandPathTokens(
   return paths;
 }
 
-function readSedCommandPathTokens(
-  args: readonly string[],
-): readonly string[] | undefined {
+function readSedCommand(args: readonly string[]):
+  | {
+      readonly pathTokens: readonly string[];
+      readonly rangeLabel?: string;
+    }
+  | undefined {
   const paths: string[] = [];
   let hasScript = false;
+  let script: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -1520,16 +1590,20 @@ function readSedCommandPathTokens(
     }
 
     if (!hasScript && (arg === "-e" || arg === "--expression")) {
-      if (args[index + 1] === undefined) {
+      const expression = args[index + 1];
+
+      if (expression === undefined) {
         return undefined;
       }
 
+      script = expression;
       hasScript = true;
       index += 1;
       continue;
     }
 
     if (!hasScript && arg.startsWith("-e") && arg.length > 2) {
+      script = arg.slice(2);
       hasScript = true;
       continue;
     }
@@ -1539,6 +1613,7 @@ function readSedCommandPathTokens(
     }
 
     if (!hasScript) {
+      script = arg;
       hasScript = true;
       continue;
     }
@@ -1546,7 +1621,59 @@ function readSedCommandPathTokens(
     paths.push(arg);
   }
 
-  return hasScript ? paths : undefined;
+  return hasScript
+    ? {
+        pathTokens: paths,
+        ...optionalRangeLabel(sedRangeLabel(script)),
+      }
+    : undefined;
+}
+
+function sedRangeLabel(script: string | undefined): string | undefined {
+  if (script === undefined) {
+    return undefined;
+  }
+
+  const rangeMatch = /^([1-9][0-9]*),([1-9][0-9]*)p$/u.exec(script.trim());
+
+  if (rangeMatch?.[1] !== undefined && rangeMatch[2] !== undefined) {
+    return `lines ${rangeMatch[1]}-${rangeMatch[2]}`;
+  }
+
+  const lineMatch = /^([1-9][0-9]*)p$/u.exec(script.trim());
+
+  return lineMatch?.[1] === undefined ? undefined : `line ${lineMatch[1]}`;
+}
+
+function headTailRangeLabel(
+  args: readonly string[],
+  commandName: "head" | "tail",
+): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === undefined) {
+      return undefined;
+    }
+
+    const next = args[index + 1];
+    const value =
+      arg === "-n" || arg === "--lines"
+        ? next
+        : arg.startsWith("-n") && arg.length > 2
+          ? arg.slice(2)
+          : arg.startsWith("--lines=")
+            ? arg.slice("--lines=".length)
+            : undefined;
+
+    if (value !== undefined && /^[1-9][0-9]*$/u.test(value)) {
+      return commandName === "head"
+        ? `first ${value} lines`
+        : `last ${value} lines`;
+    }
+  }
+
+  return undefined;
 }
 
 function isUnsafeShellToken(token: string): boolean {
@@ -1581,6 +1708,18 @@ function uniqueStrings(values: readonly string[]): readonly string[] {
   return unique;
 }
 
+function optionalRangeLabel(
+  rangeLabel: string | undefined,
+): { readonly rangeLabel: string } | Record<string, never> {
+  return rangeLabel === undefined ? {} : { rangeLabel };
+}
+
+function optionalLocalDogfood(
+  localDogfood: Metadata | undefined,
+): { readonly localDogfood: Metadata } | Record<string, never> {
+  return localDogfood === undefined ? {} : { localDogfood };
+}
+
 function normalizeCodexFilePath(
   value: string | undefined,
   cwd: string | undefined,
@@ -1606,6 +1745,163 @@ function normalizeCodexFilePath(
   }
 
   return normalize(resolve(trimmedCwd, trimmed));
+}
+
+function codexReadToolRangeLabel(toolInput: unknown): string | undefined {
+  if (!isRecord(toolInput)) {
+    return undefined;
+  }
+
+  const offset = readPositiveIntegerValue(toolInput, "offset");
+  const limit = readPositiveIntegerValue(toolInput, "limit");
+
+  if (offset !== undefined && limit !== undefined) {
+    return `lines ${offset}-${offset + limit - 1}`;
+  }
+
+  if (offset !== undefined) {
+    return `from line ${offset}`;
+  }
+
+  if (limit !== undefined) {
+    return `first ${limit} lines`;
+  }
+
+  return "full file";
+}
+
+function codexLocalDogfoodReadContext(input: {
+  readonly commandShape: string | undefined;
+  readonly cwd: string | undefined;
+  readonly normalizedPath: string;
+  readonly rangeLabel: string | undefined;
+}): Metadata | undefined {
+  if (!localDogfoodContextEnabled()) {
+    return undefined;
+  }
+
+  const baseDirectory = localContextBaseDirectory(input.cwd);
+  const relativePath =
+    baseDirectory === undefined
+      ? safeRelativePath(input.normalizedPath)
+      : safeRelativePath(relative(baseDirectory, input.normalizedPath));
+
+  if (relativePath === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(input.commandShape === undefined
+      ? {}
+      : { commandShape: input.commandShape }),
+    ...localFileVersion(input.normalizedPath, baseDirectory),
+    ...(input.rangeLabel === undefined ? {} : { rangeLabel: input.rangeLabel }),
+    relativePath,
+  };
+}
+
+function localDogfoodContextEnabled(): boolean {
+  const value = process.env.MIGAKI_CODEX_LOCAL_CONTEXT?.trim().toLowerCase();
+
+  return (
+    value === "1" || value === "true" || value === "yes" || value === "local"
+  );
+}
+
+function localContextBaseDirectory(
+  cwd: string | undefined,
+): string | undefined {
+  const normalizedCwd =
+    cwd === undefined || cwd.trim() === "" ? undefined : normalize(cwd);
+
+  if (normalizedCwd === undefined || !isAbsolute(normalizedCwd)) {
+    return undefined;
+  }
+
+  try {
+    return execFileSync(
+      "git",
+      ["-C", normalizedCwd, "rev-parse", "--show-toplevel"],
+      {
+        encoding: "utf8",
+        env: sanitizedGitEnvironment(),
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 1000,
+      },
+    ).trim();
+  } catch {
+    return normalizedCwd;
+  }
+}
+
+function safeRelativePath(value: string): string | undefined {
+  const normalized = normalize(value);
+
+  if (
+    normalized === "" ||
+    normalized === "." ||
+    normalized.startsWith("..") ||
+    isAbsolute(normalized) ||
+    /[\0\r\n]/u.test(normalized)
+  ) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
+function localFileVersion(
+  normalizedPath: string,
+  baseDirectory: string | undefined,
+): Pick<Metadata, "fileVersion"> | Record<string, never> {
+  if (!existsSync(normalizedPath)) {
+    return {};
+  }
+
+  if (baseDirectory !== undefined) {
+    try {
+      const gitHash = execFileSync(
+        "git",
+        ["-C", baseDirectory, "hash-object", "--", normalizedPath],
+        {
+          encoding: "utf8",
+          env: sanitizedGitEnvironment(),
+          stdio: ["ignore", "pipe", "ignore"],
+          timeout: 1000,
+        },
+      ).trim();
+
+      if (/^[0-9a-f]{40}$/u.test(gitHash)) {
+        return {
+          fileVersion: {
+            kind: "git_blob",
+            value: `sha1:${gitHash}`,
+          },
+        };
+      }
+    } catch {
+      // Fall through to a stat-based version below.
+    }
+  }
+
+  try {
+    const stats = statSync(normalizedPath);
+
+    return {
+      fileVersion: {
+        kind: "stat",
+        value: `mtimeMs=${Math.trunc(stats.mtimeMs)},size=${stats.size}`,
+      },
+    };
+  } catch {
+    return {};
+  }
+}
+
+function sanitizedGitEnvironment(): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+  );
 }
 
 function redactedArtifact(input: {
@@ -1705,6 +2001,17 @@ function readNumberValue(
   const value = input[key];
 
   return typeof value === "number" ? value : undefined;
+}
+
+function readPositiveIntegerValue(
+  input: Readonly<Record<string, unknown>>,
+  key: string,
+): number | undefined {
+  const value = readNumberValue(input, key);
+
+  return value !== undefined && Number.isInteger(value) && value > 0
+    ? value
+    : undefined;
 }
 
 function readStringValue(

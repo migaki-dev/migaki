@@ -30,7 +30,7 @@ describe("migaki-latest-report script", () => {
     ]);
 
     expect(stdout).toContain(
-      "Usage: scripts/migaki-latest-report [--path] [--chronological] [--include-smoke] [--include-session]",
+      "Usage: scripts/migaki-latest-report [--path] [--chronological] [--include-smoke] [--include-session] [--source-root <path>]",
     );
     expect(stdout).toContain(
       "Print the newest useful Migaki Codex execution report",
@@ -40,6 +40,7 @@ describe("migaki-latest-report script", () => {
     );
     expect(stdout).toContain("--chronological");
     expect(stdout).toContain("--include-session");
+    expect(stdout).toContain("--source-root");
   });
 
   it("prefers a useful report over a newer no-signal report by default", async () => {

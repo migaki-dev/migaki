@@ -661,6 +661,75 @@ describe("execution graph runtime", () => {
     expect(advice).toContain("Automatic skip: disallowed.");
   });
 
+  it("renders opt-in local dogfood read context in advice only", () => {
+    const fileFingerprint = stableExecutionHash({
+      path: "/tmp/repo/packages/codex/src/hook.ts",
+    });
+    const graph = buildExecutionGraph("run-a", [
+      promptEvent(),
+      toolStartedEvent("tool-read-1", "Read", {
+        timestamp: "2026-01-01T00:00:01.000Z",
+      }),
+      toolFinishedEvent("tool-read-1", "Read", {
+        artifacts: [
+          fileArtifact("file-read-1", fileFingerprint, {
+            commandShape: "Read.file_path",
+            localDogfood: {
+              commandShape: "Read.file_path",
+              fileVersion: {
+                kind: "git_blob",
+                value: "sha1:1111111111111111111111111111111111111111",
+              },
+              rangeLabel: "lines 1-80",
+              relativePath: "packages/codex/src/hook.ts",
+            },
+            sourceField: "file_path",
+            toolName: "Read",
+          }),
+          toolResultArtifact("tool-read-1", "Read"),
+        ],
+        timestamp: "2026-01-01T00:00:02.000Z",
+      }),
+      toolStartedEvent("tool-read-2", "Read", {
+        timestamp: "2026-01-01T00:00:03.000Z",
+      }),
+      toolFinishedEvent("tool-read-2", "Read", {
+        artifacts: [
+          fileArtifact("file-read-2", fileFingerprint, {
+            commandShape: "sed -n RANGE FILE",
+            localDogfood: {
+              commandShape: "sed -n RANGE FILE",
+              fileVersion: {
+                kind: "git_blob",
+                value: "sha1:1111111111111111111111111111111111111111",
+              },
+              rangeLabel: "lines 1-80",
+              relativePath: "packages/codex/src/hook.ts",
+            },
+            sourceCommand: "sed",
+            sourceField: "command",
+            toolName: "Bash",
+          }),
+          toolResultArtifact("tool-read-2", "Bash"),
+        ],
+        timestamp: "2026-01-01T00:00:05.000Z",
+      }),
+    ]);
+
+    const report = renderExecutionReport(graph);
+    const advice = renderExecutionAdvice(graph);
+
+    expect(report).not.toContain("packages/codex/src/hook.ts");
+    expect(report).not.toContain("lines 1-80");
+    expect(advice).toContain("Local dogfood context:");
+    expect(advice).toContain(
+      "- Already inspected packages/codex/src/hook.ts (lines 1-80) via Read.file_path, sed -n RANGE FILE; version git_blob sha1:1111111111111111111111111111111111111111.",
+    );
+    expect(advice).toContain(
+      "- Reuse the prior context unless that file changed or the current task needs a missing range.",
+    );
+  });
+
   it("keeps advice rendering unchanged without policy input", () => {
     const graph = fileReuseGraphWithRawSourceMetadata();
 
@@ -1179,9 +1248,11 @@ function fileArtifact(
   fingerprint: string,
   source:
     | {
+        readonly commandShape?: string;
         readonly contentFingerprint?: string;
         readonly fileMtimeMs?: number;
         readonly fileSizeBytes?: number;
+        readonly localDogfood?: Readonly<Record<string, unknown>>;
         readonly sourceCommand?: string;
         readonly sourceField: string;
         readonly toolName: string;
@@ -1197,6 +1268,9 @@ function fileArtifact(
         ? {}
         : {
             codex: {
+              ...(source.commandShape === undefined
+                ? {}
+                : { commandShape: source.commandShape }),
               ...(source.contentFingerprint === undefined
                 ? {}
                 : { contentFingerprint: source.contentFingerprint }),
@@ -1206,6 +1280,9 @@ function fileArtifact(
               ...(source.fileSizeBytes === undefined
                 ? {}
                 : { fileSizeBytes: source.fileSizeBytes }),
+              ...(source.localDogfood === undefined
+                ? {}
+                : { localDogfood: source.localDogfood }),
               ...(source.sourceCommand === undefined
                 ? {}
                 : { sourceCommand: source.sourceCommand }),

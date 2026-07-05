@@ -139,6 +139,7 @@ export interface RepeatedArtifactReport {
   readonly fileFreshness?: FileFreshnessEvidenceReport;
   readonly fingerprint: string;
   readonly kind: string;
+  readonly localReadContexts?: readonly LocalReadContextReport[];
   readonly nodeIds: readonly string[];
   readonly sourceLabels?: readonly string[];
 }
@@ -189,6 +190,16 @@ export interface FileReuseEvidenceReport {
   };
 }
 
+export interface LocalReadContextReport {
+  readonly commandShapes: readonly string[];
+  readonly fileVersion?: {
+    readonly kind: string;
+    readonly value: string;
+  };
+  readonly rangeLabel?: string;
+  readonly relativePath: string;
+}
+
 export interface ExecutionOpportunityReport {
   readonly actionability: ExecutionOpportunityActionability;
   readonly artifactIds?: readonly string[];
@@ -198,6 +209,7 @@ export interface ExecutionOpportunityReport {
   readonly estimatedAvoidableLatencyMs?: number;
   readonly fileReuseEvidence?: FileReuseEvidenceReport;
   readonly id: string;
+  readonly localReadContexts?: readonly LocalReadContextReport[];
   readonly nodeIds: readonly string[];
   readonly priority: ExecutionOpportunityPriority;
   readonly relatedCandidateCount?: number;
@@ -639,6 +651,7 @@ function renderFileReuseAdvice(
     `Top signal: ${opportunity.actionability} file_reuse across ${opportunity.nodeIds.length} read-like calls.`,
     `Safe source signals: ${formatSourceLabels(opportunity.sourceLabels)}`,
     ...renderFileReuseEvidenceAdviceLines(opportunity.fileReuseEvidence),
+    ...renderLocalReadContextAdviceLines(opportunity.localReadContexts),
     "",
     "Next Codex move:",
     "- Treat the repeated file identity as coaching evidence, not permission to skip a read.",
@@ -668,6 +681,34 @@ function renderFileReuseEvidenceAdviceLines(
     `Freshness: ${evidence.freshness.status}. ${evidence.freshness.evidence}`,
     `Source equivalence: ${evidence.sourceEquivalence.status}. ${evidence.sourceEquivalence.assumption}`,
     `Automatic skip: ${evidence.automaticSkip.allowed ? "allowed" : "disallowed"}. ${evidence.automaticSkip.reason}`,
+  ];
+}
+
+function renderLocalReadContextAdviceLines(
+  contexts: readonly LocalReadContextReport[] | undefined,
+): readonly string[] {
+  if (contexts === undefined || contexts.length === 0) {
+    return [];
+  }
+
+  return [
+    "",
+    "Local dogfood context:",
+    ...contexts.map((context) => {
+      const range =
+        context.rangeLabel === undefined ? "" : ` (${context.rangeLabel})`;
+      const commandShapes =
+        context.commandShapes.length === 0
+          ? "unknown read shape"
+          : context.commandShapes.join(", ");
+      const version =
+        context.fileVersion === undefined
+          ? "version unknown"
+          : `version ${context.fileVersion.kind} ${context.fileVersion.value}`;
+
+      return `- Already inspected ${context.relativePath}${range} via ${commandShapes}; ${version}.`;
+    }),
+    "- Reuse the prior context unless that file changed or the current task needs a missing range.",
   ];
 }
 
@@ -1110,6 +1151,7 @@ function findRepeatedArtifacts(
     {
       artifacts: Artifact[];
       artifactIds: string[];
+      localReadContexts: LocalReadContextReport[];
       nodeIds: string[];
       sourceLabels: string[];
     }
@@ -1127,6 +1169,9 @@ function findRepeatedArtifacts(
         groups.set(artifact.fingerprint, {
           artifacts: [artifact],
           artifactIds: [artifact.id],
+          localReadContexts: optionalLocalReadContext(
+            artifactLocalReadContext(artifact),
+          ),
           nodeIds: [node.id],
           sourceLabels: optionalString(artifactSourceLabel(artifact)),
         });
@@ -1134,6 +1179,12 @@ function findRepeatedArtifacts(
         existing.artifacts.push(artifact);
         existing.artifactIds.push(artifact.id);
         existing.nodeIds.push(node.id);
+        const localReadContext = artifactLocalReadContext(artifact);
+
+        if (localReadContext !== undefined) {
+          existing.localReadContexts.push(localReadContext);
+        }
+
         const sourceLabel = artifactSourceLabel(artifact);
 
         if (sourceLabel !== undefined) {
@@ -1150,6 +1201,7 @@ function findRepeatedArtifacts(
       count: group.nodeIds.length,
       fingerprint,
       kind,
+      ...optionalLocalReadContexts(group.localReadContexts),
       nodeIds: group.nodeIds,
       ...(kind === "file"
         ? optionalFileFreshnessEvidence(group.artifacts)
@@ -1157,6 +1209,152 @@ function findRepeatedArtifacts(
       ...optionalSourceLabels(group.sourceLabels),
     }))
     .sort((left, right) => left.fingerprint.localeCompare(right.fingerprint));
+}
+
+function artifactLocalReadContext(
+  artifact: Artifact,
+): LocalReadContextReport | undefined {
+  const metadata = artifact.metadata;
+
+  if (metadata === undefined || !isRecord(metadata.codex)) {
+    return undefined;
+  }
+
+  const localDogfood = metadata.codex.localDogfood;
+
+  if (!isRecord(localDogfood)) {
+    return undefined;
+  }
+
+  const relativePath = safeLocalContextText(
+    readStringValue(localDogfood, "relativePath"),
+  );
+  const rangeLabel = safeLocalContextText(
+    readStringValue(localDogfood, "rangeLabel"),
+  );
+  const commandShape =
+    safeLocalContextText(readStringValue(localDogfood, "commandShape")) ??
+    safeLocalContextText(readStringValue(metadata.codex, "commandShape"));
+
+  if (relativePath === undefined) {
+    return undefined;
+  }
+
+  return {
+    commandShapes: commandShape === undefined ? [] : [commandShape],
+    ...optionalFileVersion(localDogfood),
+    ...(rangeLabel === undefined ? {} : { rangeLabel }),
+    relativePath,
+  };
+}
+
+function optionalLocalReadContext(
+  context: LocalReadContextReport | undefined,
+): LocalReadContextReport[] {
+  return context === undefined ? [] : [context];
+}
+
+function optionalLocalReadContexts(
+  contexts: readonly LocalReadContextReport[],
+): Pick<RepeatedArtifactReport, "localReadContexts"> | Record<string, never> {
+  const combined = combineLocalReadContexts(contexts);
+
+  return combined.length === 0 ? {} : { localReadContexts: combined };
+}
+
+function combineLocalReadContexts(
+  contexts: readonly LocalReadContextReport[],
+): readonly LocalReadContextReport[] {
+  const groups = new Map<
+    string,
+    {
+      commandShapes: string[];
+      fileVersion?: LocalReadContextReport["fileVersion"];
+      rangeLabel?: string;
+      relativePath: string;
+    }
+  >();
+
+  for (const context of contexts) {
+    const key = [
+      context.relativePath,
+      context.rangeLabel ?? "",
+      context.fileVersion?.kind ?? "",
+      context.fileVersion?.value ?? "",
+    ].join("\u0000");
+    const existing = groups.get(key);
+
+    if (existing === undefined) {
+      groups.set(key, {
+        commandShapes: [...context.commandShapes],
+        ...(context.fileVersion === undefined
+          ? {}
+          : { fileVersion: context.fileVersion }),
+        ...(context.rangeLabel === undefined
+          ? {}
+          : { rangeLabel: context.rangeLabel }),
+        relativePath: context.relativePath,
+      });
+    } else {
+      existing.commandShapes.push(...context.commandShapes);
+    }
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      commandShapes: uniqueStrings(group.commandShapes),
+      ...(group.fileVersion === undefined
+        ? {}
+        : { fileVersion: group.fileVersion }),
+      ...(group.rangeLabel === undefined
+        ? {}
+        : { rangeLabel: group.rangeLabel }),
+      relativePath: group.relativePath,
+    }))
+    .sort(
+      (left, right) =>
+        left.relativePath.localeCompare(right.relativePath) ||
+        (left.rangeLabel ?? "").localeCompare(right.rangeLabel ?? "") ||
+        (left.fileVersion?.value ?? "").localeCompare(
+          right.fileVersion?.value ?? "",
+        ),
+    );
+}
+
+function optionalFileVersion(
+  localDogfood: Readonly<Record<string, unknown>>,
+): Pick<LocalReadContextReport, "fileVersion"> | Record<string, never> {
+  const fileVersion = localDogfood.fileVersion;
+
+  if (!isRecord(fileVersion)) {
+    return {};
+  }
+
+  const kind = safeLocalContextText(readStringValue(fileVersion, "kind"));
+  const value = safeLocalContextText(readStringValue(fileVersion, "value"));
+
+  return kind === undefined || value === undefined
+    ? {}
+    : { fileVersion: { kind, value } };
+}
+
+function safeLocalContextText(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (
+    trimmed === "" ||
+    trimmed.startsWith("/") ||
+    trimmed.length > 240 ||
+    /[\0\r\n]/u.test(trimmed)
+  ) {
+    return undefined;
+  }
+
+  return trimmed;
 }
 
 function artifactSourceLabel(artifact: Artifact): string | undefined {
@@ -1522,6 +1720,9 @@ function createFileReuseOpportunity(
       fingerprint: artifact.fingerprint,
       nodeIds: artifact.nodeIds,
     }),
+    ...(artifact.localReadContexts === undefined
+      ? {}
+      : { localReadContexts: artifact.localReadContexts }),
     nodeIds: artifact.nodeIds,
     priority: "medium",
     reason: `A ${artifact.kind} fingerprint was observed ${artifact.count} times across read-like tool activity.`,

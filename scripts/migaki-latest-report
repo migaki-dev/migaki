@@ -3,28 +3,30 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: scripts/migaki-latest-report [--path] [--chronological] [--include-smoke] [--include-session]
+Usage: scripts/migaki-latest-report [--path] [--chronological] [--include-smoke] [--include-session] [--source-root <path>]
 
 Print the newest useful Migaki Codex execution report from .migaki/runs.
 Smoke fixture, smoke-harness, and session-boundary reports are skipped by default.
 When no useful report is available, fall back to the newest eligible report.
 
 Options:
-  --path             Print only the report path.
-  --chronological    Select the newest eligible report even if it has no signal.
-  --include-smoke    Allow smoke fixture and smoke-harness reports to be selected.
-  --include-session  Allow session-boundary reports to be selected.
-  -h, --help         Show this help.
+  --path                Print only the report path.
+  --chronological       Select the newest eligible report even if it has no signal.
+  --include-smoke       Allow smoke fixture and smoke-harness reports to be selected.
+  --include-session     Allow session-boundary reports to be selected.
+  --source-root <path>  Local Migaki store root. Defaults to .migaki.
+  -h, --help            Show this help.
 
 Environment:
-  MIGAKI_RUNS_DIR    Override the runs directory. Defaults to .migaki/runs.
+  MIGAKI_RUNS_DIR       Override the runs directory. Defaults to <source-root>/runs.
 EOF
 }
 
+include_smoke=0
 path_only=0
 chronological=0
-include_smoke=0
 include_session=0
+source_root=
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -40,6 +42,15 @@ while [ "$#" -gt 0 ]; do
     --include-session)
       include_session=1
       ;;
+    --source-root)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--source-root requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      source_root=$2
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -54,12 +65,25 @@ while [ "$#" -gt 0 ]; do
 done
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-RUNS_DIR=${MIGAKI_RUNS_DIR:-"$ROOT_DIR/.migaki/runs"}
+if [ -z "$source_root" ]; then
+  source_root="$ROOT_DIR/.migaki"
+else
+  case "$source_root" in
+    /*) ;;
+    *) source_root="$ROOT_DIR/$source_root" ;;
+  esac
+fi
+
+RUNS_DIR=${MIGAKI_RUNS_DIR:-"$source_root/runs"}
 SMOKE_REAL_MARKER=".migaki-smoke-real-turn"
 SMOKE_REAL_PROMPT_FINGERPRINT="sha256:2a3576df2778c886810e72ffc355841b8b4c499eee6cad5e16227d968cc1adc9"
 
+has_any_reports() {
+  [ -d "$RUNS_DIR" ] && [ -n "$(find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name report.md 2>/dev/null | sed -n '1p')" ]
+}
+
 if [ ! -d "$RUNS_DIR" ]; then
-  printf '%s\n' "No Migaki runs found at .migaki/runs." >&2
+  printf '%s\n' "No Migaki runs found at $RUNS_DIR." >&2
   exit 1
 fi
 
@@ -141,7 +165,11 @@ report_path=$(
 )
 
 if [ -z "$report_path" ]; then
-  printf '%s\n' "No usable Migaki report.md files found under .migaki/runs. Default latest skips smoke fixture and session-boundary reports." >&2
+  if has_any_reports; then
+    printf '%s\n' "No usable Migaki report.md files found under $RUNS_DIR. Default latest skips smoke fixture, smoke-harness, and session-boundary reports." >&2
+  else
+    printf '%s\n' "No Migaki report.md files found under $RUNS_DIR." >&2
+  fi
   exit 1
 fi
 

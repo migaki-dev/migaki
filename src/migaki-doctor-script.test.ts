@@ -15,7 +15,7 @@ describe("migaki-doctor script", () => {
     ]);
 
     expect(stdout).toContain(
-      "Usage: scripts/migaki-doctor [--include-smoke] [--strict] [--max-real-age-minutes <minutes>] [--bridge-run <run-id>]",
+      "Usage: scripts/migaki-doctor [--include-smoke] [--strict] [--max-real-age-minutes <minutes>] [--source-root <path>] [--codex-config <path>] [--bridge-run <run-id>]",
     );
     expect(stdout).toContain("Inspect local Migaki Codex dogfooding health");
     expect(stdout).toContain("checks local Codex trusted-hash records");
@@ -24,6 +24,8 @@ describe("migaki-doctor script", () => {
     expect(stdout).toContain("--include-smoke");
     expect(stdout).toContain("--strict");
     expect(stdout).toContain("--max-real-age-minutes");
+    expect(stdout).toContain("--source-root");
+    expect(stdout).toContain("--codex-config");
     expect(stdout).toContain("--bridge-run");
     expect(stdout).toContain("MIGAKI_BRIDGE_RUN_ID");
   });

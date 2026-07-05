@@ -3,7 +3,7 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: scripts/migaki-doctor [--include-smoke] [--strict] [--max-real-age-minutes <minutes>] [--bridge-run <run-id>]
+Usage: scripts/migaki-doctor [--include-smoke] [--strict] [--max-real-age-minutes <minutes>] [--source-root <path>] [--codex-config <path>] [--bridge-run <run-id>]
 
 Inspect local Migaki Codex dogfooding health and explain advice selection.
 When available, this also checks local Codex trusted-hash records for the
@@ -13,6 +13,8 @@ Options:
   --include-smoke            Allow smoke fixture and smoke-harness runs when selecting advice.
   --strict                   Exit nonzero unless the latest organic turn is native-complete.
   --max-real-age-minutes N   In strict mode, fail when the latest organic turn is older than N minutes.
+  --source-root <path>       Local Migaki store root. Defaults to .migaki.
+  --codex-config <path>      Codex config path. Defaults to CODEX_HOME/config.toml or ~/.codex/config.toml.
   --bridge-run <run-id>      Bridge run id. Default: MIGAKI_BRIDGE_RUN_ID or codex-app-bridge.
   -h, --help                 Show this help.
 EOF
@@ -21,6 +23,8 @@ EOF
 include_smoke=0
 strict=0
 max_real_age_minutes=
+source_root=
+codex_config=
 bridge_run_id=${MIGAKI_BRIDGE_RUN_ID:-codex-app-bridge}
 
 while [ "$#" -gt 0 ]; do
@@ -38,6 +42,24 @@ while [ "$#" -gt 0 ]; do
         exit 2
       fi
       max_real_age_minutes=$2
+      shift
+      ;;
+    --source-root)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--source-root requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      source_root=$2
+      shift
+      ;;
+    --codex-config)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--codex-config requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      codex_config=$2
       shift
       ;;
     --bridge-run)
@@ -63,11 +85,24 @@ while [ "$#" -gt 0 ]; do
 done
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-RUNS_DIR="$ROOT_DIR/.migaki/runs"
 HOOK_CONFIG="$ROOT_DIR/.codex/hooks.json"
 HOOK_ENTRYPOINT="$ROOT_DIR/packages/codex/dist/hook.js"
 DOCTOR_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/dogfood-doctor.js"
-CODEX_CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
+
+if [ -z "$source_root" ]; then
+  source_root="$ROOT_DIR/.migaki"
+else
+  case "$source_root" in
+    /*) ;;
+    *) source_root="$ROOT_DIR/$source_root" ;;
+  esac
+fi
+
+if [ -z "$codex_config" ]; then
+  codex_config="${CODEX_HOME:-${HOME:-}/.codex}/config.toml"
+fi
+
+RUNS_DIR="$source_root/runs"
 
 if [ ! -f "$DOCTOR_ENTRYPOINT" ]; then
   printf '%s\n' "Built doctor entrypoint was not found: $DOCTOR_ENTRYPOINT" >&2
@@ -76,4 +111,4 @@ if [ ! -f "$DOCTOR_ENTRYPOINT" ]; then
 fi
 
 cd "$ROOT_DIR"
-node "$DOCTOR_ENTRYPOINT" "$RUNS_DIR" "$HOOK_CONFIG" "$HOOK_ENTRYPOINT" "$include_smoke" "$strict" "$max_real_age_minutes" "$CODEX_CONFIG" "$bridge_run_id"
+node "$DOCTOR_ENTRYPOINT" "$RUNS_DIR" "$HOOK_CONFIG" "$HOOK_ENTRYPOINT" "$include_smoke" "$strict" "$max_real_age_minutes" "$codex_config" "$bridge_run_id"

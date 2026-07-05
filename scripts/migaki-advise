@@ -3,7 +3,7 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: scripts/migaki-advise [--include-smoke] [--bridge-run <run-id>]
+Usage: scripts/migaki-advise [--include-smoke] [--source-root <path>] [--bridge-run <run-id>]
 
 Print next-session advice from the newest local Migaki execution graph.
 Smoke fixture, smoke-harness, session-boundary, and running turn graphs are skipped by default.
@@ -16,12 +16,14 @@ The accepted advice-only file-reuse policy is loaded for advice ranking.
 
 Options:
   --include-smoke        Allow smoke fixture and smoke-harness runs to be selected.
+  --source-root <path>   Local Migaki store root. Defaults to .migaki.
   --bridge-run <run-id>  Prefer this bridge run for status and advice. Default: MIGAKI_BRIDGE_RUN_ID or codex-app-bridge.
   -h, --help             Show this help.
 EOF
 }
 
 include_smoke=0
+source_root=
 bridge_run_id=${MIGAKI_BRIDGE_RUN_ID:-codex-app-bridge}
 
 while [ "$#" -gt 0 ]; do
@@ -38,6 +40,14 @@ while [ "$#" -gt 0 ]; do
       bridge_run_id=$2
       shift
       ;;
+    --source-root)
+      shift
+      if [ "$#" -eq 0 ]; then
+        printf '%s\n' "--source-root requires a value." >&2
+        exit 2
+      fi
+      source_root=$1
+      ;;
     -h|--help)
       usage
       exit 0
@@ -52,7 +62,15 @@ while [ "$#" -gt 0 ]; do
 done
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-RUNS_DIR="$ROOT_DIR/.migaki/runs"
+if [ -z "$source_root" ]; then
+  source_root="$ROOT_DIR/.migaki"
+else
+  case "$source_root" in
+    /*) ;;
+    *) source_root="$ROOT_DIR/$source_root" ;;
+  esac
+fi
+RUNS_DIR="$source_root/runs"
 RUNTIME_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/execution.js"
 ADVICE_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/execution-advice.js"
 DOGFOOD_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/dogfood-doctor.js"
@@ -60,9 +78,26 @@ ADVICE_POLICY_FIXTURE="$ROOT_DIR/packages/runtime/src/fixtures/adaptive-policy-l
 HOOK_CONFIG="$ROOT_DIR/.codex/hooks.json"
 HOOK_ENTRYPOINT="$ROOT_DIR/packages/codex/dist/hook.js"
 
+print_no_evidence_advice() {
+  detail=$1
+  cat <<EOF
+# Migaki Session Advice
+
+Top signal: no local evidence
+
+Next Codex move:
+- $detail
+- Run \`mise run migaki:doctor\` to verify hook trust, hook build output, store writability, and latest real-run selection.
+- After trusting the project hooks, run one normal Codex turn in this repository, then rerun \`mise run migaki:advise\`.
+
+Safety:
+- No behavior should be skipped, cached, replayed, or parallelized from missing evidence.
+EOF
+}
+
 if [ ! -d "$RUNS_DIR" ]; then
-  printf '%s\n' "No Migaki runs found at .migaki/runs." >&2
-  exit 1
+  print_no_evidence_advice "No Migaki runs were found at ${source_root}/runs."
+  exit 0
 fi
 
 if [ ! -f "$RUNTIME_ENTRYPOINT" ]; then
@@ -85,7 +120,7 @@ fi
 
 cd "$ROOT_DIR"
 
-node --input-type=module - "$RUNS_DIR" "$include_smoke" "$HOOK_CONFIG" "$HOOK_ENTRYPOINT" "$ADVICE_POLICY_FIXTURE" "$bridge_run_id" <<'EOF'
+node --input-type=module - "$RUNS_DIR" "$include_smoke" "$source_root" "$HOOK_CONFIG" "$HOOK_ENTRYPOINT" "$ADVICE_POLICY_FIXTURE" "$bridge_run_id" <<'EOF'
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createDogfoodAdviceStatus } from "./packages/runtime/dist/dogfood-doctor.js";
@@ -102,10 +137,11 @@ import { renderExecutionAdvice } from "./packages/runtime/dist/execution.js";
 
 const runsDir = process.argv[2];
 const includeSmoke = process.argv[3] === "1";
-const hookConfigPath = process.argv[4];
-const hookEntrypointPath = process.argv[5];
-const advicePolicyFixturePath = process.argv[6];
-const bridgeRunId = process.argv[7];
+const sourceRoot = process.argv[4] ?? ".migaki";
+const hookConfigPath = process.argv[5];
+const hookEntrypointPath = process.argv[6];
+const advicePolicyFixturePath = process.argv[7];
+const bridgeRunId = process.argv[8];
 
 if (
   runsDir === undefined ||
@@ -115,6 +151,23 @@ if (
   throw new Error(
     "runs directory, hook config, and hook entrypoint arguments are required",
   );
+}
+
+function noEvidenceAdvice(detail) {
+  return [
+    "# Migaki Session Advice",
+    "",
+    "Top signal: no local evidence",
+    "",
+    "Next Codex move:",
+    `- ${detail}`,
+    "- Run `mise run migaki:doctor` to verify hook trust, hook build output, store writability, and latest real-run selection.",
+    "- After trusting the project hooks, run one normal Codex turn in this repository, then rerun `mise run migaki:advise`.",
+    "",
+    "Safety:",
+    "- No behavior should be skipped, cached, replayed, or parallelized from missing evidence.",
+    "",
+  ].join("\n");
 }
 
 const candidates = readdirSync(runsDir, { withFileTypes: true }).flatMap(
@@ -155,15 +208,13 @@ const selected =
   ) ?? selection.selected;
 
 if (selected === undefined) {
-  if (candidates.length === 0) {
-    console.error("No Migaki graph.json files found under .migaki/runs.");
-  } else {
-    console.error(
-      "No usable Migaki advice graph found under .migaki/runs. Default advice skips smoke fixtures, smoke-harness graphs, session-boundary graphs, and running turns. Use migaki:doctor for details.",
-    );
-  }
+  const detail =
+    candidates.length === 0
+      ? `No Migaki graph.json files were found under ${sourceRoot}/runs.`
+      : "Only Migaki smoke or fixture graphs were found; pass --include-smoke to inspect them.";
 
-  process.exit(1);
+  console.log(noEvidenceAdvice(detail));
+  process.exit(0);
 }
 
 const graph = JSON.parse(readFileSync(selected.graphPath, "utf8"));
