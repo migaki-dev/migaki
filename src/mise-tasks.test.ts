@@ -40,6 +40,17 @@ describe("mise tasks", () => {
     expect(task).toContain('depends = ["build"]');
     expect(task).toContain('run = "scripts/migaki-promote"');
   });
+
+  it("wires the dogfood doctor behind a build", async () => {
+    const config = await readFile(`${repositoryRoot}/mise.toml`, "utf8");
+    const task = readTask(config, "migaki:doctor");
+
+    expect(task).toContain(
+      'description = "Diagnose Migaki Codex dogfood readiness"',
+    );
+    expect(task).toContain('depends = ["build"]');
+    expect(task).toContain('run = "scripts/migaki-doctor"');
+  });
 });
 
 function readTask(config: string, taskName: string): string {

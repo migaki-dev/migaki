@@ -277,6 +277,7 @@ print_codex_hook_next_steps() {
   fi
 
   log "In Codex, review and trust the project hooks, for example with /hooks."
+  log "Run mise run migaki:doctor from each Codex worktree to verify dogfood readiness."
 }
 
 main() {

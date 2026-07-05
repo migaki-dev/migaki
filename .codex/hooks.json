@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "command": "MIGAKI_CODEX_LOCAL_CONTEXT=1 node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
             "statusMessage": "Recording Migaki execution event"
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "command": "MIGAKI_CODEX_LOCAL_CONTEXT=1 node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
             "statusMessage": "Recording Migaki permission request"
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "command": "MIGAKI_CODEX_LOCAL_CONTEXT=1 node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
             "statusMessage": "Recording Migaki tool start"
           }
         ]
@@ -41,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "command": "MIGAKI_CODEX_LOCAL_CONTEXT=1 node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
             "statusMessage": "Recording Migaki tool finish"
           }
         ]
@@ -52,7 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "command": "MIGAKI_CODEX_LOCAL_CONTEXT=1 node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
             "statusMessage": "Recording Migaki compaction start"
           }
         ]
@@ -63,7 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "command": "MIGAKI_CODEX_LOCAL_CONTEXT=1 node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
             "statusMessage": "Recording Migaki compaction finish"
           }
         ]
@@ -74,7 +74,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "command": "MIGAKI_CODEX_LOCAL_CONTEXT=1 node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
             "statusMessage": "Recording Migaki subagent start"
           }
         ]
@@ -85,7 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "command": "MIGAKI_CODEX_LOCAL_CONTEXT=1 node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
             "statusMessage": "Recording Migaki subagent finish"
           }
         ]
@@ -96,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "command": "MIGAKI_CODEX_LOCAL_CONTEXT=1 node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
             "statusMessage": "Recording Migaki session boundary"
           }
         ]
@@ -107,7 +107,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
+            "command": "MIGAKI_CODEX_LOCAL_CONTEXT=1 node \"$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js\"",
             "statusMessage": "Writing Migaki execution report"
           }
         ]

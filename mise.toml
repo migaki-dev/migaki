@@ -74,6 +74,11 @@ description = "Run codex exec with latest Migaki session advice prepended"
 depends = ["build"]
 run = "scripts/migaki-codex"
 
+[tasks."migaki:doctor"]
+description = "Diagnose Migaki Codex dogfood readiness"
+depends = ["build"]
+run = "scripts/migaki-doctor"
+
 [tasks."migaki:runs"]
 description = "List recent local Migaki execution reports"
 run = "scripts/migaki-runs"
@@ -107,6 +112,7 @@ sh -n scripts/bootstrap
 sh -n scripts/install-git-hooks
 sh -n scripts/migaki-advise
 sh -n scripts/migaki-codex
+sh -n scripts/migaki-doctor
 sh -n scripts/migaki-latest-report
 sh -n scripts/migaki-promote
 sh -n scripts/migaki-runs
@@ -119,6 +125,7 @@ sh -n .githooks/pre-push
 scripts/bootstrap --help >/dev/null
 scripts/migaki-advise --help >/dev/null
 scripts/migaki-codex --help >/dev/null
+scripts/migaki-doctor --help >/dev/null
 scripts/migaki-latest-report --help >/dev/null
 scripts/migaki-promote --help >/dev/null
 scripts/migaki-runs --help >/dev/null

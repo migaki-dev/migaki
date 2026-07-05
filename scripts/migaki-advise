@@ -3,43 +3,113 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: scripts/migaki-advise
+Usage: scripts/migaki-advise [--include-smoke] [--source-root <path>]
 
 Print next-session advice from the newest local Migaki execution graph.
 
 Options:
-  -h, --help  Show this help.
+  --include-smoke       Include deterministic smoke and fixture runs.
+  --source-root <path>  Local Migaki store root. Defaults to .migaki.
+  -h, --help            Show this help.
 EOF
 }
 
-case "${1:-}" in
-  -h|--help)
-    usage
-    exit 0
-    ;;
-  "")
-    ;;
-  *)
-    printf '%s\n' "Unknown argument: $1" >&2
-    usage >&2
-    exit 2
-    ;;
-esac
+include_smoke=0
+source_root=
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --include-smoke)
+      include_smoke=1
+      ;;
+    --source-root)
+      shift
+      if [ "$#" -eq 0 ]; then
+        printf '%s\n' "--source-root requires a value." >&2
+        exit 2
+      fi
+      source_root=$1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-RUNS_DIR="$ROOT_DIR/.migaki/runs"
+if [ -z "$source_root" ]; then
+  source_root="$ROOT_DIR/.migaki"
+else
+  case "$source_root" in
+    /*) ;;
+    *) source_root="$ROOT_DIR/$source_root" ;;
+  esac
+fi
+RUNS_DIR="$source_root/runs"
 RUNTIME_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/execution.js"
 
+print_no_evidence_advice() {
+  detail=$1
+  cat <<EOF
+# Migaki Session Advice
+
+Top signal: no local evidence
+
+Next Codex move:
+- $detail
+- Run \`mise run migaki:doctor\` to verify hook trust, hook build output, store writability, and latest real-run selection.
+- After trusting the project hooks, run one normal Codex turn in this repository, then rerun \`mise run migaki:advise\`.
+
+Safety:
+- No behavior should be skipped, cached, replayed, or parallelized from missing evidence.
+EOF
+}
+
+is_smoke_run_id() {
+  case "$1" in
+    codex-turn-migaki-smoke-*|codex-session-migaki-smoke-*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+latest_graph_path() {
+  if [ ! -d "$RUNS_DIR" ]; then
+    return 0
+  fi
+
+  find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name graph.json -exec ls -t {} + 2>/dev/null | while IFS= read -r candidate; do
+    run_id=$(basename -- "$(dirname -- "$candidate")")
+    if [ "$include_smoke" -eq 1 ] || ! is_smoke_run_id "$run_id"; then
+      printf '%s\n' "$candidate"
+    fi
+  done | sed -n '1p'
+}
+
+has_any_graphs() {
+  [ -d "$RUNS_DIR" ] && [ -n "$(find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name graph.json 2>/dev/null | sed -n '1p')" ]
+}
+
 if [ ! -d "$RUNS_DIR" ]; then
-  printf '%s\n' "No Migaki runs found at .migaki/runs." >&2
-  exit 1
+  print_no_evidence_advice "No Migaki runs were found at ${source_root}/runs."
+  exit 0
 fi
 
-graph_path=$(find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name graph.json -exec ls -t {} + 2>/dev/null | sed -n '1p')
+graph_path=$(latest_graph_path)
 
 if [ -z "$graph_path" ]; then
-  printf '%s\n' "No Migaki graph.json files found under .migaki/runs." >&2
-  exit 1
+  if has_any_graphs; then
+    print_no_evidence_advice "Only Migaki smoke or fixture graphs were found; pass --include-smoke to inspect them."
+  else
+    print_no_evidence_advice "No Migaki graph.json files were found under ${source_root}/runs."
+  fi
+  exit 0
 fi
 
 if [ ! -f "$RUNTIME_ENTRYPOINT" ]; then
