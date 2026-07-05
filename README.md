@@ -148,7 +148,10 @@ under `.migaki/runs/`; use `mise run migaki:runs` to scan recent runs and
 `mise run migaki:latest` to read the newest report. Use
 `mise run migaki:advise` before the next turn to print a short coaching prompt
 from the newest real graph. If no real evidence exists yet, `migaki:advise`
-prints setup guidance instead of failing.
+prints setup guidance instead of failing. Advice skips `migaki-smoke` fixture
+runs by default so normal dogfooding follows real local work; use
+`mise run migaki:advise -- --include-smoke` only when you intentionally want
+fixture advice.
 
 The repository hook commands opt into local-only dogfood context with
 `MIGAKI_CODEX_LOCAL_CONTEXT=1`. Local `.migaki` graphs may include repo-relative

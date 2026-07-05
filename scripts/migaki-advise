@@ -6,9 +6,10 @@ usage() {
 Usage: scripts/migaki-advise [--include-smoke] [--source-root <path>]
 
 Print next-session advice from the newest local Migaki execution graph.
+Smoke fixture runs are skipped by default.
 
 Options:
-  --include-smoke       Include deterministic smoke and fixture runs.
+  --include-smoke       Allow smoke fixture runs to be selected.
   --source-root <path>  Local Migaki store root. Defaults to .migaki.
   -h, --help            Show this help.
 EOF
@@ -54,6 +55,7 @@ else
 fi
 RUNS_DIR="$source_root/runs"
 RUNTIME_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/execution.js"
+ADVICE_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/execution-advice.js"
 
 print_no_evidence_advice() {
   detail=$1
@@ -72,43 +74,8 @@ Safety:
 EOF
 }
 
-is_smoke_run_id() {
-  case "$1" in
-    codex-turn-migaki-smoke-*|codex-session-migaki-smoke-*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-latest_graph_path() {
-  if [ ! -d "$RUNS_DIR" ]; then
-    return 0
-  fi
-
-  find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name graph.json -exec ls -t {} + 2>/dev/null | while IFS= read -r candidate; do
-    run_id=$(basename -- "$(dirname -- "$candidate")")
-    if [ "$include_smoke" -eq 1 ] || ! is_smoke_run_id "$run_id"; then
-      printf '%s\n' "$candidate"
-    fi
-  done | sed -n '1p'
-}
-
-has_any_graphs() {
-  [ -d "$RUNS_DIR" ] && [ -n "$(find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name graph.json 2>/dev/null | sed -n '1p')" ]
-}
-
 if [ ! -d "$RUNS_DIR" ]; then
   print_no_evidence_advice "No Migaki runs were found at ${source_root}/runs."
-  exit 0
-fi
-
-graph_path=$(latest_graph_path)
-
-if [ -z "$graph_path" ]; then
-  if has_any_graphs; then
-    print_no_evidence_advice "Only Migaki smoke or fixture graphs were found; pass --include-smoke to inspect them."
-  else
-    print_no_evidence_advice "No Migaki graph.json files were found under ${source_root}/runs."
-  fi
   exit 0
 fi
 
@@ -118,19 +85,82 @@ if [ ! -f "$RUNTIME_ENTRYPOINT" ]; then
   exit 1
 fi
 
+if [ ! -f "$ADVICE_ENTRYPOINT" ]; then
+  printf '%s\n' "Built advice entrypoint was not found: $ADVICE_ENTRYPOINT" >&2
+  printf '%s\n' "Run this through mise with \`mise run migaki:advise\`, or run \`mise run build\` first." >&2
+  exit 1
+fi
+
 cd "$ROOT_DIR"
 
-node --input-type=module - "$graph_path" <<'EOF'
-import { readFileSync } from "node:fs";
+node --input-type=module - "$RUNS_DIR" "$include_smoke" "$source_root" <<'EOF'
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { selectExecutionAdviceGraphCandidate } from "./packages/runtime/dist/execution-advice.js";
 import { renderExecutionAdvice } from "./packages/runtime/dist/execution.js";
 
-const graphPath = process.argv[2];
+const runsDir = process.argv[2];
+const includeSmoke = process.argv[3] === "1";
+const sourceRoot = process.argv[4] ?? ".migaki";
 
-if (graphPath === undefined) {
-  throw new Error("graph path argument is required");
+if (runsDir === undefined) {
+  throw new Error("runs directory argument is required");
 }
 
-const graph = JSON.parse(readFileSync(graphPath, "utf8"));
+function noEvidenceAdvice(detail) {
+  return [
+    "# Migaki Session Advice",
+    "",
+    "Top signal: no local evidence",
+    "",
+    "Next Codex move:",
+    `- ${detail}`,
+    "- Run `mise run migaki:doctor` to verify hook trust, hook build output, store writability, and latest real-run selection.",
+    "- After trusting the project hooks, run one normal Codex turn in this repository, then rerun `mise run migaki:advise`.",
+    "",
+    "Safety:",
+    "- No behavior should be skipped, cached, replayed, or parallelized from missing evidence.",
+    "",
+  ].join("\n");
+}
+
+const candidates = readdirSync(runsDir, { withFileTypes: true }).flatMap(
+  (entry) => {
+    if (!entry.isDirectory()) {
+      return [];
+    }
+
+    const graphPath = join(runsDir, entry.name, "graph.json");
+
+    if (!existsSync(graphPath)) {
+      return [];
+    }
+
+    return [
+      {
+        graphPath,
+        modifiedAtMs: statSync(graphPath).mtimeMs,
+        runId: entry.name,
+      },
+    ];
+  },
+);
+
+const selected = selectExecutionAdviceGraphCandidate(candidates, {
+  includeSmoke,
+});
+
+if (selected === undefined) {
+  const detail =
+    candidates.length === 0
+      ? `No Migaki graph.json files were found under ${sourceRoot}/runs.`
+      : "Only Migaki smoke or fixture graphs were found; pass --include-smoke to inspect them.";
+
+  console.log(noEvidenceAdvice(detail));
+  process.exit(0);
+}
+
+const graph = JSON.parse(readFileSync(selected.graphPath, "utf8"));
 
 console.log(renderExecutionAdvice(graph));
 EOF
