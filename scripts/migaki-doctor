@@ -3,37 +3,73 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: scripts/migaki-doctor [--source-root <path>] [--codex-config <path>]
+Usage: scripts/migaki-doctor [--include-smoke] [--strict] [--max-real-age-minutes <minutes>] [--source-root <path>] [--codex-config <path>] [--bridge-run <run-id>]
 
-Diagnose whether this worktree is ready for Migaki Codex dogfooding.
+Inspect local Migaki Codex dogfooding health and explain advice selection.
+When available, this also checks local Codex trusted-hash records for the
+project hook definitions.
 
 Options:
-  --source-root <path>   Local Migaki store root. Defaults to .migaki.
-  --codex-config <path>  Codex config path. Defaults to ~/.codex/config.toml.
-  -h, --help             Show this help.
+  --include-smoke            Allow smoke fixture and smoke-harness runs when selecting advice.
+  --strict                   Exit nonzero unless the latest organic turn is native-complete.
+  --max-real-age-minutes N   In strict mode, fail when the latest organic turn is older than N minutes.
+  --source-root <path>       Local Migaki store root. Defaults to .migaki.
+  --codex-config <path>      Codex config path. Defaults to CODEX_HOME/config.toml or ~/.codex/config.toml.
+  --bridge-run <run-id>      Bridge run id. Default: MIGAKI_BRIDGE_RUN_ID or codex-app-bridge.
+  -h, --help                 Show this help.
 EOF
 }
 
+include_smoke=0
+strict=0
+max_real_age_minutes=
 source_root=
 codex_config=
+bridge_run_id=${MIGAKI_BRIDGE_RUN_ID:-codex-app-bridge}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --source-root)
-      shift
-      if [ "$#" -eq 0 ]; then
-        printf '%s\n' "--source-root requires a value." >&2
+    --include-smoke)
+      include_smoke=1
+      ;;
+    --strict)
+      strict=1
+      ;;
+    --max-real-age-minutes)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--max-real-age-minutes requires a value." >&2
+        usage >&2
         exit 2
       fi
-      source_root=$1
+      max_real_age_minutes=$2
+      shift
+      ;;
+    --source-root)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--source-root requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      source_root=$2
+      shift
       ;;
     --codex-config)
-      shift
-      if [ "$#" -eq 0 ]; then
+      if [ "${2:-}" = "" ]; then
         printf '%s\n' "--codex-config requires a value." >&2
+        usage >&2
         exit 2
       fi
-      codex_config=$1
+      codex_config=$2
+      shift
+      ;;
+    --bridge-run)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--bridge-run requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      bridge_run_id=$2
+      shift
       ;;
     -h|--help)
       usage
@@ -49,8 +85,9 @@ while [ "$#" -gt 0 ]; do
 done
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-HOOKS_FILE="$ROOT_DIR/.codex/hooks.json"
+HOOK_CONFIG="$ROOT_DIR/.codex/hooks.json"
 HOOK_ENTRYPOINT="$ROOT_DIR/packages/codex/dist/hook.js"
+DOCTOR_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/dogfood-doctor.js"
 
 if [ -z "$source_root" ]; then
   source_root="$ROOT_DIR/.migaki"
@@ -62,173 +99,16 @@ else
 fi
 
 if [ -z "$codex_config" ]; then
-  codex_config="${HOME:-}/.codex/config.toml"
+  codex_config="${CODEX_HOME:-${HOME:-}/.codex}/config.toml"
 fi
 
 RUNS_DIR="$source_root/runs"
-hard_failures=0
 
-ok() {
-  printf '%s\n' "OK   $*"
-}
-
-warn() {
-  printf '%s\n' "WARN $*"
-}
-
-fail() {
-  printf '%s\n' "FAIL $*"
-  hard_failures=$((hard_failures + 1))
-}
-
-is_smoke_run_id() {
-  case "$1" in
-    codex-turn-migaki-smoke-*|codex-session-migaki-smoke-*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-reports() {
-  if [ ! -d "$RUNS_DIR" ]; then
-    return 0
-  fi
-
-  find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name report.md -exec ls -t {} + 2>/dev/null
-}
-
-graphs() {
-  if [ ! -d "$RUNS_DIR" ]; then
-    return 0
-  fi
-
-  find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -type f -name graph.json -exec ls -t {} + 2>/dev/null
-}
-
-latest_real_report() {
-  reports | while IFS= read -r candidate; do
-    run_id=$(basename -- "$(dirname -- "$candidate")")
-    if ! is_smoke_run_id "$run_id"; then
-      printf '%s\n' "$candidate"
-    fi
-  done | sed -n '1p'
-}
-
-latest_any_report() {
-  reports | sed -n '1p'
-}
-
-latest_real_graph() {
-  graphs | while IFS= read -r candidate; do
-    run_id=$(basename -- "$(dirname -- "$candidate")")
-    if ! is_smoke_run_id "$run_id"; then
-      printf '%s\n' "$candidate"
-    fi
-  done | sed -n '1p'
-}
-
-project_trusted() {
-  [ -f "$codex_config" ] || return 1
-
-  awk -v project="$ROOT_DIR" '
-    $0 == "[projects.\"" project "\"]" {
-      in_project = 1
-      next
-    }
-    /^\[/ {
-      in_project = 0
-    }
-    in_project && $0 ~ /^trust_level = "trusted"/ {
-      found = 1
-    }
-    END {
-      exit found ? 0 : 1
-    }
-  ' "$codex_config"
-}
-
-hook_trust_count() {
-  [ -f "$codex_config" ] || {
-    printf '%s\n' 0
-    return
-  }
-
-  grep -F "[hooks.state.\"$HOOKS_FILE:" "$codex_config" 2>/dev/null | wc -l | tr -d ' '
-}
-
-store_writable() {
-  mkdir -p "$source_root"
-  probe="$source_root/.migaki-doctor-write-test-$$"
-  : > "$probe"
-  rm -f "$probe"
-}
-
-printf '%s\n' "# Migaki Dogfood Doctor"
-printf '%s\n\n' "Repository: $ROOT_DIR"
-
-git_root=$(git -C "$ROOT_DIR" rev-parse --show-toplevel 2>/dev/null || true)
-if [ "$git_root" = "$ROOT_DIR" ]; then
-  ok "Current path is the Git repository root."
-else
-  fail "Current path is not the Git repository root reported by git."
+if [ ! -f "$DOCTOR_ENTRYPOINT" ]; then
+  printf '%s\n' "Built doctor entrypoint was not found: $DOCTOR_ENTRYPOINT" >&2
+  printf '%s\n' "Run \`mise run build\` first. \`migaki:doctor\` intentionally does not rebuild on every call." >&2
+  exit 1
 fi
 
-if [ -f "$HOOKS_FILE" ]; then
-  ok "Project hook definitions exist at .codex/hooks.json."
-else
-  fail "Project hook definitions are missing at .codex/hooks.json."
-fi
-
-if [ -f "$HOOK_ENTRYPOINT" ]; then
-  ok "Built hook entrypoint exists at packages/codex/dist/hook.js."
-else
-  fail "Built hook entrypoint is missing; run \`mise run build\`."
-fi
-
-if store_writable; then
-  ok "Migaki store is writable at $source_root."
-else
-  fail "Migaki store is not writable at $source_root."
-fi
-
-if project_trusted; then
-  ok "Codex project trust is recorded for this exact worktree path."
-else
-  warn "Codex project trust was not found for this exact worktree path in $codex_config."
-fi
-
-trusted_hooks=$(hook_trust_count)
-if [ "$trusted_hooks" -ge 10 ]; then
-  ok "Codex hook trust entries are recorded for this exact hooks file."
-elif [ "$trusted_hooks" -gt 0 ]; then
-  warn "Only $trusted_hooks Codex hook trust entries were found for this hooks file; review /hooks again."
-else
-  warn "No Codex hook trust entries were found for this hooks file; review and trust project hooks in Codex."
-fi
-
-real_report=$(latest_real_report)
-any_report=$(latest_any_report)
-real_graph=$(latest_real_graph)
-
-if [ -n "$real_report" ]; then
-  ok "Latest real Migaki report: $real_report"
-elif [ -n "$any_report" ]; then
-  warn "Only smoke or fixture Migaki reports were found; normal Codex turns are not yet being observed."
-else
-  warn "No Migaki reports were found yet."
-fi
-
-if [ -n "$real_graph" ]; then
-  ok "Default advice source is real run $(basename -- "$(dirname -- "$real_graph")")."
-elif [ -n "$any_report" ]; then
-  warn "Default advice has no real run yet; smoke fixtures are ignored unless --include-smoke is used."
-else
-  warn "Default advice has no run evidence yet."
-fi
-
-if [ "$hard_failures" -eq 0 ]; then
-  printf '\n%s\n' "Doctor finished with no hard failures."
-  exit 0
-fi
-
-printf '\n%s\n' "Doctor found $hard_failures hard failure(s)."
-exit 1
+cd "$ROOT_DIR"
+node "$DOCTOR_ENTRYPOINT" "$RUNS_DIR" "$HOOK_CONFIG" "$HOOK_ENTRYPOINT" "$include_smoke" "$strict" "$max_real_age_minutes" "$codex_config" "$bridge_run_id"

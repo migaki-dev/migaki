@@ -3,25 +3,42 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: scripts/migaki-advise [--include-smoke] [--source-root <path>]
+Usage: scripts/migaki-advise [--include-smoke] [--source-root <path>] [--bridge-run <run-id>]
 
 Print next-session advice from the newest local Migaki execution graph.
-Smoke fixture runs are skipped by default.
+Smoke fixture, smoke-harness, session-boundary, and running turn graphs are skipped by default.
+When advice selection prefers older useful evidence over the latest eligible
+turn, or when selected evidence came through the manual bridge, the output
+includes an Advice Source note.
+When organic dogfood is not current but hook plumbing works, the output starts
+with a Dogfood Status bridge-required note.
+The accepted advice-only file-reuse policy is loaded for advice ranking.
 
 Options:
-  --include-smoke       Allow smoke fixture runs to be selected.
-  --source-root <path>  Local Migaki store root. Defaults to .migaki.
-  -h, --help            Show this help.
+  --include-smoke        Allow smoke fixture and smoke-harness runs to be selected.
+  --source-root <path>   Local Migaki store root. Defaults to .migaki.
+  --bridge-run <run-id>  Prefer this bridge run for status and advice. Default: MIGAKI_BRIDGE_RUN_ID or codex-app-bridge.
+  -h, --help             Show this help.
 EOF
 }
 
 include_smoke=0
 source_root=
+bridge_run_id=${MIGAKI_BRIDGE_RUN_ID:-codex-app-bridge}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --include-smoke)
       include_smoke=1
+      ;;
+    --bridge-run)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--bridge-run requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      bridge_run_id=$2
+      shift
       ;;
     --source-root)
       shift
@@ -56,6 +73,10 @@ fi
 RUNS_DIR="$source_root/runs"
 RUNTIME_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/execution.js"
 ADVICE_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/execution-advice.js"
+DOGFOOD_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/dogfood-doctor.js"
+ADVICE_POLICY_FIXTURE="$ROOT_DIR/packages/runtime/src/fixtures/adaptive-policy-loop.json"
+HOOK_CONFIG="$ROOT_DIR/.codex/hooks.json"
+HOOK_ENTRYPOINT="$ROOT_DIR/packages/codex/dist/hook.js"
 
 print_no_evidence_advice() {
   detail=$1
@@ -81,30 +102,55 @@ fi
 
 if [ ! -f "$RUNTIME_ENTRYPOINT" ]; then
   printf '%s\n' "Built runtime entrypoint was not found: $RUNTIME_ENTRYPOINT" >&2
-  printf '%s\n' "Run this through mise with \`mise run migaki:advise\`, or run \`mise run build\` first." >&2
+  printf '%s\n' "Run \`mise run build\` first. \`migaki:advise\` intentionally does not rebuild on every call." >&2
   exit 1
 fi
 
 if [ ! -f "$ADVICE_ENTRYPOINT" ]; then
   printf '%s\n' "Built advice entrypoint was not found: $ADVICE_ENTRYPOINT" >&2
-  printf '%s\n' "Run this through mise with \`mise run migaki:advise\`, or run \`mise run build\` first." >&2
+  printf '%s\n' "Run \`mise run build\` first. \`migaki:advise\` intentionally does not rebuild on every call." >&2
+  exit 1
+fi
+
+if [ ! -f "$DOGFOOD_ENTRYPOINT" ]; then
+  printf '%s\n' "Built dogfood doctor entrypoint was not found: $DOGFOOD_ENTRYPOINT" >&2
+  printf '%s\n' "Run \`mise run build\` first. \`migaki:advise\` intentionally does not rebuild on every call." >&2
   exit 1
 fi
 
 cd "$ROOT_DIR"
 
-node --input-type=module - "$RUNS_DIR" "$include_smoke" "$source_root" <<'EOF'
+node --input-type=module - "$RUNS_DIR" "$include_smoke" "$source_root" "$HOOK_CONFIG" "$HOOK_ENTRYPOINT" "$ADVICE_POLICY_FIXTURE" "$bridge_run_id" <<'EOF'
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { selectExecutionAdviceGraphCandidate } from "./packages/runtime/dist/execution-advice.js";
+import { dirname, join } from "node:path";
+import { createDogfoodAdviceStatus } from "./packages/runtime/dist/dogfood-doctor.js";
+import {
+  createExecutionAdviceGraphCandidate,
+  createExecutionAdviceGraphCandidateSelection,
+  formatExecutionAdviceSelectionNote,
+  formatNamedCounts,
+  MIGAKI_SMOKE_REAL_TURN_MARKER,
+  sortExecutionAdviceGraphCandidatesByModifiedTime,
+  summarizeExecutionAdviceSources,
+} from "./packages/runtime/dist/execution-advice.js";
 import { renderExecutionAdvice } from "./packages/runtime/dist/execution.js";
 
 const runsDir = process.argv[2];
 const includeSmoke = process.argv[3] === "1";
 const sourceRoot = process.argv[4] ?? ".migaki";
+const hookConfigPath = process.argv[5];
+const hookEntrypointPath = process.argv[6];
+const advicePolicyFixturePath = process.argv[7];
+const bridgeRunId = process.argv[8];
 
-if (runsDir === undefined) {
-  throw new Error("runs directory argument is required");
+if (
+  runsDir === undefined ||
+  hookConfigPath === undefined ||
+  hookEntrypointPath === undefined
+) {
+  throw new Error(
+    "runs directory, hook config, and hook entrypoint arguments are required",
+  );
 }
 
 function noEvidenceAdvice(detail) {
@@ -136,19 +182,30 @@ const candidates = readdirSync(runsDir, { withFileTypes: true }).flatMap(
       return [];
     }
 
+    const graph = JSON.parse(readFileSync(graphPath, "utf8"));
+    const smokeHarness = existsSync(
+      join(runsDir, entry.name, MIGAKI_SMOKE_REAL_TURN_MARKER),
+    );
+
     return [
-      {
+      createExecutionAdviceGraphCandidate({
+        graph,
         graphPath,
         modifiedAtMs: statSync(graphPath).mtimeMs,
         runId: entry.name,
-      },
+        smokeHarness,
+      }),
     ];
   },
 );
 
-const selected = selectExecutionAdviceGraphCandidate(candidates, {
+const selection = createExecutionAdviceGraphCandidateSelection(candidates, {
   includeSmoke,
 });
+const selected =
+  selection.eligibleCandidates.find(
+    (candidate) => candidate.runId === bridgeRunId,
+  ) ?? selection.selected;
 
 if (selected === undefined) {
   const detail =
@@ -161,6 +218,80 @@ if (selected === undefined) {
 }
 
 const graph = JSON.parse(readFileSync(selected.graphPath, "utf8"));
+const latestEligible = sortExecutionAdviceGraphCandidatesByModifiedTime(
+  selection.eligibleCandidates,
+)[0];
+const selectedBridgeRunWasRequested =
+  bridgeRunId !== undefined &&
+  selected.runId === bridgeRunId &&
+  latestEligible !== undefined &&
+  selected.runId !== latestEligible.runId;
+const selectionNote = selectedBridgeRunWasRequested
+  ? `selected advice is the requested bridge run \`${bridgeRunId}\`; latest eligible evidence may differ, but bridge-run preference is being used for scoped dogfooding.`
+  : formatExecutionAdviceSelectionNote(selected, latestEligible);
+const selectedEventsPath = join(dirname(selected.graphPath), "events.jsonl");
+const selectedSourceSummary = existsSync(selectedEventsPath)
+  ? summarizeExecutionAdviceSources(readFileSync(selectedEventsPath, "utf8"))
+  : undefined;
+const dogfoodStatus = createDogfoodAdviceStatus({
+  bridgeRunId,
+  hookConfigPath,
+  hookEntrypointPath,
+  maxRealAgeMs: 15 * 60 * 1000,
+  runsDirectory: runsDir,
+});
+const advicePolicies = readAdvicePolicies(advicePolicyFixturePath);
 
-console.log(renderExecutionAdvice(graph));
+if (dogfoodStatus !== undefined) {
+  console.log(dogfoodStatus);
+}
+
+console.log(renderExecutionAdvice(graph, { policies: advicePolicies }));
+
+if (selectionNote !== undefined || selectedSourceSummary !== undefined) {
+  console.log("");
+  console.log("Advice Source:");
+
+  if (selectionNote !== undefined) {
+    console.log(`- Note: ${selectionNote}`);
+  }
+
+  if (selectedSourceSummary !== undefined) {
+    console.log(
+      `- Selected evidence sources: ${formatNamedCounts(selectedSourceSummary.sourceAdapters)}`,
+    );
+
+    if (selectedSourceSummary.warning !== undefined) {
+      console.log(`- Warning: ${selectedSourceSummary.warning}`);
+    }
+  }
+
+  if (latestEligible !== undefined) {
+    console.log(`- Latest eligible: ${formatCandidate(latestEligible)}`);
+  }
+}
+
+function formatCandidate(candidate) {
+  return [
+    candidate.runId,
+    `status=${candidate.status ?? "unknown"}`,
+    `nodes=${candidate.nodeCount ?? "unknown"}`,
+    `tools=${candidate.toolCalls ?? "unknown"}`,
+    `opportunities=${candidate.opportunityCount ?? "unknown"}`,
+  ].join(" ");
+}
+
+function readAdvicePolicies(fixturePath) {
+  if (fixturePath === undefined || !existsSync(fixturePath)) {
+    return [];
+  }
+
+  const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
+  const acceptedBundle =
+    fixture !== null && typeof fixture === "object"
+      ? fixture.acceptedBundle
+      : undefined;
+
+  return acceptedBundle === undefined ? [] : [acceptedBundle];
+}
 EOF

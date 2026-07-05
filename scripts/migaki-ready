@@ -1,0 +1,102 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-ready [--max-real-age-minutes <minutes>] [--bridge-run <run-id>]
+
+Check whether Migaki is usable in the current session. This passes for fresh organic native dogfooding or for fresh active bridge evidence.
+
+Options:
+  --max-real-age-minutes N   Freshness window for organic and bridge evidence. Default: 15.
+  --bridge-run <run-id>      Bridge run id. Default: MIGAKI_BRIDGE_RUN_ID or codex-app-bridge.
+  -h, --help                 Show this help.
+EOF
+}
+
+max_real_age_minutes=15
+bridge_run_id=${MIGAKI_BRIDGE_RUN_ID:-codex-app-bridge}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --max-real-age-minutes)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--max-real-age-minutes requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      max_real_age_minutes=$2
+      shift
+      ;;
+    --bridge-run)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--bridge-run requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      bridge_run_id=$2
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+RUNS_DIR="$ROOT_DIR/.migaki/runs"
+HOOK_CONFIG="$ROOT_DIR/.codex/hooks.json"
+HOOK_ENTRYPOINT="$ROOT_DIR/packages/codex/dist/hook.js"
+READY_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/dogfood-doctor.js"
+
+if [ ! -f "$READY_ENTRYPOINT" ]; then
+  printf '%s\n' "Built dogfood doctor entrypoint was not found: $READY_ENTRYPOINT" >&2
+  printf '%s\n' "Run \`mise run build\` first. \`migaki:ready\` intentionally does not rebuild on every call." >&2
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+
+node --input-type=module - "$RUNS_DIR" "$HOOK_CONFIG" "$HOOK_ENTRYPOINT" "$max_real_age_minutes" "$bridge_run_id" <<'EOF'
+import { evaluateDogfoodReadiness } from "./packages/runtime/dist/dogfood-doctor.js";
+
+const runsDirectory = process.argv[2];
+const hookConfigPath = process.argv[3];
+const hookEntrypointPath = process.argv[4];
+const maxRealAgeMinutes = process.argv[5];
+const bridgeRunId = process.argv[6];
+
+if (
+  runsDirectory === undefined ||
+  hookConfigPath === undefined ||
+  hookEntrypointPath === undefined ||
+  maxRealAgeMinutes === undefined ||
+  bridgeRunId === undefined
+) {
+  throw new Error("runs directory, hook config, hook entrypoint, max age, and bridge run id are required");
+}
+
+const maxRealAgeMs = Number(maxRealAgeMinutes) * 60 * 1000;
+
+if (!Number.isFinite(maxRealAgeMs) || maxRealAgeMs < 0) {
+  throw new Error("--max-real-age-minutes must be a non-negative number.");
+}
+
+const evaluation = evaluateDogfoodReadiness({
+  bridgeRunId,
+  hookConfigPath,
+  hookEntrypointPath,
+  maxRealAgeMs,
+  runsDirectory,
+});
+
+process.stdout.write(evaluation.report);
+process.exitCode = evaluation.ok ? 0 : 1;
+EOF
