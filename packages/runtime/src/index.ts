@@ -12,6 +12,7 @@ export * from "./evidence.js";
 export * from "./execution-advice.js";
 export * from "./execution.js";
 export * from "./exact-duplicate-context.js";
+export * from "./manual-exec.js";
 export * from "./mock-trace.js";
 export * from "./pass.js";
 export * from "./promotion.js";

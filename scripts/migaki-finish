@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-finish [options]
+
+Mark a running Migaki Codex turn complete without running another command.
+
+Options:
+  --run <run-id>       Finish an explicit Migaki run id.
+  --store <directory>  Store root. Defaults to .migaki.
+  -h, --help           Show this help.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/manual-finish-cli.js"
+
+if [ ! -f "$ENTRYPOINT" ]; then
+  printf '%s\n' "Built manual-finish entrypoint was not found: $ENTRYPOINT" >&2
+  printf '%s\n' "Run \`mise run build\` first. \`migaki:finish\` intentionally does not rebuild on every call." >&2
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+node "$ENTRYPOINT" "$@"

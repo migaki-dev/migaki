@@ -136,6 +136,7 @@ export interface RepeatedOperationReport {
 export interface RepeatedArtifactReport {
   readonly artifactIds: readonly string[];
   readonly count: number;
+  readonly fileFreshness?: FileFreshnessEvidenceReport;
   readonly fingerprint: string;
   readonly kind: string;
   readonly nodeIds: readonly string[];
@@ -167,15 +168,17 @@ export type ExecutionOpportunityActionability =
 export type ExecutionOpportunityConfidence = "high" | "low" | "medium";
 export type ExecutionOpportunityPriority = "high" | "low" | "medium";
 
+export interface FileFreshnessEvidenceReport {
+  readonly evidence: string;
+  readonly status: "unknown" | "verified";
+}
+
 export interface FileReuseEvidenceReport {
   readonly automaticSkip: {
     readonly allowed: boolean;
     readonly reason: string;
   };
-  readonly freshness: {
-    readonly evidence: string;
-    readonly status: "unknown" | "verified";
-  };
+  readonly freshness: FileFreshnessEvidenceReport;
   readonly repeatedIdentity: {
     readonly mode: "redacted_fingerprint";
     readonly status: "observed";
@@ -1105,6 +1108,7 @@ function findRepeatedArtifacts(
   const groups = new Map<
     string,
     {
+      artifacts: Artifact[];
       artifactIds: string[];
       nodeIds: string[];
       sourceLabels: string[];
@@ -1121,11 +1125,13 @@ function findRepeatedArtifacts(
 
       if (existing === undefined) {
         groups.set(artifact.fingerprint, {
+          artifacts: [artifact],
           artifactIds: [artifact.id],
           nodeIds: [node.id],
           sourceLabels: optionalString(artifactSourceLabel(artifact)),
         });
       } else {
+        existing.artifacts.push(artifact);
         existing.artifactIds.push(artifact.id);
         existing.nodeIds.push(node.id);
         const sourceLabel = artifactSourceLabel(artifact);
@@ -1145,6 +1151,9 @@ function findRepeatedArtifacts(
       fingerprint,
       kind,
       nodeIds: group.nodeIds,
+      ...(kind === "file"
+        ? optionalFileFreshnessEvidence(group.artifacts)
+        : {}),
       ...optionalSourceLabels(group.sourceLabels),
     }))
     .sort((left, right) => left.fingerprint.localeCompare(right.fingerprint));
@@ -1167,10 +1176,15 @@ function artifactSourceLabel(artifact: Artifact): string | undefined {
   const sourceCommand = readStringValue(codex, "sourceCommand");
   const sourceField = readStringValue(codex, "sourceField");
 
-  if (toolName === "Bash" && sourceCommand !== undefined) {
+  if (
+    (toolName === "Bash" || toolName === "Shell") &&
+    sourceCommand !== undefined
+  ) {
     const commandName = safeSourceCommandName(sourceCommand);
 
-    return commandName === undefined ? "Bash.command" : `Bash ${commandName}`;
+    return commandName === undefined
+      ? `${toolName}.command`
+      : `${toolName} ${commandName}`;
   }
 
   if (toolName !== undefined && sourceField !== undefined) {
@@ -1202,6 +1216,82 @@ function optionalSourceLabels(
   const unique = uniqueStrings(sourceLabels);
 
   return unique.length === 0 ? {} : { sourceLabels: unique };
+}
+
+function optionalFileFreshnessEvidence(
+  artifacts: readonly Artifact[],
+): Pick<RepeatedArtifactReport, "fileFreshness"> | Record<string, never> {
+  const contentFingerprints = artifacts.flatMap(
+    (artifact) => artifactCodexString(artifact, "contentFingerprint") ?? [],
+  );
+
+  if (
+    contentFingerprints.length === artifacts.length &&
+    uniqueStrings(contentFingerprints).length === 1 &&
+    !contentFingerprints[0]?.startsWith("unavailable:")
+  ) {
+    return {
+      fileFreshness: {
+        evidence:
+          "Matching content fingerprints were captured for each read-like call.",
+        status: "verified",
+      },
+    };
+  }
+
+  const versionKeys = artifacts.flatMap((artifact) => {
+    const fileMtimeMs = artifactCodexNumber(artifact, "fileMtimeMs");
+    const fileSizeBytes = artifactCodexNumber(artifact, "fileSizeBytes");
+
+    return fileMtimeMs === undefined || fileSizeBytes === undefined
+      ? []
+      : [`${fileSizeBytes}:${fileMtimeMs}`];
+  });
+
+  if (
+    versionKeys.length === artifacts.length &&
+    uniqueStrings(versionKeys).length === 1
+  ) {
+    return {
+      fileFreshness: {
+        evidence:
+          "Matching file size and modification timestamps were captured for each read-like call.",
+        status: "verified",
+      },
+    };
+  }
+
+  return {};
+}
+
+function artifactCodexString(
+  artifact: Artifact,
+  key: string,
+): string | undefined {
+  const codex = artifactCodexMetadata(artifact);
+
+  return codex === undefined ? undefined : readStringValue(codex, key);
+}
+
+function artifactCodexNumber(
+  artifact: Artifact,
+  key: string,
+): number | undefined {
+  const codex = artifactCodexMetadata(artifact);
+
+  return codex === undefined ? undefined : readNumberValue(codex, key);
+}
+
+function artifactCodexMetadata(
+  artifact: Artifact,
+): Readonly<Record<string, unknown>> | undefined {
+  const metadata = artifact.metadata;
+
+  if (metadata === undefined || !isRecord(metadata.codex)) {
+    return undefined;
+  }
+
+  return metadata.codex;
 }
 
 function optionalString(value: string | undefined): string[] {
@@ -1391,12 +1481,20 @@ function createCacheOpportunity(
 function createFileReuseOpportunity(
   artifact: RepeatedArtifactReport,
 ): ExecutionOpportunityReport {
+  const freshness = artifact.fileFreshness ?? unknownFileFreshnessEvidence();
+  const sourceEquivalenceUnknown =
+    "Safe source labels identify the read-like caller, not equivalent bytes, ranges, or output transforms.";
+
   return {
     actionability: "needs_review",
     artifactIds: artifact.artifactIds,
     blockedBy: [
       "Raw file paths are omitted.",
-      "A caller-safe file identity and freshness policy is required before reuse.",
+      ...(freshness.status === "verified"
+        ? []
+        : [
+            "A caller-safe file identity and freshness policy is required before reuse.",
+          ]),
       "Command-output equivalence must be verified before avoiding a read.",
     ],
     category: "file_reuse",
@@ -1404,20 +1502,18 @@ function createFileReuseOpportunity(
     fileReuseEvidence: {
       automaticSkip: {
         allowed: false,
-        reason: "Freshness and source equivalence are unknown.",
+        reason:
+          freshness.status === "verified"
+            ? "Source equivalence is unknown."
+            : "Freshness and source equivalence are unknown.",
       },
-      freshness: {
-        evidence:
-          "No file version, content digest, or modification timestamp was captured for each read-like call.",
-        status: "unknown",
-      },
+      freshness,
       repeatedIdentity: {
         mode: "redacted_fingerprint",
         status: "observed",
       },
       sourceEquivalence: {
-        assumption:
-          "Safe source labels identify the read-like caller, not equivalent bytes, ranges, or output transforms.",
+        assumption: sourceEquivalenceUnknown,
         status: "unknown",
       },
     },
@@ -1437,6 +1533,14 @@ function createFileReuseOpportunity(
       : { sourceLabels: artifact.sourceLabels }),
     whyActionable:
       "The same redacted file identity was reopened through read-like tool calls.",
+  };
+}
+
+function unknownFileFreshnessEvidence(): FileFreshnessEvidenceReport {
+  return {
+    evidence:
+      "No file version, content digest, or modification timestamp was captured for each read-like call.",
+    status: "unknown",
   };
 }
 
@@ -1568,6 +1672,15 @@ function compareExecutionOpportunities(
     return confidenceComparison;
   }
 
+  if (left.category === "file_reuse" && right.category === "file_reuse") {
+    const freshnessComparison =
+      fileReuseFreshnessRank(right) - fileReuseFreshnessRank(left);
+
+    if (freshnessComparison !== 0) {
+      return freshnessComparison;
+    }
+  }
+
   const leftLatency = left.estimatedAvoidableLatencyMs;
   const rightLatency = right.estimatedAvoidableLatencyMs;
 
@@ -1639,6 +1752,12 @@ function opportunityConfidenceRank(
     case "low":
       return 1;
   }
+}
+
+function fileReuseFreshnessRank(
+  opportunity: ExecutionOpportunityReport,
+): number {
+  return opportunity.fileReuseEvidence?.freshness.status === "verified" ? 1 : 0;
 }
 
 function opportunityId(
@@ -2033,6 +2152,17 @@ function readStringValue(
   const value = input[key];
 
   return typeof value === "string" ? value : undefined;
+}
+
+function readNumberValue(
+  input: Readonly<Record<string, unknown>>,
+  key: string,
+): number | undefined {
+  const value = input[key];
+
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function dependencyKey(dependency: Dependency): string {

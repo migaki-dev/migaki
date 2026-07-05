@@ -66,13 +66,44 @@ run = "scripts/migaki-latest-report"
 
 [tasks."migaki:advise"]
 description = "Print next-session advice from the newest local Migaki execution graph"
-depends = ["build"]
 run = "scripts/migaki-advise"
 
 [tasks."migaki:codex"]
 description = "Run codex exec with latest Migaki session advice prepended"
 depends = ["build"]
 run = "scripts/migaki-codex"
+
+[tasks."migaki:doctor"]
+description = "Inspect local Migaki Codex dogfooding health"
+run = "scripts/migaki-doctor"
+
+[tasks."migaki:dogfood"]
+description = "Run the Codex dogfooding gate"
+run = "scripts/migaki-dogfood"
+
+[tasks."migaki:ready"]
+description = "Check whether Migaki is usable in the current session"
+run = "scripts/migaki-ready"
+
+[tasks."migaki:hook-probe"]
+description = "Run a fast deterministic native Codex hook probe"
+run = "scripts/migaki-hook-probe"
+
+[tasks."migaki:exec"]
+description = "Run a command while recording redacted Migaki command evidence"
+run = "scripts/migaki-exec"
+
+[tasks."migaki:bridge"]
+description = "Run a command through the default Codex app bridge evidence run"
+run = "scripts/migaki-bridge"
+
+[tasks."migaki:bridge-session"]
+description = "Print a scoped Codex app bridge session run id and commands"
+run = "scripts/migaki-bridge-session"
+
+[tasks."migaki:finish"]
+description = "Mark a running Migaki Codex turn complete"
+run = "scripts/migaki-finish"
 
 [tasks."migaki:runs"]
 description = "List recent local Migaki execution reports"
@@ -106,9 +137,16 @@ sh -n scripts/env
 sh -n scripts/bootstrap
 sh -n scripts/install-git-hooks
 sh -n scripts/migaki-advise
+sh -n scripts/migaki-bridge
 sh -n scripts/migaki-codex
+sh -n scripts/migaki-doctor
+sh -n scripts/migaki-dogfood
+sh -n scripts/migaki-exec
+sh -n scripts/migaki-finish
+sh -n scripts/migaki-hook-probe
 sh -n scripts/migaki-latest-report
 sh -n scripts/migaki-promote
+sh -n scripts/migaki-ready
 sh -n scripts/migaki-runs
 sh -n scripts/migaki-feature-smoke
 sh -n scripts/migaki-provider-smoke
@@ -118,9 +156,16 @@ sh -n .githooks/pre-commit
 sh -n .githooks/pre-push
 scripts/bootstrap --help >/dev/null
 scripts/migaki-advise --help >/dev/null
+scripts/migaki-bridge --help >/dev/null
 scripts/migaki-codex --help >/dev/null
+scripts/migaki-doctor --help >/dev/null
+scripts/migaki-dogfood --help >/dev/null
+scripts/migaki-exec --help >/dev/null
+scripts/migaki-finish --help >/dev/null
+scripts/migaki-hook-probe --help >/dev/null
 scripts/migaki-latest-report --help >/dev/null
 scripts/migaki-promote --help >/dev/null
+scripts/migaki-ready --help >/dev/null
 scripts/migaki-runs --help >/dev/null
 scripts/migaki-feature-smoke --help >/dev/null
 scripts/migaki-provider-smoke --help >/dev/null

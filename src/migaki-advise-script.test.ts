@@ -14,8 +14,18 @@ describe("migaki-advise script", () => {
       "--help",
     ]);
 
-    expect(stdout).toContain("Usage: scripts/migaki-advise [--include-smoke]");
-    expect(stdout).toContain("Smoke fixture runs are skipped by default.");
+    expect(stdout).toContain(
+      "Usage: scripts/migaki-advise [--include-smoke] [--bridge-run <run-id>]",
+    );
+    expect(stdout).toContain(
+      "Smoke fixture, smoke-harness, session-boundary, and running turn graphs are skipped by default.",
+    );
+    expect(stdout).toContain("Advice Source note");
+    expect(stdout).toContain("Dogfood Status bridge-required note");
+    expect(stdout).toContain("accepted advice-only file-reuse policy");
+    expect(stdout).toContain("manual bridge");
     expect(stdout).toContain("--include-smoke");
+    expect(stdout).toContain("--bridge-run");
+    expect(stdout).toContain("MIGAKI_BRIDGE_RUN_ID");
   });
 });

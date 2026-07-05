@@ -1,0 +1,58 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-bridge [--run <run-id>] [--] <command> [args...]
+
+Run a command through the Codex app bridge evidence run.
+
+Options:
+  --run <run-id>  Override the bridge run id. Default: MIGAKI_BRIDGE_RUN_ID or codex-app-bridge.
+  -h, --help      Show this help.
+EOF
+}
+
+bridge_run_id=${MIGAKI_BRIDGE_RUN_ID:-codex-app-bridge}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --run)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--run requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      bridge_run_id=$2
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      printf '%s\n' "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+  shift
+done
+
+if [ "$#" -eq 0 ]; then
+  printf '%s\n' "Command is required." >&2
+  usage >&2
+  exit 2
+fi
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+cd "$ROOT_DIR"
+scripts/migaki-exec --run "$bridge_run_id" -- "$@"

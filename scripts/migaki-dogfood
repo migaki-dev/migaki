@@ -1,0 +1,64 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-dogfood [--max-real-age-minutes <minutes>] [--bridge-run <run-id>]
+
+Run the Codex dogfooding gate. This runs migaki:hook-probe first to prove the
+built hook entrypoint can record native hook events, then runs migaki:doctor in
+strict mode to require the latest organic native Codex turn to be
+native-complete and fresh. Smoke harness proof does not satisfy this gate.
+
+Options:
+  --max-real-age-minutes N   Freshness window for the latest organic turn. Default: 15.
+  --bridge-run <run-id>      Bridge run id for diagnostic reporting. Default: MIGAKI_BRIDGE_RUN_ID or codex-app-bridge.
+  -h, --help                 Show this help.
+EOF
+}
+
+max_real_age_minutes=15
+bridge_run_id=${MIGAKI_BRIDGE_RUN_ID:-codex-app-bridge}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --max-real-age-minutes)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--max-real-age-minutes requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      max_real_age_minutes=$2
+      shift
+      ;;
+    --bridge-run)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--bridge-run requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      bridge_run_id=$2
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+cd "$ROOT_DIR"
+
+printf '%s\n' "# Migaki Codex Dogfood Gate"
+printf '%s\n\n' "Step 1/2: hook probe"
+scripts/migaki-hook-probe
+printf '\n%s\n\n' "Step 2/2: strict organic-turn doctor"
+scripts/migaki-doctor --strict --max-real-age-minutes "$max_real_age_minutes" --bridge-run "$bridge_run_id"

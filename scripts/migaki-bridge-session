@@ -1,0 +1,110 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-bridge-session [--shell] [--run <run-id>] [--prefix <prefix>] [--] [command] [args...]
+
+Print a scoped Codex app bridge run id and exact commands for fresh-shell use.
+When a command is provided, record it immediately into the scoped bridge run.
+
+Options:
+  --shell            Print only eval-able interactive shell setup.
+  --run <run-id>      Use an explicit run id instead of generating one.
+  --prefix <prefix>   Prefix for generated run ids. Default: codex-app-bridge.
+  -h, --help          Show this help.
+EOF
+}
+
+quote_sh() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
+prefix=codex-app-bridge
+run_id=
+shell_mode=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --shell)
+      shell_mode=1
+      ;;
+    --run)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--run requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      run_id=$2
+      shift
+      ;;
+    --prefix)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--prefix requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      prefix=$2
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      printf '%s\n' "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+  shift
+done
+
+if [ "$run_id" = "" ]; then
+  timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+  run_id="${prefix}-${timestamp}-$$"
+fi
+
+if [ "$shell_mode" -eq 1 ]; then
+  if [ "$#" -gt 0 ]; then
+    printf '%s\n' "--shell cannot record a first command." >&2
+    usage >&2
+    exit 2
+  fi
+
+  quoted_run_id=$(quote_sh "$run_id")
+  cat <<EOF
+export MIGAKI_BRIDGE_RUN_ID=${quoted_run_id}
+mgb() { mise run migaki:bridge -- -- "\$@"; }
+EOF
+  exit 0
+fi
+
+quoted_run_id=$(quote_sh "$run_id")
+
+cat <<EOF
+# Migaki Bridge Session
+- Run id: ${run_id}
+- Record command evidence: mise run migaki:bridge -- --run ${quoted_run_id} -- <command> [args...]
+- Interactive shell export: export MIGAKI_BRIDGE_RUN_ID=${quoted_run_id}
+- Interactive shell shortcut: mgb() { mise run migaki:bridge -- -- "\$@"; }
+- Advise: mise run migaki:advise -- --bridge-run ${quoted_run_id}
+- Ready gate: mise run migaki:ready -- --bridge-run ${quoted_run_id}
+- Doctor: mise run migaki:doctor -- --bridge-run ${quoted_run_id}
+- Strict dogfood diagnostic: mise run migaki:dogfood -- --bridge-run ${quoted_run_id}
+- Fresh-shell environment form: MIGAKI_BRIDGE_RUN_ID=${quoted_run_id} mise run migaki:ready
+EOF
+
+if [ "$#" -gt 0 ]; then
+  printf '\n%s\n' "# Recording First Command"
+  scripts/migaki-bridge --run "$run_id" -- "$@"
+fi

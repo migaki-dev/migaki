@@ -1,0 +1,124 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-hook-probe
+
+Run a fast deterministic native Codex hook probe through the built Migaki hook
+entrypoint. The probe uses a smoke-prefixed run id so normal advice and doctor
+selection ignore it.
+
+Options:
+  -h, --help  Show this help.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  "")
+    ;;
+  *)
+    printf '%s\n' "Unknown argument: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+HOOK_FILE="$ROOT_DIR/packages/codex/dist/hook.js"
+TURN_ID="migaki-smoke-hook-probe-$$"
+RUN_ID="codex-turn-$TURN_ID"
+RUN_DIR="$ROOT_DIR/.migaki/runs/$RUN_ID"
+REPORT="$RUN_DIR/report.md"
+
+if [ ! -f "$HOOK_FILE" ]; then
+  printf '%s\n' "Built hook entrypoint was not found: $HOOK_FILE" >&2
+  printf '%s\n' "Run \`mise run build\` first. \`migaki:hook-probe\` intentionally does not rebuild on every call." >&2
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+
+run_hook() {
+  hook_event_name=$1
+
+  case "$hook_event_name" in
+    UserPromptSubmit)
+      printf '{"cwd":"%s","hook_event_name":"UserPromptSubmit","model":"gpt-5.1-codex","permission_mode":"default","prompt":"SECRET_MIGAKI_HOOK_PROBE_PROMPT","session_id":"migaki-hook-probe","transcript_path":"%s/secret-hook-probe-transcript.jsonl","turn_id":"%s"}\n' "$ROOT_DIR" "$ROOT_DIR" "$TURN_ID"
+      ;;
+    PreToolUse)
+      printf '{"cwd":"%s","hook_event_name":"PreToolUse","model":"gpt-5.1-codex","permission_mode":"default","session_id":"migaki-hook-probe","tool_input":{"command":"printf SECRET_MIGAKI_HOOK_PROBE_COMMAND"},"tool_name":"Bash","tool_use_id":"hook-probe-tool","transcript_path":"%s/secret-hook-probe-transcript.jsonl","turn_id":"%s"}\n' "$ROOT_DIR" "$ROOT_DIR" "$TURN_ID"
+      ;;
+    PostToolUse)
+      printf '{"cwd":"%s","hook_event_name":"PostToolUse","model":"gpt-5.1-codex","permission_mode":"default","session_id":"migaki-hook-probe","tool_input":{"command":"printf SECRET_MIGAKI_HOOK_PROBE_COMMAND"},"tool_name":"Bash","tool_response":{"stdout":"SECRET_MIGAKI_HOOK_PROBE_OUTPUT","status":"ok"},"tool_use_id":"hook-probe-tool","transcript_path":"%s/secret-hook-probe-transcript.jsonl","turn_id":"%s"}\n' "$ROOT_DIR" "$ROOT_DIR" "$TURN_ID"
+      ;;
+    Stop)
+      printf '{"cwd":"%s","hook_event_name":"Stop","last_assistant_message":"SECRET_MIGAKI_HOOK_PROBE_ASSISTANT","model":"gpt-5.1-codex","permission_mode":"default","session_id":"migaki-hook-probe","stop_hook_active":false,"transcript_path":"%s/secret-hook-probe-transcript.jsonl","turn_id":"%s"}\n' "$ROOT_DIR" "$ROOT_DIR" "$TURN_ID"
+      ;;
+    *)
+      printf '%s\n' "Unsupported hook probe event: $hook_event_name" >&2
+      exit 2
+      ;;
+  esac | node "$HOOK_FILE"
+}
+
+require_file() {
+  artifact_path=$1
+
+  if [ ! -f "$artifact_path" ]; then
+    printf '%s\n' "Expected hook probe artifact was not written: $artifact_path" >&2
+    exit 1
+  fi
+}
+
+require_text() {
+  text=$1
+  artifact_path=$2
+
+  if ! grep -Fq -- "$text" "$artifact_path"; then
+    printf '%s\n' "Expected hook probe artifact to contain: $text" >&2
+    printf '%s\n' "Artifact path: $artifact_path" >&2
+    exit 1
+  fi
+}
+
+reject_text() {
+  text=$1
+
+  for artifact_path in "$RUN_DIR/events.jsonl" "$RUN_DIR/graph.json" "$REPORT"; do
+    if grep -Fq -- "$text" "$artifact_path"; then
+      printf '%s\n' "Hook probe artifact unexpectedly contained: $text" >&2
+      printf '%s\n' "Artifact path: $artifact_path" >&2
+      exit 1
+    fi
+  done
+}
+
+run_hook UserPromptSubmit
+run_hook PreToolUse
+run_hook PostToolUse
+run_hook Stop
+
+require_file "$RUN_DIR/events.jsonl"
+require_file "$RUN_DIR/graph.json"
+require_file "$REPORT"
+require_text '"hookEventName":"UserPromptSubmit"' "$RUN_DIR/events.jsonl"
+require_text '"hookEventName":"PreToolUse"' "$RUN_DIR/events.jsonl"
+require_text '"hookEventName":"PostToolUse"' "$RUN_DIR/events.jsonl"
+require_text '"hookEventName":"Stop"' "$RUN_DIR/events.jsonl"
+require_text "- Tool calls: 1" "$REPORT"
+require_text "- prompt: User prompt" "$REPORT"
+require_text "- tool-hook-probe-tool: Bash (tool_call, ok" "$REPORT"
+require_text "- turn: Turn completed" "$REPORT"
+reject_text "SECRET_MIGAKI_HOOK_PROBE"
+reject_text "$ROOT_DIR"
+reject_text "secret-hook-probe-transcript"
+
+printf '%s\n' "Migaki hook probe ok."
+printf '%s\n' "Run: $RUN_ID"
+printf '%s\n' "Report: $REPORT"
+printf '%s\n' "Native hooks: UserPromptSubmit, PreToolUse, PostToolUse, Stop"

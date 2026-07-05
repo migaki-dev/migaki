@@ -1,0 +1,79 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-doctor [--include-smoke] [--strict] [--max-real-age-minutes <minutes>] [--bridge-run <run-id>]
+
+Inspect local Migaki Codex dogfooding health and explain advice selection.
+When available, this also checks local Codex trusted-hash records for the
+project hook definitions.
+
+Options:
+  --include-smoke            Allow smoke fixture and smoke-harness runs when selecting advice.
+  --strict                   Exit nonzero unless the latest organic turn is native-complete.
+  --max-real-age-minutes N   In strict mode, fail when the latest organic turn is older than N minutes.
+  --bridge-run <run-id>      Bridge run id. Default: MIGAKI_BRIDGE_RUN_ID or codex-app-bridge.
+  -h, --help                 Show this help.
+EOF
+}
+
+include_smoke=0
+strict=0
+max_real_age_minutes=
+bridge_run_id=${MIGAKI_BRIDGE_RUN_ID:-codex-app-bridge}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --include-smoke)
+      include_smoke=1
+      ;;
+    --strict)
+      strict=1
+      ;;
+    --max-real-age-minutes)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--max-real-age-minutes requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      max_real_age_minutes=$2
+      shift
+      ;;
+    --bridge-run)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--bridge-run requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      bridge_run_id=$2
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+RUNS_DIR="$ROOT_DIR/.migaki/runs"
+HOOK_CONFIG="$ROOT_DIR/.codex/hooks.json"
+HOOK_ENTRYPOINT="$ROOT_DIR/packages/codex/dist/hook.js"
+DOCTOR_ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/dogfood-doctor.js"
+CODEX_CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
+
+if [ ! -f "$DOCTOR_ENTRYPOINT" ]; then
+  printf '%s\n' "Built doctor entrypoint was not found: $DOCTOR_ENTRYPOINT" >&2
+  printf '%s\n' "Run \`mise run build\` first. \`migaki:doctor\` intentionally does not rebuild on every call." >&2
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+node "$DOCTOR_ENTRYPOINT" "$RUNS_DIR" "$HOOK_CONFIG" "$HOOK_ENTRYPOINT" "$include_smoke" "$strict" "$max_real_age_minutes" "$CODEX_CONFIG" "$bridge_run_id"

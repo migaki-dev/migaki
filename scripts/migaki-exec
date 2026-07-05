@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-exec [options] [--] <command> [args...]
+
+Run a command normally while recording redacted Migaki command evidence.
+
+Options:
+  --run <run-id>             Record into an explicit Migaki run id.
+  --store <directory>        Store root. Defaults to .migaki.
+  --attach-latest-running    Attach to the newest running non-smoke Codex turn; fail if none exists.
+  --finish-attached-run      Mark an attached running turn complete after the command.
+  -h, --help                 Show this help.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ENTRYPOINT="$ROOT_DIR/packages/runtime/dist/manual-exec-cli.js"
+
+if [ ! -f "$ENTRYPOINT" ]; then
+  printf '%s\n' "Built manual-exec entrypoint was not found: $ENTRYPOINT" >&2
+  printf '%s\n' "Run \`mise run build\` first. \`migaki:exec\` intentionally does not rebuild on every command." >&2
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+node "$ENTRYPOINT" "$@"

@@ -533,6 +533,134 @@ describe("execution graph runtime", () => {
     expect([report, advice].join("\n")).not.toContain("sed -n");
   });
 
+  it("prefers verified file-reuse evidence over unknown file-reuse advice", () => {
+    const unknownFileFingerprint = stableExecutionHash({
+      path: "src/unknown-freshness.ts",
+    });
+    const verifiedFileFingerprint = stableExecutionHash({
+      path: "src/verified-freshness.ts",
+    });
+    const graph = buildExecutionGraph("run-a", [
+      promptEvent(),
+      toolStartedEvent("tool-cat-a", "Bash", {
+        fingerprint: stableExecutionHash({
+          input: "cat unknown",
+          tool: "Bash",
+        }),
+        timestamp: "2026-01-01T00:00:01.000Z",
+      }),
+      toolFinishedEvent("tool-cat-a", "Bash", {
+        artifacts: [
+          fileArtifact("file-cat-a", unknownFileFingerprint, {
+            sourceCommand: "cat",
+            sourceField: "command",
+            toolName: "Bash",
+          }),
+          toolResultArtifact("tool-cat-a", "Bash"),
+        ],
+        fingerprint: stableExecutionHash({
+          input: "cat unknown",
+          tool: "Bash",
+        }),
+        timestamp: "2026-01-01T00:00:02.000Z",
+      }),
+      toolStartedEvent("tool-cat-b", "Bash", {
+        fingerprint: stableExecutionHash({
+          input: "cat unknown again",
+          tool: "Bash",
+        }),
+        timestamp: "2026-01-01T00:00:03.000Z",
+      }),
+      toolFinishedEvent("tool-cat-b", "Bash", {
+        artifacts: [
+          fileArtifact("file-cat-b", unknownFileFingerprint, {
+            sourceCommand: "cat",
+            sourceField: "command",
+            toolName: "Bash",
+          }),
+          toolResultArtifact("tool-cat-b", "Bash"),
+        ],
+        fingerprint: stableExecutionHash({
+          input: "cat unknown again",
+          tool: "Bash",
+        }),
+        timestamp: "2026-01-01T00:00:04.000Z",
+      }),
+      toolStartedEvent("tool-sed-a", "Bash", {
+        fingerprint: stableExecutionHash({
+          input: "sed verified",
+          tool: "Bash",
+        }),
+        timestamp: "2026-01-01T00:00:05.000Z",
+      }),
+      toolFinishedEvent("tool-sed-a", "Bash", {
+        artifacts: [
+          fileArtifact("file-sed-a", verifiedFileFingerprint, {
+            contentFingerprint: "sha256:verified",
+            fileMtimeMs: 1,
+            fileSizeBytes: 17,
+            sourceCommand: "sed",
+            sourceField: "command",
+            toolName: "Bash",
+          }),
+          toolResultArtifact("tool-sed-a", "Bash"),
+        ],
+        fingerprint: stableExecutionHash({
+          input: "sed verified",
+          tool: "Bash",
+        }),
+        timestamp: "2026-01-01T00:00:06.000Z",
+      }),
+      toolStartedEvent("tool-sed-b", "Bash", {
+        fingerprint: stableExecutionHash({
+          input: "sed verified again",
+          tool: "Bash",
+        }),
+        timestamp: "2026-01-01T00:00:07.000Z",
+      }),
+      toolFinishedEvent("tool-sed-b", "Bash", {
+        artifacts: [
+          fileArtifact("file-sed-b", verifiedFileFingerprint, {
+            contentFingerprint: "sha256:verified",
+            fileMtimeMs: 1,
+            fileSizeBytes: 17,
+            sourceCommand: "sed",
+            sourceField: "command",
+            toolName: "Bash",
+          }),
+          toolResultArtifact("tool-sed-b", "Bash"),
+        ],
+        fingerprint: stableExecutionHash({
+          input: "sed verified again",
+          tool: "Bash",
+        }),
+        timestamp: "2026-01-01T00:00:08.000Z",
+      }),
+    ]);
+
+    const fileReuseOpportunities = createExecutionReportSummary(
+      graph,
+    ).opportunities.filter(
+      (opportunity) => opportunity.category === "file_reuse",
+    );
+    const advice = renderExecutionAdvice(graph);
+
+    expect(fileReuseOpportunities[0]?.fileReuseEvidence).toMatchObject({
+      automaticSkip: {
+        allowed: false,
+        reason: "Source equivalence is unknown.",
+      },
+      freshness: {
+        evidence:
+          "Matching content fingerprints were captured for each read-like call.",
+        status: "verified",
+      },
+    });
+    expect(advice).toContain("Safe source signals: Bash sed");
+    expect(advice).toContain("Freshness: verified.");
+    expect(advice).toContain("Automatic skip: disallowed.");
+  });
+
   it("keeps advice rendering unchanged without policy input", () => {
     const graph = fileReuseGraphWithRawSourceMetadata();
 
@@ -1051,6 +1179,9 @@ function fileArtifact(
   fingerprint: string,
   source:
     | {
+        readonly contentFingerprint?: string;
+        readonly fileMtimeMs?: number;
+        readonly fileSizeBytes?: number;
         readonly sourceCommand?: string;
         readonly sourceField: string;
         readonly toolName: string;
@@ -1066,6 +1197,15 @@ function fileArtifact(
         ? {}
         : {
             codex: {
+              ...(source.contentFingerprint === undefined
+                ? {}
+                : { contentFingerprint: source.contentFingerprint }),
+              ...(source.fileMtimeMs === undefined
+                ? {}
+                : { fileMtimeMs: source.fileMtimeMs }),
+              ...(source.fileSizeBytes === undefined
+                ? {}
+                : { fileSizeBytes: source.fileSizeBytes }),
               ...(source.sourceCommand === undefined
                 ? {}
                 : { sourceCommand: source.sourceCommand }),

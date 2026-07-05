@@ -10,6 +10,9 @@ assert deterministic Codex hook fixtures cover expanded lifecycle events and
 file-reuse opportunity evidence.
 
 The project Codex hooks must already be reviewed and trusted with /hooks.
+On success, this prints the fresh real Codex smoke report path and contents and
+marks that report as smoke-harness evidence so dogfood gates do not mistake it
+for organic Codex work.
 EOF
 }
 
@@ -96,6 +99,11 @@ if [ -z "$REAL_REPORT" ]; then
 fi
 
 REAL_RUN_DIR=$(dirname "$REAL_REPORT")
+SMOKE_REAL_MARKER="$REAL_RUN_DIR/.migaki-smoke-real-turn"
+
+cat > "$SMOKE_REAL_MARKER" <<'EOF'
+{"version":"migaki.smoke-real-turn.v0","origin":"migaki:smoke"}
+EOF
 
 require_real_artifact() {
   artifact_path=$1
@@ -359,4 +367,6 @@ reject_report_text "README.md"
 reject_report_text "cat README.md"
 reject_report_text "sed -n"
 
-"$ROOT_DIR/scripts/migaki-latest-report"
+printf '%s\n' "Real Codex smoke report: $REAL_REPORT"
+printf '\n'
+cat "$REAL_REPORT"
