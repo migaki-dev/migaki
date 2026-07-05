@@ -91,6 +91,7 @@ mise run test
 mise run test:e2e
 mise run build
 mise run migaki:latest
+mise run migaki:doctor
 mise run migaki:advise
 mise run migaki:promote -- --latest --name <slug>
 mise run migaki:runs
@@ -118,37 +119,49 @@ codex -C "$PWD"
 
 In the interactive Codex CLI, run `/hooks` and trust the Migaki project hooks.
 Codex records trust per hook definition, so changed hook commands must be
-reviewed again.
+reviewed again. Trust is path-scoped; each Codex-created worktree must be
+trusted separately before normal Desktop or CLI turns in that worktree will
+emit Migaki runs.
 
 Verification:
 
 ```sh
+mise run migaki:doctor
 mise run migaki:smoke
 mise run migaki:runs
 mise run migaki:latest
 mise run migaki:advise
 ```
 
-The smoke first verifies a trusted Codex CLI turn and asserts that the real turn
-writes a redacted Migaki report, then records a deterministic file-reuse fixture
-through the built Codex hook. The latest report should contain a prompt node,
-repeated read-like tool call nodes, a turn completion node, an
-`Opportunity Summary`, and a `file_reuse` top recommendation. Raw prompt text,
-tool input, tool output, and file paths are omitted by default; Migaki stores
-stable fingerprints instead.
+`migaki:doctor` checks this exact worktree path, hook trust, the built hook
+entrypoint, `.migaki` writability, the latest real run, and whether default
+advice is driven by real or fixture evidence. The smoke first verifies a trusted
+Codex CLI turn and asserts that the real turn writes a redacted Migaki report,
+then records deterministic fixture runs through the built Codex hook. By
+default, `migaki:runs`, `migaki:latest`, and `migaki:advise` ignore
+`migaki-smoke-*` fixture runs so a smoke test cannot hijack normal next-session
+advice; pass `--include-smoke` to inspect fixtures explicitly.
 
 Codex Desktop uses the same project hook definitions. After trusting the
 project hooks in Desktop, normal turns in this repository should emit reports
 under `.migaki/runs/`; use `mise run migaki:runs` to scan recent runs and
 `mise run migaki:latest` to read the newest report. Use
 `mise run migaki:advise` before the next turn to print a short coaching prompt
-from the newest graph. Repeated file-read evidence is `needs_review` coaching:
-it can remind Codex to reuse prior context or read only the smallest missing
-range once, but it is not proof that a future read can be skipped unless
-freshness and command-output equivalence are captured. Advice skips
-`migaki-smoke` fixture runs by default so normal dogfooding follows real local
-work; use `mise run migaki:advise -- --include-smoke` only when you
-intentionally want fixture advice.
+from the newest real graph. If no real evidence exists yet, `migaki:advise`
+prints setup guidance instead of failing. Advice skips `migaki-smoke` fixture
+runs by default so normal dogfooding follows real local work; use
+`mise run migaki:advise -- --include-smoke` only when you intentionally want
+fixture advice.
+
+The repository hook commands opt into local-only dogfood context with
+`MIGAKI_CODEX_LOCAL_CONTEXT=1`. Local `.migaki` graphs may include repo-relative
+paths, simple line-range labels, safe command shapes, and git-blob or stat
+version hints so advice can say which already-inspected range to reuse. Regular
+reports stay redacted, and promoted artifacts omit raw event streams and graph
+metadata by default. Repeated file-read evidence remains `needs_review`
+coaching: it can remind Codex to reuse prior context or read only the smallest
+missing range once, but it is not permission to skip reads unless freshness and
+command-output equivalence are established.
 
 Local run evidence under `.migaki/runs/<runId>/` is working-session state and
 stays gitignored. To preserve selected findings as project knowledge, promote a

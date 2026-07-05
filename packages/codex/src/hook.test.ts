@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -906,6 +906,78 @@ describe("Codex hook adapter", () => {
     expect(persisted).not.toContain("sed -n");
   });
 
+  it("captures local dogfood read hints only when explicitly enabled", async () => {
+    const storeDirectory = await tempRoot();
+    const repoRoot = await tempRoot();
+    const previousLocalContext = process.env.MIGAKI_CODEX_LOCAL_CONTEXT;
+    const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
+    const relativePath = "packages/codex/src/hook.ts";
+    const rawCommand = `sed -n '1,2p' ${relativePath}`;
+
+    await mkdir(join(repoRoot, "packages/codex/src"), { recursive: true });
+    await writeFile(
+      join(repoRoot, relativePath),
+      ["line one", "line two", "line three"].join("\n"),
+      "utf8",
+    );
+
+    process.env.MIGAKI_CODEX_LOCAL_CONTEXT = "1";
+
+    try {
+      await runAt(clock, storeDirectory, userPromptSubmit({ cwd: repoRoot }));
+      await recordToolCall(clock, storeDirectory, {
+        cwd: repoRoot,
+        toolInput: {
+          command: rawCommand,
+        },
+        toolName: "Bash",
+        toolUseId: "bash-sed-1",
+      });
+      await recordToolCall(clock, storeDirectory, {
+        cwd: repoRoot,
+        toolInput: {
+          command: rawCommand,
+        },
+        toolName: "Bash",
+        toolUseId: "bash-sed-2",
+      });
+      await runAt(clock, storeDirectory, stop({ cwd: repoRoot }));
+    } finally {
+      if (previousLocalContext === undefined) {
+        delete process.env.MIGAKI_CODEX_LOCAL_CONTEXT;
+      } else {
+        process.env.MIGAKI_CODEX_LOCAL_CONTEXT = previousLocalContext;
+      }
+    }
+
+    const { graph, report } = await readRunArtifacts(storeDirectory);
+    const advice = renderExecutionAdvice(graph);
+    const fileArtifacts = graphFileArtifacts(graph);
+
+    expect(fileArtifacts).toHaveLength(2);
+    expect(fileArtifacts[0]?.artifact.metadata).toMatchObject({
+      codex: {
+        commandShape: "sed -n RANGE FILE",
+        localDogfood: {
+          commandShape: "sed -n RANGE FILE",
+          fileVersion: expect.objectContaining({
+            value: expect.stringMatching(/^(mtimeMs=|sha1:)/u),
+          }),
+          rangeLabel: "lines 1-2",
+          relativePath,
+        },
+      },
+    });
+    expect(JSON.stringify(graph)).toContain(relativePath);
+    expect(report).not.toContain(relativePath);
+    expect(report).not.toContain("lines 1-2");
+    expect(report).not.toContain(rawCommand);
+    expect(advice).toContain("Local dogfood context:");
+    expect(advice).toContain(
+      `Already inspected ${relativePath} (lines 1-2) via sed -n RANGE FILE; version`,
+    );
+  });
+
   it("records safe Grep, Glob, and LS path fields as file artifacts", async () => {
     const storeDirectory = await tempRoot();
     const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
@@ -1243,6 +1315,7 @@ async function recordToolCall(
   clock: FakeClock,
   storeDirectory: string,
   input: {
+    readonly cwd?: string;
     readonly toolInput: Readonly<Record<string, unknown>>;
     readonly toolName: string;
     readonly toolUseId: string;
@@ -1255,6 +1328,7 @@ async function recordToolCall(
       tool_input: input.toolInput,
       tool_name: input.toolName,
       tool_use_id: input.toolUseId,
+      ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
     }),
   );
   await runAt(
@@ -1264,6 +1338,7 @@ async function recordToolCall(
       tool_input: input.toolInput,
       tool_name: input.toolName,
       tool_use_id: input.toolUseId,
+      ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
     }),
   );
 }

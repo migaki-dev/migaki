@@ -359,4 +359,4 @@ reject_report_text "README.md"
 reject_report_text "cat README.md"
 reject_report_text "sed -n"
 
-"$ROOT_DIR/scripts/migaki-latest-report"
+"$ROOT_DIR/scripts/migaki-latest-report" --include-smoke
