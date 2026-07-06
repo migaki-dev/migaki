@@ -124,6 +124,62 @@ describe("observed trajectory comparison", () => {
     ]);
   });
 
+  it("blocks candidates when exactly one cache key is missing", () => {
+    for (const input of [
+      {
+        expectedCacheKey: stableExecutionHash({ fingerprintSeed: "answer" }),
+        previousFingerprintSeed: undefined,
+        currentFingerprintSeed: "answer",
+      },
+      {
+        expectedCacheKey: undefined,
+        previousFingerprintSeed: "answer",
+        currentFingerprintSeed: undefined,
+      },
+    ]) {
+      const previous = graph("previous", [
+        modelNode("model-answer", {
+          ...(input.previousFingerprintSeed === undefined
+            ? {}
+            : { fingerprintSeed: input.previousFingerprintSeed }),
+        }),
+      ]);
+      const current = graph("current", [
+        modelNode("model-answer", {
+          ...(input.currentFingerprintSeed === undefined
+            ? {}
+            : { fingerprintSeed: input.currentFingerprintSeed }),
+        }),
+      ]);
+
+      const comparison = compareObservedExecutionGraphs(previous, current);
+      const candidate = comparison.blockedCandidates[0];
+
+      expect(comparison.changedNodes).toEqual([]);
+      expect(comparison.summary).toMatchObject({
+        blockedCandidates: 1,
+        changedNodes: 0,
+      });
+      expect(candidate).toMatchObject({
+        nodeId: "model-answer",
+        operationKind: "model_call",
+        previousNodeId: "model-answer",
+        reasons: [
+          {
+            code: "cache_key_unknown",
+            message: "Both observed nodes require a stable cache key.",
+          },
+        ],
+      });
+      expect(candidate?.cacheKey).toBe(input.expectedCacheKey);
+      expect(candidate?.checks).toContainEqual({
+        message: "Both observed nodes require a stable cache key.",
+        name: "cache_key_equality",
+        status: "unknown",
+      });
+    }
+  });
+
   it("blocks candidates when file freshness is unknown", () => {
     const previous = graph("previous", [
       toolNode("tool-read", {
@@ -262,7 +318,7 @@ function modelNode(
   id: string,
   options: {
     readonly dependencies?: ExecutionNode["dependencies"];
-    readonly fingerprintSeed: string;
+    readonly fingerprintSeed?: string;
     readonly latencyMs?: number;
     readonly status?: ExecutionNode["status"];
     readonly totalTokens?: number;
@@ -298,7 +354,7 @@ function toolNode(
   options: {
     readonly artifacts?: ExecutionNode["artifacts"];
     readonly dependencies?: ExecutionNode["dependencies"];
-    readonly fingerprintSeed: string;
+    readonly fingerprintSeed?: string;
     readonly latencyMs?: number;
     readonly sideEffecting?: boolean;
     readonly status?: ExecutionNode["status"];
@@ -331,7 +387,7 @@ function toolNode(
 function node(
   id: string,
   operationKind: "model_call" | "tool_call",
-  fingerprintSeed: string,
+  fingerprintSeed: string | undefined,
   options: {
     readonly artifacts?: ExecutionNode["artifacts"];
     readonly dependencies?: ExecutionNode["dependencies"];
@@ -360,7 +416,9 @@ function node(
         : { totalTokens: options.totalTokens }),
     },
     operation: {
-      fingerprint: stableExecutionHash({ fingerprintSeed }),
+      ...(fingerprintSeed === undefined
+        ? {}
+        : { fingerprint: stableExecutionHash({ fingerprintSeed }) }),
       id,
       kind: operationKind,
       name: id,

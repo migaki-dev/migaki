@@ -158,8 +158,13 @@ export function compareObservedExecutionGraphs(
       continue;
     }
 
+    const previousCacheKey = previousNode.operation.fingerprint;
+    const currentCacheKey = currentNode.operation.fingerprint;
+
     if (
-      previousNode.operation.fingerprint !== currentNode.operation.fingerprint
+      previousCacheKey !== undefined &&
+      currentCacheKey !== undefined &&
+      previousCacheKey !== currentCacheKey
     ) {
       changedNodes.push({
         nodeId: currentNode.id,
