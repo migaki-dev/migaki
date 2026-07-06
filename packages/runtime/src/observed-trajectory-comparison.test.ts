@@ -5,6 +5,8 @@ import {
   EVIDENCE_PRIVACY_POLICY_VERSION,
   OBSERVED_TRAJECTORY_COMPARISON_VERSION,
   compareObservedExecutionGraphs,
+  createReuseDecisionArtifact,
+  renderReuseDecisionArtifact,
   stableExecutionHash,
   type ExecutionGraph,
   type ExecutionNode,
@@ -386,6 +388,150 @@ describe("observed trajectory comparison", () => {
         ],
       }),
     ]);
+  });
+
+  it("creates an observation-only reuse decision artifact from comparison output", () => {
+    const previous = graph("previous", [
+      modelNode("model-answer", {
+        fingerprintSeed: "answer",
+      }),
+      toolNode("tool-read", {
+        artifacts: [fileArtifact("file-a", "file-v1", "verified")],
+        fingerprintSeed: "read-file",
+        sideEffectClass: "read_only",
+      }),
+      toolNode("tool-charge", {
+        fingerprintSeed: "charge-request",
+        replaySafety: {
+          idempotencyKeyRef: "idempotency:charge-request-1",
+          policyEvidenceRef: "policy:tool-replay-allowlist-1",
+          sideEffectClass: "idempotent_mutation",
+        },
+      }),
+      toolNode("tool-unknown", {
+        fingerprintSeed: "unknown-side-effect",
+        sideEffectClass: "unknown",
+      }),
+    ]);
+    const current = graph("current", [
+      modelNode("model-answer", {
+        fingerprintSeed: "answer",
+      }),
+      toolNode("tool-read", {
+        artifacts: [fileArtifact("file-a", "file-v1", "verified")],
+        fingerprintSeed: "read-file",
+        sideEffectClass: "read_only",
+      }),
+      toolNode("tool-charge", {
+        fingerprintSeed: "charge-request",
+        replaySafety: {
+          idempotencyKeyRef: "idempotency:charge-request-1",
+          policyEvidenceRef: "policy:tool-replay-allowlist-1",
+          sideEffectClass: "idempotent_mutation",
+        },
+      }),
+      toolNode("tool-unknown", {
+        fingerprintSeed: "unknown-side-effect",
+        sideEffectClass: "unknown",
+      }),
+    ]);
+    const comparison = compareObservedExecutionGraphs(previous, current);
+    const artifact = createReuseDecisionArtifact(comparison, {
+      createdAt: "2026-01-01T00:00:02.000Z",
+    });
+
+    expect(artifact).toMatchObject({
+      comparisonRef: {
+        currentRunId: "current",
+        previousRunId: "previous",
+        version: OBSERVED_TRAJECTORY_COMPARISON_VERSION,
+      },
+      createdAt: "2026-01-01T00:00:02.000Z",
+      privacyPolicy: {
+        exportMatrixVersion: EVIDENCE_PRIVACY_POLICY_VERSION,
+        exportMode: "metadata_only",
+        fullTraceOptIn: false,
+      },
+      redaction: {
+        omittedFields: [
+          "prompt",
+          "tool_input",
+          "tool_output",
+          "provider_response",
+          "file_path",
+          "customer_data",
+          "credential",
+          "local_machine_path",
+        ],
+      },
+      summary: {
+        allowed: 1,
+        blocked: 1,
+        needsReview: 2,
+        totalCandidates: 4,
+      },
+    });
+    expect(artifact.decisions).toMatchObject([
+      {
+        dependencyEvidence: {
+          message:
+            "Dependency lists must match by kind, operation id, artifact id, and metadata.",
+          status: "passed",
+        },
+        freshnessEvidence: {
+          message:
+            "File-producing tool candidates require verified comparable freshness evidence.",
+          status: "passed",
+        },
+        nodeId: "tool-read",
+        policyConstraints: {
+          message: "Reuse policy allows comparison for both observed nodes.",
+          status: "passed",
+        },
+        requiredValidators: [],
+        status: "allowed",
+      },
+      {
+        nodeId: "model-answer",
+        reasons: [
+          {
+            code: "model_reuse_needs_review",
+            message:
+              "Model-call reuse requires deterministic replay evidence or explicit acceptance criteria before it can be allowed.",
+          },
+        ],
+        requiredValidators: ["grounding"],
+        status: "needs_review",
+      },
+      {
+        nodeId: "tool-charge",
+        reasons: [
+          {
+            code: "mutation_reuse_needs_review",
+            message:
+              "Mutation-class tool reuse requires a future replay policy gate even when comparison evidence matches.",
+          },
+        ],
+        status: "needs_review",
+      },
+      {
+        nodeId: "tool-unknown",
+        reasons: [
+          {
+            code: "side_effect_unknown",
+            message:
+              "Tool-call reuse requires known side-effect class metadata in both runs.",
+          },
+        ],
+        status: "blocked",
+      },
+    ]);
+    expect(renderReuseDecisionArtifact(artifact, "human")).toContain(
+      "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
+    );
+    expect(JSON.parse(renderReuseDecisionArtifact(artifact, "json"))).toEqual(
+      artifact,
+    );
   });
 });
 
