@@ -72,6 +72,52 @@ describe("retryFallbackPlanningPass", () => {
     ).toEqual([]);
   });
 
+  it("marks approval-required tool nodes without approval evidence not retryable", async () => {
+    const result = await retryFallbackPlanningPass.apply(
+      createApprovalGateOnlyToolPlan(),
+      passContext,
+    );
+
+    expect(result.warnings).toMatchObject([
+      {
+        code: "retry_side_effect_not_retryable",
+        severity: "warning",
+      },
+    ]);
+    expect(
+      result.evidence.find((event) => event.kind === "retry_fallback_decision"),
+    ).toMatchObject({
+      retryFallbackDecision: {
+        decision: "not_retryable",
+        nodeId: "node-charge-card",
+        scope: "node",
+      },
+    });
+  });
+
+  it("marks idempotent mutation tool nodes with empty evidence refs not retryable", async () => {
+    const result = await retryFallbackPlanningPass.apply(
+      createEmptyEvidenceToolPlan(),
+      passContext,
+    );
+
+    expect(result.warnings).toMatchObject([
+      {
+        code: "retry_side_effect_not_retryable",
+        severity: "warning",
+      },
+    ]);
+    expect(
+      result.evidence.find((event) => event.kind === "retry_fallback_decision"),
+    ).toMatchObject({
+      retryFallbackDecision: {
+        decision: "not_retryable",
+        nodeId: "node-idempotent-write",
+        scope: "node",
+      },
+    });
+  });
+
   it("marks unknown side-effect tool nodes not retryable", async () => {
     const result = await retryFallbackPlanningPass.apply(
       createUnknownToolPlan(),
@@ -254,6 +300,65 @@ function createApprovedToolPlan(): MIRPlan {
         tool: {
           name: "charge-card",
           requiresApprovalId: "approval-charge-card",
+        },
+      },
+    ],
+    edges: [],
+  };
+}
+
+function createApprovalGateOnlyToolPlan(): MIRPlan {
+  return {
+    id: "approval-gate-only-tool-retry-plan",
+    version: MIR_V0_VERSION,
+    metadata: {
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    constraints: {},
+    context: [],
+    nodes: [
+      {
+        id: "node-charge-card",
+        kind: "tool_call",
+        metadata: {
+          retryFallback: {
+            idempotencyKeyRef: "idempotency:charge-request-1",
+            policyEvidenceRef: "policy:tool-retry-allowlist-1",
+            sideEffectClass: "approval_required",
+          },
+        },
+        tool: {
+          name: "charge-card",
+          requiresApprovalId: "approval-charge-card",
+        },
+      },
+    ],
+    edges: [],
+  };
+}
+
+function createEmptyEvidenceToolPlan(): MIRPlan {
+  return {
+    id: "empty-evidence-tool-retry-plan",
+    version: MIR_V0_VERSION,
+    metadata: {
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    constraints: {},
+    context: [],
+    nodes: [
+      {
+        id: "node-idempotent-write",
+        kind: "tool_call",
+        metadata: {
+          retryFallback: {
+            idempotencyKeyRef: "",
+            policyEvidenceRef: "",
+            sideEffectClass: "idempotent_mutation",
+          },
+        },
+        tool: {
+          name: "upsert-cached-record",
         },
       },
     ],

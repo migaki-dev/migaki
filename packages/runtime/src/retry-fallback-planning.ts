@@ -289,7 +289,7 @@ function retrySideEffectBlocker(
           };
     case "approval_required":
       return hasIdempotentPolicyEvidence(metadata) &&
-        hasApprovalEvidence(node, metadata)
+        hasApprovalEvidence(metadata)
         ? undefined
         : {
             assumption:
@@ -361,19 +361,17 @@ function hasIdempotentPolicyEvidence(
   metadata: RetryFallbackPolicyMetadata,
 ): boolean {
   return (
-    metadata.idempotencyKeyRef !== undefined &&
-    metadata.policyEvidenceRef !== undefined
+    hasEvidenceRef(metadata.idempotencyKeyRef) &&
+    hasEvidenceRef(metadata.policyEvidenceRef)
   );
 }
 
-function hasApprovalEvidence(
-  node: Extract<MIRNode, { kind: "tool_call" }>,
-  metadata: RetryFallbackPolicyMetadata,
-): boolean {
-  return (
-    metadata.approvalEvidenceRef !== undefined ||
-    node.tool.requiresApprovalId !== undefined
-  );
+function hasApprovalEvidence(metadata: RetryFallbackPolicyMetadata): boolean {
+  return hasEvidenceRef(metadata.approvalEvidenceRef);
+}
+
+function hasEvidenceRef(value: string | undefined): boolean {
+  return value !== undefined && value.trim().length > 0;
 }
 
 function readSideEffectClass(value: unknown): MIRSideEffectClass | undefined {
