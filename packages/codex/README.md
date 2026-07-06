@@ -90,9 +90,15 @@ command:
 The adapter normalizes these paths only to compute a stable fingerprint. Raw
 and normalized paths are omitted from events, graphs, and reports. Bash command
 text is also omitted. Bash extraction fails closed for shell control flow,
-redirection, command substitution, glob-like path tokens, unknown commands, and
-ambiguous arguments; the only supported command prefix is the repository's exact
-`. scripts/env &&` or `source scripts/env &&` setup prefix.
+unsafe tokens, or unsupported command shapes. When a normalized path can be
+statted, the adapter records safe freshness metadata such as content digest,
+mtime, and size. When command shape, range, and output transform are safely
+knowable, it records a source-equivalence key. Missing or unsafe evidence is
+reported with a safe unavailable reason, not raw path, command, or file content.
+Bash extraction also fails closed for redirection, command substitution,
+glob-like path tokens, unknown commands, and ambiguous arguments; the only
+supported command prefix is the repository's exact `. scripts/env &&` or
+`source scripts/env &&` setup prefix.
 
 ## Dogfood Hooks
 
