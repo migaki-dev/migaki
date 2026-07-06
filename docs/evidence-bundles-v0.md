@@ -107,6 +107,20 @@ deterministic mock-backed execution:
 backend and reports `matched` or `mismatched` plus mismatch details. Trace
 artifacts are for deterministic replay checks, not live provider traces.
 
+## Gateway and Durable Replay Evidence
+
+Gateway-owned routing, fallback, budget enforcement, retry policy, cache backend
+behavior, and observability must be represented as assumptions when Migaki
+delegates them during lowering. Migaki evidence records what it planned,
+validated, downgraded, or delegated; it does not prove a gateway's live policy,
+provider route, telemetry retention, cache hit, invoice, or failover behavior.
+
+Durable workflow engines own workflow history and state replay. Migaki evidence
+may carry workflow, run, or step handles so a durable runtime can correlate
+Migaki decisions with its history, but Migaki evidence bundles are not the
+durable history store. The detailed ownership contract is
+[Gateway and Durable Replay Boundaries v0](./gateway-durable-boundaries-v0.md).
+
 ## Privacy and Redaction
 
 Evidence must say what it omitted or redacted. Redaction records include path,

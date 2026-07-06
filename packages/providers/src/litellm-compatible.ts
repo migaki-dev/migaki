@@ -28,10 +28,12 @@ export type LiteLLMCompatibleAdapterVersion =
 
 export type LiteLLMGatewayResponsibility =
   | "budget_enforcement"
+  | "cache_backend"
   | "connectivity"
   | "fallback_policy"
   | "observability"
-  | "provider_routing";
+  | "provider_routing"
+  | "retry_policy";
 
 export interface LiteLLMGatewayAssumption {
   readonly description: string;
@@ -127,6 +129,8 @@ const gatewayResponsibilities = [
   "connectivity",
   "budget_enforcement",
   "fallback_policy",
+  "retry_policy",
+  "cache_backend",
   "observability",
 ] as const satisfies readonly LiteLLMGatewayResponsibility[];
 
@@ -373,6 +377,10 @@ function describeGatewayResponsibility(
       return "The LiteLLM-compatible gateway owns runtime budgets and spend limits.";
     case "fallback_policy":
       return "The LiteLLM-compatible gateway owns provider fallback behavior after lowering.";
+    case "retry_policy":
+      return "The LiteLLM-compatible gateway owns provider-level retry behavior after lowering.";
+    case "cache_backend":
+      return "The LiteLLM-compatible gateway owns provider-side cache application and cache storage.";
     case "observability":
       return "The LiteLLM-compatible gateway owns provider-side monitoring and request telemetry.";
   }

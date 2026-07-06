@@ -48,6 +48,14 @@ describe("LiteLLM-compatible adapter lowering", () => {
         },
         {
           owner: "gateway",
+          responsibility: "retry_policy",
+        },
+        {
+          owner: "gateway",
+          responsibility: "cache_backend",
+        },
+        {
+          owner: "gateway",
           responsibility: "observability",
         },
       ],
@@ -75,6 +83,8 @@ describe("LiteLLM-compatible adapter lowering", () => {
           "connectivity",
           "budget_enforcement",
           "fallback_policy",
+          "retry_policy",
+          "cache_backend",
           "observability",
         ],
         nodeId: "node-synthesize",

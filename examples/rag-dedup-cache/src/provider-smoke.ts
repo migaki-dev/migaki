@@ -76,6 +76,8 @@ const expectedGatewayResponsibilities = [
   "connectivity",
   "budget_enforcement",
   "fallback_policy",
+  "retry_policy",
+  "cache_backend",
   "observability",
 ] as const;
 
