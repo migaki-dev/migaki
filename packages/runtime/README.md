@@ -31,9 +31,11 @@ For repeated redacted file fingerprints, it emits `needs_review` coaching that
 asks the next Codex turn to check prior context or read only the smallest missing
 range once, without exposing raw paths or commands. File-reuse opportunities
 carry explicit evidence for repeated redacted identity, freshness, source
-equivalence, and automatic-skip safety. Today the Codex hook records repeated
-identity but not freshness or command-output equivalence, so automatic skip
-remains disallowed.
+equivalence, and automatic-skip safety. Codex hook read-like file artifacts
+record safe freshness signals when stat or content-digest evidence is available
+and source-equivalence keys when command shape, range, and output transform are
+safely knowable. Automatic skip remains disallowed by default even when both
+evidence fields are verified.
 
 The v0 observed trajectory comparison contract is
 `migaki.observed-trajectory-comparison.v0`. `compareObservedExecutionGraphs`

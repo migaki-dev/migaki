@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { stdin as processStdin } from "node:process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, normalize, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +23,7 @@ import {
 export const CODEX_HOOK_ADAPTER_VERSION = "migaki.codex-hooks.v0";
 
 const CODEX_FILE_PATH_FINGERPRINT_VERSION = "codex.file_path.v0";
+const maxContentFingerprintBytes = 10 * 1024 * 1024;
 
 export interface CodexHookRunOptions {
   readonly clock?: ExecutionClock;
@@ -1237,7 +1239,10 @@ function codexFilePathObservations(input: {
       input.cwd,
     );
     const commandShape = `${input.toolName}.${sourceField}`;
-    const rangeLabel = codexReadToolRangeLabel(input.toolInput);
+    const rangeLabel =
+      input.toolName === "Read"
+        ? codexReadToolRangeLabel(input.toolInput)
+        : undefined;
 
     return normalizedPath === undefined
       ? []
@@ -1292,6 +1297,8 @@ function codexFilePathArtifact(input: {
     kind: "file",
     metadata: {
       codex: {
+        ...codexFileFreshnessMetadata(input.normalizedPath),
+        ...codexSourceEquivalenceMetadata(input),
         fingerprintVersion: CODEX_FILE_PATH_FINGERPRINT_VERSION,
         ...(input.localDogfood === undefined
           ? {}
@@ -1308,6 +1315,9 @@ function codexFilePathArtifact(input: {
         ...(input.sourceIndex !== undefined
           ? { sourceIndex: input.sourceIndex }
           : {}),
+        ...(input.rangeLabel === undefined
+          ? {}
+          : { rangeLabel: input.rangeLabel }),
         toolName: input.toolName,
       },
       redaction: {
@@ -1316,6 +1326,94 @@ function codexFilePathArtifact(input: {
       },
     },
   };
+}
+
+function codexFileFreshnessMetadata(normalizedPath: string): Metadata {
+  try {
+    const stats = statSync(normalizedPath);
+
+    if (!stats.isFile()) {
+      return {
+        fileFreshnessUnavailableReason: "not_a_file",
+      };
+    }
+
+    return {
+      ...(stats.size <= maxContentFingerprintBytes
+        ? { contentFingerprint: fileContentFingerprint(normalizedPath) }
+        : {}),
+      fileMtimeMs: Math.trunc(stats.mtimeMs),
+      fileSizeBytes: stats.size,
+    };
+  } catch {
+    return {
+      fileFreshnessUnavailableReason: "stat_unavailable",
+    };
+  }
+}
+
+function fileContentFingerprint(path: string): string {
+  return `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`;
+}
+
+function codexSourceEquivalenceMetadata(input: {
+  readonly commandShape?: string;
+  readonly rangeLabel?: string;
+  readonly sourceCommand?: string;
+  readonly sourceField: string;
+  readonly toolName: string;
+}): Metadata {
+  const outputTransform = codexOutputTransform(input);
+
+  if (input.commandShape === undefined || outputTransform === undefined) {
+    return {
+      sourceEquivalenceUnavailableReason: "shape_unavailable",
+    };
+  }
+
+  if (
+    input.toolName === "Bash" &&
+    input.sourceCommand !== "cat" &&
+    input.rangeLabel === undefined
+  ) {
+    return {
+      sourceEquivalenceUnavailableReason: "range_unavailable",
+    };
+  }
+
+  return {
+    sourceEquivalenceKey: stableExecutionHash({
+      commandShape: input.commandShape,
+      kind: "codex.source_equivalence.v0",
+      outputTransform,
+      rangeLabel: input.rangeLabel ?? "full file",
+      sourceField: input.sourceField,
+      toolName: input.toolName,
+    }),
+  };
+}
+
+function codexOutputTransform(input: {
+  readonly sourceCommand?: string;
+  readonly toolName: string;
+}): string | undefined {
+  if (input.toolName === "Read") {
+    return "raw_text";
+  }
+
+  if (input.toolName !== "Bash") {
+    return undefined;
+  }
+
+  switch (input.sourceCommand) {
+    case "cat":
+    case "head":
+    case "sed":
+    case "tail":
+      return "raw_text";
+    default:
+      return undefined;
+  }
 }
 
 function bashReadLikeFilePathObservations(

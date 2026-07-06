@@ -137,6 +137,7 @@ export interface RepeatedArtifactReport {
   readonly artifactIds: readonly string[];
   readonly count: number;
   readonly fileFreshness?: FileFreshnessEvidenceReport;
+  readonly fileSourceEquivalence?: FileSourceEquivalenceEvidenceReport;
   readonly fingerprint: string;
   readonly kind: string;
   readonly localReadContexts?: readonly LocalReadContextReport[];
@@ -169,9 +170,16 @@ export type ExecutionOpportunityActionability =
 export type ExecutionOpportunityConfidence = "high" | "low" | "medium";
 export type ExecutionOpportunityPriority = "high" | "low" | "medium";
 
+type FileEvidenceStatus = "unavailable" | "unknown" | "verified";
+
 export interface FileFreshnessEvidenceReport {
   readonly evidence: string;
-  readonly status: "unknown" | "verified";
+  readonly status: FileEvidenceStatus;
+}
+
+export interface FileSourceEquivalenceEvidenceReport {
+  readonly evidence: string;
+  readonly status: FileEvidenceStatus;
 }
 
 export interface FileReuseEvidenceReport {
@@ -184,10 +192,7 @@ export interface FileReuseEvidenceReport {
     readonly mode: "redacted_fingerprint";
     readonly status: "observed";
   };
-  readonly sourceEquivalence: {
-    readonly assumption: string;
-    readonly status: "unknown" | "verified";
-  };
+  readonly sourceEquivalence: FileSourceEquivalenceEvidenceReport;
 }
 
 export interface LocalReadContextReport {
@@ -679,7 +684,7 @@ function renderFileReuseEvidenceAdviceLines(
 
   return [
     `Freshness: ${evidence.freshness.status}. ${evidence.freshness.evidence}`,
-    `Source equivalence: ${evidence.sourceEquivalence.status}. ${evidence.sourceEquivalence.assumption}`,
+    `Source equivalence: ${evidence.sourceEquivalence.status}. ${evidence.sourceEquivalence.evidence}`,
     `Automatic skip: ${evidence.automaticSkip.allowed ? "allowed" : "disallowed"}. ${evidence.automaticSkip.reason}`,
   ];
 }
@@ -1206,6 +1211,9 @@ function findRepeatedArtifacts(
       ...(kind === "file"
         ? optionalFileFreshnessEvidence(group.artifacts)
         : {}),
+      ...(kind === "file"
+        ? optionalFileSourceEquivalenceEvidence(group.artifacts)
+        : {}),
       ...optionalSourceLabels(group.sourceLabels),
     }))
     .sort((left, right) => left.fingerprint.localeCompare(right.fingerprint));
@@ -1425,16 +1433,27 @@ function optionalFileFreshnessEvidence(
 
   if (
     contentFingerprints.length === artifacts.length &&
-    uniqueStrings(contentFingerprints).length === 1 &&
-    !contentFingerprints[0]?.startsWith("unavailable:")
+    contentFingerprints.every(
+      (fingerprint) => !fingerprint.startsWith("unavailable:"),
+    )
   ) {
-    return {
-      fileFreshness: {
-        evidence:
-          "Matching content fingerprints were captured for each read-like call.",
-        status: "verified",
-      },
-    };
+    const uniqueFingerprints = uniqueStrings(contentFingerprints);
+
+    return uniqueFingerprints.length === 1
+      ? {
+          fileFreshness: {
+            evidence:
+              "Matching content fingerprints were captured for each read-like call.",
+            status: "verified",
+          },
+        }
+      : {
+          fileFreshness: {
+            evidence:
+              "Content fingerprints were captured for each read-like call but did not match.",
+            status: "unknown",
+          },
+        };
   }
 
   const versionKeys = artifacts.flatMap((artifact) => {
@@ -1459,7 +1478,83 @@ function optionalFileFreshnessEvidence(
     };
   }
 
+  if (versionKeys.length === artifacts.length) {
+    return {
+      fileFreshness: {
+        evidence:
+          "File size and modification timestamps were captured for each read-like call but did not match.",
+        status: "unknown",
+      },
+    };
+  }
+
+  const unavailableReasons = artifacts.flatMap(
+    (artifact) =>
+      artifactCodexString(artifact, "fileFreshnessUnavailableReason") ?? [],
+  );
+
+  if (unavailableReasons.length === artifacts.length) {
+    return {
+      fileFreshness: {
+        evidence: `Freshness evidence unavailable: ${formatSafeEvidenceReasons(unavailableReasons)}.`,
+        status: "unavailable",
+      },
+    };
+  }
+
   return {};
+}
+
+function optionalFileSourceEquivalenceEvidence(
+  artifacts: readonly Artifact[],
+):
+  | Pick<RepeatedArtifactReport, "fileSourceEquivalence">
+  | Record<string, never> {
+  const equivalenceKeys = artifacts.flatMap(
+    (artifact) => artifactCodexString(artifact, "sourceEquivalenceKey") ?? [],
+  );
+
+  if (equivalenceKeys.length === artifacts.length) {
+    const uniqueKeys = uniqueStrings(equivalenceKeys);
+
+    return uniqueKeys.length === 1
+      ? {
+          fileSourceEquivalence: {
+            evidence:
+              "Matching command shapes, ranges, and output transforms were captured for each read-like call.",
+            status: "verified",
+          },
+        }
+      : {
+          fileSourceEquivalence: {
+            evidence:
+              "Command shapes, ranges, or output transforms differed across read-like calls.",
+            status: "unknown",
+          },
+        };
+  }
+
+  const unavailableReasons = artifacts.flatMap(
+    (artifact) =>
+      artifactCodexString(artifact, "sourceEquivalenceUnavailableReason") ?? [],
+  );
+
+  if (unavailableReasons.length === artifacts.length) {
+    return {
+      fileSourceEquivalence: {
+        evidence: `Source equivalence evidence unavailable: ${formatSafeEvidenceReasons(unavailableReasons)}.`,
+        status: "unavailable",
+      },
+    };
+  }
+
+  return {};
+}
+
+function formatSafeEvidenceReasons(reasons: readonly string[]): string {
+  return uniqueStrings(
+    reasons.map((reason) => reason.replace(/[^A-Za-z0-9._:-]+/gu, "_")),
+  ).join(", ");
 }
 
 function artifactCodexString(
@@ -1680,8 +1775,12 @@ function createFileReuseOpportunity(
   artifact: RepeatedArtifactReport,
 ): ExecutionOpportunityReport {
   const freshness = artifact.fileFreshness ?? unknownFileFreshnessEvidence();
-  const sourceEquivalenceUnknown =
-    "Safe source labels identify the read-like caller, not equivalent bytes, ranges, or output transforms.";
+  const sourceEquivalence =
+    artifact.fileSourceEquivalence ?? unknownFileSourceEquivalenceEvidence();
+  const automaticSkipReason = fileReuseAutomaticSkipReason({
+    freshness,
+    sourceEquivalence,
+  });
 
   return {
     actionability: "needs_review",
@@ -1693,27 +1792,29 @@ function createFileReuseOpportunity(
         : [
             "A caller-safe file identity and freshness policy is required before reuse.",
           ]),
-      "Command-output equivalence must be verified before avoiding a read.",
+      ...(sourceEquivalence.status === "verified"
+        ? []
+        : [
+            "Command-output equivalence must be verified before avoiding a read.",
+          ]),
+      ...(freshness.status === "verified" &&
+      sourceEquivalence.status === "verified"
+        ? ["Automatic skip requires an explicit policy decision."]
+        : []),
     ],
     category: "file_reuse",
     confidence: "medium",
     fileReuseEvidence: {
       automaticSkip: {
         allowed: false,
-        reason:
-          freshness.status === "verified"
-            ? "Source equivalence is unknown."
-            : "Freshness and source equivalence are unknown.",
+        reason: automaticSkipReason,
       },
       freshness,
       repeatedIdentity: {
         mode: "redacted_fingerprint",
         status: "observed",
       },
-      sourceEquivalence: {
-        assumption: sourceEquivalenceUnknown,
-        status: "unknown",
-      },
+      sourceEquivalence,
     },
     id: opportunityId("file_reuse", {
       artifactIds: artifact.artifactIds,
@@ -1743,6 +1844,50 @@ function unknownFileFreshnessEvidence(): FileFreshnessEvidenceReport {
       "No file version, content digest, or modification timestamp was captured for each read-like call.",
     status: "unknown",
   };
+}
+
+function unknownFileSourceEquivalenceEvidence(): FileSourceEquivalenceEvidenceReport {
+  return {
+    evidence:
+      "Safe source labels identify the read-like caller, not equivalent bytes, ranges, or output transforms.",
+    status: "unknown",
+  };
+}
+
+function fileReuseAutomaticSkipReason(input: {
+  readonly freshness: FileFreshnessEvidenceReport;
+  readonly sourceEquivalence: FileSourceEquivalenceEvidenceReport;
+}): string {
+  if (
+    input.freshness.status === "verified" &&
+    input.sourceEquivalence.status === "verified"
+  ) {
+    return "Automatic skip is disabled by default.";
+  }
+
+  if (
+    input.freshness.status === "unavailable" &&
+    input.sourceEquivalence.status === "unavailable"
+  ) {
+    return "Freshness and source equivalence are unavailable.";
+  }
+
+  if (
+    input.freshness.status === "unknown" &&
+    input.sourceEquivalence.status === "unknown"
+  ) {
+    return "Freshness and source equivalence are unknown.";
+  }
+
+  if (input.freshness.status === "verified") {
+    return `Source equivalence is ${input.sourceEquivalence.status}.`;
+  }
+
+  if (input.sourceEquivalence.status === "verified") {
+    return `Freshness is ${input.freshness.status}.`;
+  }
+
+  return `Freshness is ${input.freshness.status} and source equivalence is ${input.sourceEquivalence.status}.`;
 }
 
 function createParallelismOpportunity(
@@ -1875,10 +2020,19 @@ function compareExecutionOpportunities(
 
   if (left.category === "file_reuse" && right.category === "file_reuse") {
     const freshnessComparison =
-      fileReuseFreshnessRank(right) - fileReuseFreshnessRank(left);
+      fileReuseEvidenceRank(right.fileReuseEvidence?.freshness.status) -
+      fileReuseEvidenceRank(left.fileReuseEvidence?.freshness.status);
 
     if (freshnessComparison !== 0) {
       return freshnessComparison;
+    }
+
+    const sourceEquivalenceComparison =
+      fileReuseEvidenceRank(right.fileReuseEvidence?.sourceEquivalence.status) -
+      fileReuseEvidenceRank(left.fileReuseEvidence?.sourceEquivalence.status);
+
+    if (sourceEquivalenceComparison !== 0) {
+      return sourceEquivalenceComparison;
     }
   }
 
@@ -1955,10 +2109,16 @@ function opportunityConfidenceRank(
   }
 }
 
-function fileReuseFreshnessRank(
-  opportunity: ExecutionOpportunityReport,
-): number {
-  return opportunity.fileReuseEvidence?.freshness.status === "verified" ? 1 : 0;
+function fileReuseEvidenceRank(status: FileEvidenceStatus | undefined): number {
+  switch (status) {
+    case "verified":
+      return 2;
+    case "unknown":
+      return 1;
+    case "unavailable":
+    case undefined:
+      return 0;
+  }
 }
 
 function opportunityId(

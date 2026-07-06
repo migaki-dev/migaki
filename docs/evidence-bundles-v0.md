@@ -104,14 +104,19 @@ The `file_reuse` opportunity report represents this explicitly:
 - repeated identity is `observed` through a `redacted_fingerprint`
 - freshness is `unknown` unless the run captures comparable file-version,
   content-digest, or modification-time evidence for each read-like call
+- freshness is `unavailable` when the adapter attempted to capture a safe
+  signal but can only report a safe unavailable reason
 - source equivalence is `unknown` unless the run captures enough evidence to
   prove the commands, ranges, and output transforms are equivalent
-- automatic skip is disallowed while freshness or source equivalence is unknown
+- source equivalence is `unavailable` when command shape, range, or output
+  transform evidence cannot be safely established
+- automatic skip is disallowed by default, including while freshness or source
+  equivalence is `unknown` or `unavailable`
 
-When those fields are unknown, `file_reuse` stays `needs_review`. Reports and
-advice may coach an agent to check prior context or read the smallest missing
-range once, but they must not imply cache, replay, suppressed reads, or other
-hidden execution behavior.
+`file_reuse` stays `needs_review` even when both evidence fields are verified.
+Reports and advice may coach an agent to check prior context or read the
+smallest missing range once, but they must not imply cache, replay, suppressed
+reads, or other hidden execution behavior.
 
 ## Observed Trajectory Comparison Semantics
 

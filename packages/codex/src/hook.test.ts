@@ -877,12 +877,14 @@ describe("Codex hook adapter", () => {
       fileReuseEvidence: {
         automaticSkip: {
           allowed: false,
-          reason: "Freshness and source equivalence are unknown.",
+          reason: "Freshness is unavailable and source equivalence is unknown.",
         },
         freshness: {
-          status: "unknown",
+          status: "unavailable",
         },
         sourceEquivalence: {
+          evidence:
+            "Command shapes, ranges, or output transforms differed across read-like calls.",
           status: "unknown",
         },
       },
@@ -891,19 +893,109 @@ describe("Codex hook adapter", () => {
     expect(report).toContain(
       "- Top recommendation: needs_review file_reuse across 2 read-like calls (Bash cat, Bash sed)",
     );
-    expect(report).toContain("Freshness: unknown");
+    expect(report).toContain("Freshness: unavailable");
     expect(report).toContain("Source equivalence: unknown");
     expect(report).toContain("Automatic skip: disallowed");
     expect(advice).toContain(
       "Top signal: needs_review file_reuse across 2 read-like calls.",
     );
-    expect(advice).toContain("Freshness: unknown");
+    expect(advice).toContain("Freshness: unavailable");
     expect(advice).toContain("Source equivalence: unknown");
     expect(advice).toContain("do not skip reads automatically");
     expect(persisted).not.toContain("README.md");
     expect(persisted).not.toContain(catCommand);
     expect(persisted).not.toContain(sedCommand);
     expect(persisted).not.toContain("sed -n");
+  });
+
+  it("captures default Read freshness and source equivalence without raw paths or contents", async () => {
+    const storeDirectory = await tempRoot();
+    const repoRoot = await tempRoot();
+    const previousLocalContext = process.env.MIGAKI_CODEX_LOCAL_CONTEXT;
+    const clock = new FakeClock(Date.UTC(2026, 0, 1, 0, 0, 0));
+    const relativePath = "private/source-plan.md";
+    const rawContents = "alpha\nbeta\n";
+
+    await mkdir(join(repoRoot, "private"), { recursive: true });
+    await writeFile(join(repoRoot, relativePath), rawContents, "utf8");
+    delete process.env.MIGAKI_CODEX_LOCAL_CONTEXT;
+
+    try {
+      await runAt(clock, storeDirectory, userPromptSubmit({ cwd: repoRoot }));
+      await recordToolCall(clock, storeDirectory, {
+        cwd: repoRoot,
+        toolInput: {
+          file_path: relativePath,
+          limit: 1,
+          offset: 1,
+        },
+        toolName: "Read",
+        toolUseId: "read-1",
+      });
+      await recordToolCall(clock, storeDirectory, {
+        cwd: repoRoot,
+        toolInput: {
+          file_path: relativePath,
+          limit: 1,
+          offset: 1,
+        },
+        toolName: "Read",
+        toolUseId: "read-2",
+      });
+      await runAt(clock, storeDirectory, stop({ cwd: repoRoot }));
+    } finally {
+      if (previousLocalContext === undefined) {
+        delete process.env.MIGAKI_CODEX_LOCAL_CONTEXT;
+      } else {
+        process.env.MIGAKI_CODEX_LOCAL_CONTEXT = previousLocalContext;
+      }
+    }
+
+    const { eventsJsonl, graph, report } =
+      await readRunArtifacts(storeDirectory);
+    const advice = renderExecutionAdvice(graph);
+    const summary = createExecutionReportSummary(graph);
+    const persisted = [eventsJsonl, JSON.stringify(graph), report, advice].join(
+      "\n",
+    );
+    const fileArtifacts = graphFileArtifacts(graph);
+
+    expect(fileArtifacts).toHaveLength(2);
+    for (const { artifact } of fileArtifacts) {
+      expect(artifact.metadata?.codex).toMatchObject({
+        contentFingerprint: expect.stringMatching(/^sha256:/u),
+        fileMtimeMs: expect.any(Number),
+        fileSizeBytes: rawContents.length,
+        rangeLabel: "lines 1-1",
+        sourceEquivalenceKey: expect.stringMatching(/^sha256:/u),
+        sourceField: "file_path",
+        toolName: "Read",
+      });
+    }
+    expect(
+      summary.opportunities.find(
+        (opportunity) => opportunity.category === "file_reuse",
+      )?.fileReuseEvidence,
+    ).toMatchObject({
+      automaticSkip: {
+        allowed: false,
+        reason: "Automatic skip is disabled by default.",
+      },
+      freshness: {
+        status: "verified",
+      },
+      sourceEquivalence: {
+        status: "verified",
+      },
+    });
+    expect(report).toContain("Freshness: verified");
+    expect(report).toContain("Source equivalence: verified");
+    expect(advice).toContain("Freshness: verified.");
+    expect(advice).toContain("Source equivalence: verified.");
+    expect(persisted).not.toContain(repoRoot);
+    expect(persisted).not.toContain(relativePath);
+    expect(persisted).not.toContain("source-plan.md");
+    expect(persisted).not.toContain(rawContents);
   });
 
   it("captures local dogfood read hints only when explicitly enabled", async () => {
@@ -1019,19 +1111,25 @@ describe("Codex hook adapter", () => {
     ]);
     expect(
       fileArtifacts.map(({ artifact }) => artifact.metadata?.codex),
-    ).toEqual([
+    ).toMatchObject([
       {
+        fileFreshnessUnavailableReason: "stat_unavailable",
         fingerprintVersion: "codex.file_path.v0",
+        sourceEquivalenceUnavailableReason: "shape_unavailable",
         sourceField: "path",
         toolName: "Grep",
       },
       {
+        fileFreshnessUnavailableReason: "stat_unavailable",
         fingerprintVersion: "codex.file_path.v0",
+        sourceEquivalenceUnavailableReason: "shape_unavailable",
         sourceField: "path",
         toolName: "Glob",
       },
       {
+        fileFreshnessUnavailableReason: "stat_unavailable",
         fingerprintVersion: "codex.file_path.v0",
+        sourceEquivalenceUnavailableReason: "shape_unavailable",
         sourceField: "path",
         toolName: "LS",
       },
@@ -1117,46 +1215,64 @@ describe("Codex hook adapter", () => {
     ]);
     expect(
       fileArtifacts.map(({ artifact }) => artifact.metadata?.codex),
-    ).toEqual([
+    ).toMatchObject([
       {
+        fileFreshnessUnavailableReason: "stat_unavailable",
         fingerprintVersion: "codex.file_path.v0",
+        rangeLabel: "full file",
         sourceCommand: "cat",
+        sourceEquivalenceKey: expect.stringMatching(/^sha256:/u),
         sourceField: "command",
         toolName: "Bash",
       },
       {
+        fileFreshnessUnavailableReason: "stat_unavailable",
         fingerprintVersion: "codex.file_path.v0",
+        rangeLabel: "lines 1-80",
         sourceCommand: "sed",
+        sourceEquivalenceKey: expect.stringMatching(/^sha256:/u),
         sourceField: "command",
         toolName: "Bash",
       },
       {
+        fileFreshnessUnavailableReason: "stat_unavailable",
         fingerprintVersion: "codex.file_path.v0",
         sourceCommand: "nl",
+        sourceEquivalenceUnavailableReason: "shape_unavailable",
         sourceField: "command",
         toolName: "Bash",
       },
       {
+        fileFreshnessUnavailableReason: "stat_unavailable",
         fingerprintVersion: "codex.file_path.v0",
         sourceCommand: "head",
+        sourceEquivalenceUnavailableReason: "range_unavailable",
         sourceField: "command",
         toolName: "Bash",
       },
       {
+        fileFreshnessUnavailableReason: "stat_unavailable",
         fingerprintVersion: "codex.file_path.v0",
+        rangeLabel: "last 40 lines",
         sourceCommand: "tail",
+        sourceEquivalenceKey: expect.stringMatching(/^sha256:/u),
         sourceField: "command",
         toolName: "Bash",
       },
       {
+        fileFreshnessUnavailableReason: "stat_unavailable",
         fingerprintVersion: "codex.file_path.v0",
         sourceCommand: "wc",
+        sourceEquivalenceUnavailableReason: "shape_unavailable",
         sourceField: "command",
         toolName: "Bash",
       },
       {
+        fileFreshnessUnavailableReason: "stat_unavailable",
         fingerprintVersion: "codex.file_path.v0",
+        rangeLabel: "lines 1-80",
         sourceCommand: "sed",
+        sourceEquivalenceKey: expect.stringMatching(/^sha256:/u),
         sourceField: "command",
         toolName: "Bash",
       },

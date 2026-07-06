@@ -504,7 +504,7 @@ describe("execution graph runtime", () => {
           status: "observed",
         },
         sourceEquivalence: {
-          assumption:
+          evidence:
             "Safe source labels identify the read-like caller, not equivalent bytes, ranges, or output transforms.",
           status: "unknown",
         },
@@ -596,9 +596,12 @@ describe("execution graph runtime", () => {
       toolFinishedEvent("tool-sed-a", "Bash", {
         artifacts: [
           fileArtifact("file-sed-a", verifiedFileFingerprint, {
+            commandShape: "sed -n RANGE FILE",
             contentFingerprint: "sha256:verified",
             fileMtimeMs: 1,
             fileSizeBytes: 17,
+            rangeLabel: "lines 1-20",
+            sourceEquivalenceKey: "sha256:sed-lines-1-20",
             sourceCommand: "sed",
             sourceField: "command",
             toolName: "Bash",
@@ -621,9 +624,12 @@ describe("execution graph runtime", () => {
       toolFinishedEvent("tool-sed-b", "Bash", {
         artifacts: [
           fileArtifact("file-sed-b", verifiedFileFingerprint, {
+            commandShape: "sed -n RANGE FILE",
             contentFingerprint: "sha256:verified",
             fileMtimeMs: 1,
             fileSizeBytes: 17,
+            rangeLabel: "lines 1-20",
+            sourceEquivalenceKey: "sha256:sed-lines-1-20",
             sourceCommand: "sed",
             sourceField: "command",
             toolName: "Bash",
@@ -648,17 +654,87 @@ describe("execution graph runtime", () => {
     expect(fileReuseOpportunities[0]?.fileReuseEvidence).toMatchObject({
       automaticSkip: {
         allowed: false,
-        reason: "Source equivalence is unknown.",
+        reason: "Automatic skip is disabled by default.",
       },
       freshness: {
         evidence:
           "Matching content fingerprints were captured for each read-like call.",
         status: "verified",
       },
+      sourceEquivalence: {
+        evidence:
+          "Matching command shapes, ranges, and output transforms were captured for each read-like call.",
+        status: "verified",
+      },
     });
     expect(advice).toContain("Safe source signals: Bash sed");
     expect(advice).toContain("Freshness: verified.");
+    expect(advice).toContain("Source equivalence: verified.");
     expect(advice).toContain("Automatic skip: disallowed.");
+  });
+
+  it("renders unavailable file-reuse evidence separately from unknown", () => {
+    const fileFingerprint = stableExecutionHash({
+      path: "src/unavailable-freshness.ts",
+    });
+    const graph = buildExecutionGraph("run-a", [
+      promptEvent(),
+      toolStartedEvent("tool-read-a", "Read", {
+        timestamp: "2026-01-01T00:00:01.000Z",
+      }),
+      toolFinishedEvent("tool-read-a", "Read", {
+        artifacts: [
+          fileArtifact("file-read-a", fileFingerprint, {
+            fileFreshnessUnavailableReason: "stat_failed",
+            sourceEquivalenceUnavailableReason: "shape_unavailable",
+            sourceField: "file_path",
+            toolName: "Read",
+          }),
+          toolResultArtifact("tool-read-a", "Read"),
+        ],
+        timestamp: "2026-01-01T00:00:02.000Z",
+      }),
+      toolStartedEvent("tool-read-b", "Read", {
+        timestamp: "2026-01-01T00:00:03.000Z",
+      }),
+      toolFinishedEvent("tool-read-b", "Read", {
+        artifacts: [
+          fileArtifact("file-read-b", fileFingerprint, {
+            fileFreshnessUnavailableReason: "stat_failed",
+            sourceEquivalenceUnavailableReason: "shape_unavailable",
+            sourceField: "file_path",
+            toolName: "Read",
+          }),
+          toolResultArtifact("tool-read-b", "Read"),
+        ],
+        timestamp: "2026-01-01T00:00:04.000Z",
+      }),
+    ]);
+
+    const opportunity = createExecutionReportSummary(graph).opportunities.find(
+      (candidate) => candidate.category === "file_reuse",
+    );
+    const advice = renderExecutionAdvice(graph);
+    const report = renderExecutionReport(graph);
+
+    expect(opportunity?.fileReuseEvidence).toMatchObject({
+      automaticSkip: {
+        allowed: false,
+        reason: "Freshness and source equivalence are unavailable.",
+      },
+      freshness: {
+        evidence: "Freshness evidence unavailable: stat_failed.",
+        status: "unavailable",
+      },
+      sourceEquivalence: {
+        evidence: "Source equivalence evidence unavailable: shape_unavailable.",
+        status: "unavailable",
+      },
+    });
+    expect(report).toContain("Freshness: unavailable");
+    expect(report).toContain("Source equivalence: unavailable");
+    expect(advice).toContain("Freshness: unavailable.");
+    expect(advice).toContain("Source equivalence: unavailable.");
   });
 
   it("renders opt-in local dogfood read context in advice only", () => {
@@ -1250,10 +1326,14 @@ function fileArtifact(
     | {
         readonly commandShape?: string;
         readonly contentFingerprint?: string;
+        readonly fileFreshnessUnavailableReason?: string;
         readonly fileMtimeMs?: number;
         readonly fileSizeBytes?: number;
         readonly localDogfood?: Readonly<Record<string, unknown>>;
+        readonly rangeLabel?: string;
         readonly sourceCommand?: string;
+        readonly sourceEquivalenceKey?: string;
+        readonly sourceEquivalenceUnavailableReason?: string;
         readonly sourceField: string;
         readonly toolName: string;
       }
@@ -1274,6 +1354,12 @@ function fileArtifact(
               ...(source.contentFingerprint === undefined
                 ? {}
                 : { contentFingerprint: source.contentFingerprint }),
+              ...(source.fileFreshnessUnavailableReason === undefined
+                ? {}
+                : {
+                    fileFreshnessUnavailableReason:
+                      source.fileFreshnessUnavailableReason,
+                  }),
               ...(source.fileMtimeMs === undefined
                 ? {}
                 : { fileMtimeMs: source.fileMtimeMs }),
@@ -1286,6 +1372,18 @@ function fileArtifact(
               ...(source.sourceCommand === undefined
                 ? {}
                 : { sourceCommand: source.sourceCommand }),
+              ...(source.rangeLabel === undefined
+                ? {}
+                : { rangeLabel: source.rangeLabel }),
+              ...(source.sourceEquivalenceKey === undefined
+                ? {}
+                : { sourceEquivalenceKey: source.sourceEquivalenceKey }),
+              ...(source.sourceEquivalenceUnavailableReason === undefined
+                ? {}
+                : {
+                    sourceEquivalenceUnavailableReason:
+                      source.sourceEquivalenceUnavailableReason,
+                  }),
               sourceField: source.sourceField,
               toolName: source.toolName,
             },
