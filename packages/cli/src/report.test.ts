@@ -4,6 +4,7 @@ import { MIR_V0_VERSION, type MIRPlan } from "@migaki/mir";
 import {
   EVIDENCE_EVENT_VERSION,
   PASS_CONTRACT_VERSION,
+  REUSE_DECISION_ARTIFACT_VERSION,
   createEvidenceBundle,
   diffMIRPlans,
   serializeEvidenceBundle,
@@ -11,6 +12,7 @@ import {
   type EvidenceEvent,
   type MockExecutionTraceArtifact,
   type PassWarning,
+  type ReuseDecisionArtifact,
 } from "@migaki/runtime";
 
 import { CLI_REPORT_VERSION, runCli } from "./index.js";
@@ -206,6 +208,63 @@ describe("report command", () => {
       version: CLI_REPORT_VERSION,
     });
   });
+
+  it("renders reuse decision artifacts in human and JSON formats", async () => {
+    const artifact = createReuseDecisionArtifact();
+    const jsonResult = await runCli(
+      ["report", "--input", "reuse-decision.json", "--format", "json"],
+      fakeIo({
+        "reuse-decision.json": JSON.stringify(artifact),
+      }),
+    );
+    const humanResult = await runCli(
+      ["report", "--input", "reuse-decision.json", "--format", "human"],
+      fakeIo({
+        "reuse-decision.json": JSON.stringify(artifact),
+      }),
+    );
+
+    expect(jsonResult.exitCode).toBe(0);
+    expect(JSON.parse(jsonResult.stdout)).toEqual({
+      allowed: 1,
+      artifactKind: "reuse_decision",
+      blocked: 1,
+      comparison: {
+        currentRunId: "current",
+        previousRunId: "previous",
+      },
+      decisions: [
+        {
+          nodeId: "tool-read",
+          operationKind: "tool_call",
+          reasons: [],
+          status: "allowed",
+        },
+        {
+          nodeId: "model-answer",
+          operationKind: "model_call",
+          reasons: ["model_reuse_needs_review"],
+          status: "needs_review",
+        },
+        {
+          nodeId: "tool-write",
+          operationKind: "tool_call",
+          reasons: ["side_effecting_tool"],
+          status: "blocked",
+        },
+      ],
+      needsReview: 1,
+      version: CLI_REPORT_VERSION,
+    });
+    expect(humanResult).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+    });
+    expect(humanResult.stdout).toContain("Migaki Reuse Decision");
+    expect(humanResult.stdout).toContain(
+      "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
+    );
+  });
 });
 
 function fakeIo(files: Readonly<Record<string, string>>): {
@@ -305,6 +364,127 @@ function createReportBundle(): ReturnType<typeof createEvidenceBundle> {
     runId: "bundle-run",
     warnings: [warning],
   });
+}
+
+function createReuseDecisionArtifact(): ReuseDecisionArtifact {
+  return {
+    comparisonRef: {
+      currentRunId: "current",
+      previousRunId: "previous",
+      version: "migaki.observed-trajectory-comparison.v0",
+    },
+    createdAt: "2026-01-01T00:00:02.000Z",
+    decisions: [
+      {
+        cacheKey: "hash:read",
+        dependencyEvidence: {
+          message: "Dependencies match.",
+          status: "passed",
+        },
+        estimates: {
+          latencyMs: 10,
+        },
+        freshnessEvidence: {
+          message: "Freshness verified.",
+          status: "passed",
+        },
+        nodeId: "tool-read",
+        operationKind: "tool_call",
+        policyConstraints: {
+          message: "Policy allowed.",
+          status: "passed",
+        },
+        previousNodeId: "tool-read",
+        reasons: [],
+        requiredValidators: [],
+        sideEffectClass: "read_only",
+        status: "allowed",
+      },
+      {
+        cacheKey: "hash:model",
+        dependencyEvidence: {
+          message: "Dependencies match.",
+          status: "passed",
+        },
+        estimates: {},
+        freshnessEvidence: {
+          message: "No file artifacts.",
+          status: "passed",
+        },
+        nodeId: "model-answer",
+        operationKind: "model_call",
+        policyConstraints: {
+          message: "Policy allowed.",
+          status: "passed",
+        },
+        previousNodeId: "model-answer",
+        reasons: [
+          {
+            code: "model_reuse_needs_review",
+            message: "Model determinism needs review.",
+          },
+        ],
+        requiredValidators: ["grounding"],
+        status: "needs_review",
+      },
+      {
+        cacheKey: "hash:write",
+        dependencyEvidence: {
+          message: "Dependencies match.",
+          status: "passed",
+        },
+        estimates: {},
+        freshnessEvidence: {
+          message: "No file artifacts.",
+          status: "passed",
+        },
+        nodeId: "tool-write",
+        operationKind: "tool_call",
+        policyConstraints: {
+          message: "Policy allowed.",
+          status: "passed",
+        },
+        previousNodeId: "tool-write",
+        reasons: [
+          {
+            code: "side_effecting_tool",
+            message: "Mutation is not reusable.",
+          },
+        ],
+        requiredValidators: [],
+        sideEffectClass: "non_idempotent_mutation",
+        status: "blocked",
+      },
+    ],
+    invariant:
+      "Evidence first, then explicit decision, then replay only in a future issue. This artifact never skips work.",
+    privacyPolicy: {
+      exportMatrixVersion: "migaki.evidence-privacy-policy.v0",
+      exportMode: "metadata_only",
+      fullTraceOptIn: false,
+    },
+    redaction: {
+      mode: "metadata_only",
+      omittedFields: [
+        "prompt",
+        "tool_input",
+        "tool_output",
+        "provider_response",
+        "file_path",
+        "customer_data",
+        "credential",
+        "local_machine_path",
+      ],
+      reason: "Raw sensitive values are omitted.",
+    },
+    summary: {
+      allowed: 1,
+      blocked: 1,
+      needsReview: 1,
+      totalCandidates: 3,
+    },
+    version: REUSE_DECISION_ARTIFACT_VERSION,
+  };
 }
 
 function createPlan(id: string): MIRPlan {

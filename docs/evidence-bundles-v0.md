@@ -178,6 +178,32 @@ operations remain blocked. Native GitHub, tool, provider, or other API
 mutations are never replayable from observation alone; they require explicit
 policy evidence before any narrower decision can be reported.
 
+## Reuse Decision Gate
+
+The `migaki.reuse-decision.v0` contract consumes observed trajectory comparison
+output and emits an auditable decision artifact before any replay or cache
+implementation exists. The invariant is: evidence first, then explicit
+decision, then replay only in a future issue. Creating or rendering the artifact
+does not skip model calls, tool calls, file reads, provider requests, cache
+lookups, or user-visible actions.
+
+Each decision records:
+
+- `allowed`, `needs_review`, or `blocked` status
+- blocker or review reasons
+- dependency evidence, freshness evidence, and policy constraint status
+- required validator identifiers
+- side-effect class when available
+- estimates copied from observed metadata
+- metadata-only privacy policy and redaction metadata
+
+The gate is intentionally conservative. It can mark fully checked read-only
+tool-call candidates as `allowed`. Model-call candidates require deterministic
+replay evidence or explicit acceptance criteria and remain `needs_review`.
+Mutation-class tool candidates remain `needs_review` even when comparison
+evidence matches, because mutation replay needs a future policy gate. Any
+failed, unknown, or missing comparison evidence is `blocked`.
+
 Execution-report `parallelism` opportunities intentionally do not assign these
 classes. They are sequence-only dependency-review prompts, remain `blocked`, and
 require a reviewer or later pass to prove data independence, side-effect class,

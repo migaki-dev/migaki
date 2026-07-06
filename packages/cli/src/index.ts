@@ -3,14 +3,17 @@ import { readFile as readTextFile } from "node:fs/promises";
 import {
   EVIDENCE_BUNDLE_VERSION,
   MOCK_TRACE_ARTIFACT_VERSION,
+  REUSE_DECISION_ARTIFACT_VERSION,
   parseEvidenceBundle,
   parseMockExecutionTraceArtifact,
+  renderReuseDecisionArtifact,
   replayMockExecutionTrace,
   type EvidenceBundle,
   type EstimateEvidenceEvent,
   type MockExecutionTraceArtifact,
   type MockExecutionTraceReplayResult,
   type PassWarning,
+  type ReuseDecisionArtifact,
   type RoutingDecisionEvidenceEvent,
   type ValidatorResultEvidenceEvent,
 } from "@migaki/runtime";
@@ -85,6 +88,26 @@ interface MockTraceReport {
   readonly traceId: string;
   readonly validatorResults: readonly ValidatorReport[];
   readonly version: CliReportVersion;
+}
+
+interface ReuseDecisionReport {
+  readonly allowed: number;
+  readonly artifactKind: "reuse_decision";
+  readonly blocked: number;
+  readonly comparison: {
+    readonly currentRunId: string;
+    readonly previousRunId: string;
+  };
+  readonly decisions: readonly ReuseDecisionSummaryReport[];
+  readonly needsReview: number;
+  readonly version: CliReportVersion;
+}
+
+interface ReuseDecisionSummaryReport {
+  readonly nodeId: string;
+  readonly operationKind: string;
+  readonly reasons: readonly string[];
+  readonly status: string;
 }
 
 interface ReplayReport {
@@ -183,6 +206,18 @@ async function runReportCommand(
         const report = createMockTraceReport(trace);
 
         return succeed(renderReport(report, args.format));
+      }
+
+      if (version === REUSE_DECISION_ARTIFACT_VERSION) {
+        const artifact = parseReuseDecisionArtifact(artifactText);
+
+        if (args.format === "human") {
+          return succeed(renderReuseDecisionArtifact(artifact, "human"));
+        }
+
+        return succeed(
+          `${stableStringify(createReuseDecisionReport(artifact))}\n`,
+        );
       }
     } catch (error) {
       return fail(`Invalid input artifact: ${errorMessage(error)}`);
@@ -344,6 +379,28 @@ function createMockTraceReport(
   };
 }
 
+function createReuseDecisionReport(
+  artifact: ReuseDecisionArtifact,
+): ReuseDecisionReport {
+  return {
+    allowed: artifact.summary.allowed,
+    artifactKind: "reuse_decision",
+    blocked: artifact.summary.blocked,
+    comparison: {
+      currentRunId: artifact.comparisonRef.currentRunId,
+      previousRunId: artifact.comparisonRef.previousRunId,
+    },
+    decisions: artifact.decisions.map((decision) => ({
+      nodeId: decision.nodeId,
+      operationKind: decision.operationKind,
+      reasons: decision.reasons.map((reason) => reason.code),
+      status: decision.status,
+    })),
+    needsReview: artifact.summary.needsReview,
+    version: CLI_REPORT_VERSION,
+  };
+}
+
 function createReplayReport(
   trace: MockExecutionTraceArtifact,
   replay: MockExecutionTraceReplayResult,
@@ -361,6 +418,78 @@ function createReplayReport(
     validatorResults: replay.result.validatorResults.map(toValidatorReport),
     version: CLI_REPLAY_VERSION,
   };
+}
+
+function parseReuseDecisionArtifact(serialized: string): ReuseDecisionArtifact {
+  const parsed = JSON.parse(serialized) as unknown;
+
+  if (!isReuseDecisionArtifact(parsed)) {
+    throw new Error("Expected migaki.reuse-decision.v0 artifact.");
+  }
+
+  return parsed;
+}
+
+function isReuseDecisionArtifact(
+  value: unknown,
+): value is ReuseDecisionArtifact {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const comparisonRef = value["comparisonRef"];
+  const privacyPolicy = value["privacyPolicy"];
+  const redaction = value["redaction"];
+  const summary = value["summary"];
+
+  return (
+    value["version"] === REUSE_DECISION_ARTIFACT_VERSION &&
+    typeof value["createdAt"] === "string" &&
+    typeof value["invariant"] === "string" &&
+    Array.isArray(value["decisions"]) &&
+    value["decisions"].every(isReuseDecision) &&
+    isRecord(comparisonRef) &&
+    comparisonRef["version"] === "migaki.observed-trajectory-comparison.v0" &&
+    typeof comparisonRef["previousRunId"] === "string" &&
+    typeof comparisonRef["currentRunId"] === "string" &&
+    isRecord(privacyPolicy) &&
+    privacyPolicy["exportMode"] === "metadata_only" &&
+    isRecord(redaction) &&
+    redaction["mode"] === "metadata_only" &&
+    Array.isArray(redaction["omittedFields"]) &&
+    isRecord(summary) &&
+    typeof summary["allowed"] === "number" &&
+    typeof summary["blocked"] === "number" &&
+    typeof summary["needsReview"] === "number" &&
+    typeof summary["totalCandidates"] === "number"
+  );
+}
+
+function isReuseDecision(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value["nodeId"] === "string" &&
+    typeof value["previousNodeId"] === "string" &&
+    (value["operationKind"] === "model_call" ||
+      value["operationKind"] === "tool_call") &&
+    (value["status"] === "allowed" ||
+      value["status"] === "blocked" ||
+      value["status"] === "needs_review") &&
+    Array.isArray(value["reasons"]) &&
+    value["reasons"].every(isReuseDecisionReason) &&
+    Array.isArray(value["requiredValidators"])
+  );
+}
+
+function isReuseDecisionReason(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value["code"] === "string" &&
+    typeof value["message"] === "string"
+  );
 }
 
 function missingEvidenceSections(input: {
