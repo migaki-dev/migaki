@@ -9,15 +9,19 @@ import {
   type Metadata,
 } from "./execution.js";
 import {
+  EVIDENCE_PRIVACY_EXPORT_FIELDS,
   EVIDENCE_PRIVACY_POLICY_VERSION,
   type EvidencePrivacyPolicyReference,
 } from "./evidence-bundle.js";
 
 export const OBSERVED_TRAJECTORY_COMPARISON_VERSION =
   "migaki.observed-trajectory-comparison.v0";
+export const REUSE_DECISION_ARTIFACT_VERSION = "migaki.reuse-decision.v0";
 
 export type ObservedTrajectoryComparisonVersion =
   typeof OBSERVED_TRAJECTORY_COMPARISON_VERSION;
+export type ReuseDecisionArtifactVersion =
+  typeof REUSE_DECISION_ARTIFACT_VERSION;
 
 export type ObservedTrajectoryReusableOperationKind =
   | "model_call"
@@ -74,6 +78,8 @@ export interface ObservedTrajectoryReusableNode {
   readonly nodeId: string;
   readonly operationKind: ObservedTrajectoryReusableOperationKind;
   readonly previousNodeId: string;
+  readonly requiredValidators: readonly string[];
+  readonly sideEffectClass?: MIRSideEffectClass;
 }
 
 export interface ObservedTrajectoryBlockedCandidate {
@@ -84,6 +90,8 @@ export interface ObservedTrajectoryBlockedCandidate {
   readonly operationKind: ObservedTrajectoryReusableOperationKind;
   readonly previousNodeId: string;
   readonly reasons: readonly ObservedTrajectoryBlocker[];
+  readonly requiredValidators: readonly string[];
+  readonly sideEffectClass?: MIRSideEffectClass;
 }
 
 export interface ObservedTrajectoryChangedNode {
@@ -121,11 +129,75 @@ export interface ObservedTrajectoryComparison {
   readonly warnings: readonly ObservedTrajectoryWarning[];
 }
 
+export type ReuseDecisionStatus = "allowed" | "blocked" | "needs_review";
+
+export type ReuseDecisionReasonCode =
+  | ObservedTrajectoryBlockerCode
+  | "model_reuse_needs_review"
+  | "mutation_reuse_needs_review";
+
+export interface ReuseDecisionReason {
+  readonly code: ReuseDecisionReasonCode;
+  readonly message: string;
+}
+
+export interface ReuseDecisionEvidenceSummary {
+  readonly message: string;
+  readonly status: ObservedTrajectoryCheckStatus;
+}
+
+export interface ReuseDecision {
+  readonly cacheKey?: string;
+  readonly dependencyEvidence: ReuseDecisionEvidenceSummary;
+  readonly estimates: ObservedTrajectoryEstimate;
+  readonly freshnessEvidence: ReuseDecisionEvidenceSummary;
+  readonly nodeId: string;
+  readonly operationKind: ObservedTrajectoryReusableOperationKind;
+  readonly policyConstraints: ReuseDecisionEvidenceSummary;
+  readonly previousNodeId: string;
+  readonly reasons: readonly ReuseDecisionReason[];
+  readonly requiredValidators: readonly string[];
+  readonly sideEffectClass?: MIRSideEffectClass;
+  readonly status: ReuseDecisionStatus;
+}
+
+export interface ReuseDecisionArtifactRedaction {
+  readonly mode: "metadata_only";
+  readonly omittedFields: readonly (typeof EVIDENCE_PRIVACY_EXPORT_FIELDS)[number][];
+  readonly reason: string;
+}
+
+export interface ReuseDecisionArtifactSummary {
+  readonly allowed: number;
+  readonly blocked: number;
+  readonly needsReview: number;
+  readonly totalCandidates: number;
+}
+
+export interface ReuseDecisionArtifact {
+  readonly comparisonRef: {
+    readonly currentRunId: string;
+    readonly previousRunId: string;
+    readonly version: ObservedTrajectoryComparisonVersion;
+  };
+  readonly createdAt: string;
+  readonly decisions: readonly ReuseDecision[];
+  readonly invariant: string;
+  readonly privacyPolicy: EvidencePrivacyPolicyReference;
+  readonly redaction: ReuseDecisionArtifactRedaction;
+  readonly summary: ReuseDecisionArtifactSummary;
+  readonly version: ReuseDecisionArtifactVersion;
+}
+
+export type ReuseDecisionRenderFormat = "human" | "json";
+
 interface CandidateReview {
   readonly cacheKey?: string;
   readonly checks: readonly ObservedTrajectoryCheck[];
   readonly estimates: ObservedTrajectoryEstimate;
   readonly reasons: readonly ObservedTrajectoryBlocker[];
+  readonly requiredValidators: readonly string[];
+  readonly sideEffectClass?: MIRSideEffectClass;
 }
 
 interface ToolReplaySafetyMetadata {
@@ -217,6 +289,10 @@ export function compareObservedExecutionGraphs(
         operationKind,
         previousNodeId: previousNode.id,
         reasons: review.reasons,
+        requiredValidators: review.requiredValidators,
+        ...(review.sideEffectClass === undefined
+          ? {}
+          : { sideEffectClass: review.sideEffectClass }),
       });
       continue;
     }
@@ -234,6 +310,10 @@ export function compareObservedExecutionGraphs(
             message: "Both observed nodes require a stable cache key.",
           },
         ],
+        requiredValidators: review.requiredValidators,
+        ...(review.sideEffectClass === undefined
+          ? {}
+          : { sideEffectClass: review.sideEffectClass }),
       });
       continue;
     }
@@ -245,6 +325,10 @@ export function compareObservedExecutionGraphs(
       nodeId: currentNode.id,
       operationKind,
       previousNodeId: previousNode.id,
+      requiredValidators: review.requiredValidators,
+      ...(review.sideEffectClass === undefined
+        ? {}
+        : { sideEffectClass: review.sideEffectClass }),
     };
 
     if (operationKind === "model_call") {
@@ -286,6 +370,70 @@ export function compareObservedExecutionGraphs(
   };
 }
 
+export function createReuseDecisionArtifact(
+  comparison: ObservedTrajectoryComparison,
+  options: { readonly createdAt?: string } = {},
+): ReuseDecisionArtifact {
+  const decisions = sortReuseDecisions([
+    ...comparison.reusableModelCalls.map(decideReusableNode),
+    ...comparison.reusableToolCalls.map(decideReusableNode),
+    ...comparison.blockedCandidates.map(decideBlockedCandidate),
+  ]);
+
+  return {
+    comparisonRef: {
+      currentRunId: comparison.currentRunId,
+      previousRunId: comparison.previousRunId,
+      version: comparison.version,
+    },
+    createdAt: options.createdAt ?? new Date().toISOString(),
+    decisions,
+    invariant:
+      "Evidence first, then explicit decision, then replay only in a future issue. This artifact never skips work.",
+    privacyPolicy: comparison.privacyPolicy,
+    redaction: {
+      mode: "metadata_only",
+      omittedFields: EVIDENCE_PRIVACY_EXPORT_FIELDS,
+      reason:
+        "Reuse decisions carry metadata, check statuses, fingerprints, and omission records only; raw prompts, tool payloads, provider responses, credentials, and local paths are omitted.",
+    },
+    summary: {
+      allowed: decisions.filter((decision) => decision.status === "allowed")
+        .length,
+      blocked: decisions.filter((decision) => decision.status === "blocked")
+        .length,
+      needsReview: decisions.filter(
+        (decision) => decision.status === "needs_review",
+      ).length,
+      totalCandidates: decisions.length,
+    },
+    version: REUSE_DECISION_ARTIFACT_VERSION,
+  };
+}
+
+export function renderReuseDecisionArtifact(
+  artifact: ReuseDecisionArtifact,
+  format: ReuseDecisionRenderFormat,
+): string {
+  if (format === "json") {
+    return `${stableStringify(artifact)}\n`;
+  }
+
+  const lines = [
+    "Migaki Reuse Decision",
+    `Version: ${artifact.version}`,
+    `Runs: ${artifact.comparisonRef.previousRunId} -> ${artifact.comparisonRef.currentRunId}`,
+    `Summary: ${artifact.summary.allowed} allowed, ${artifact.summary.needsReview} needs_review, ${artifact.summary.blocked} blocked`,
+    `Invariant: ${artifact.invariant}`,
+    "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
+    "Decisions:",
+    ...formatDecisionLines(artifact.decisions),
+    `Redaction: ${artifact.redaction.mode}; omitted ${artifact.redaction.omittedFields.join(", ")}`,
+  ];
+
+  return `${lines.join("\n")}\n`;
+}
+
 function reviewCandidate(input: {
   readonly current: ExecutionGraph;
   readonly currentNode: ExecutionNode;
@@ -293,6 +441,11 @@ function reviewCandidate(input: {
   readonly previous: ExecutionGraph;
   readonly previousNode: ExecutionNode;
 }): CandidateReview {
+  const sideEffectClass =
+    input.operationKind === "tool_call"
+      ? readToolReplaySafety(input.currentNode).sideEffectClass
+      : undefined;
+
   const checks = [
     checkCacheKeyEquality(input.previousNode, input.currentNode),
     checkDependencyEquality(input.previousNode, input.currentNode),
@@ -311,7 +464,145 @@ function reviewCandidate(input: {
     checks,
     estimates: estimatesForNode(input.currentNode),
     reasons: blockersForChecks(checks),
+    requiredValidators:
+      input.operationKind === "model_call"
+        ? readValidationMetadata(input.currentNode.metadata).required
+        : [],
+    ...(sideEffectClass === undefined ? {} : { sideEffectClass }),
   };
+}
+
+function decideReusableNode(
+  node: ObservedTrajectoryReusableNode,
+): ReuseDecision {
+  if (
+    node.operationKind === "tool_call" &&
+    node.sideEffectClass === "read_only"
+  ) {
+    return {
+      ...baseDecisionFields(node),
+      reasons: [],
+      status: "allowed",
+    };
+  }
+
+  if (node.operationKind === "model_call") {
+    return {
+      ...baseDecisionFields(node),
+      reasons: [
+        {
+          code: "model_reuse_needs_review",
+          message:
+            "Model-call reuse requires deterministic replay evidence or explicit acceptance criteria before it can be allowed.",
+        },
+      ],
+      status: "needs_review",
+    };
+  }
+
+  return {
+    ...baseDecisionFields(node),
+    reasons: [
+      {
+        code: "mutation_reuse_needs_review",
+        message:
+          "Mutation-class tool reuse requires a future replay policy gate even when comparison evidence matches.",
+      },
+    ],
+    status: "needs_review",
+  };
+}
+
+function decideBlockedCandidate(
+  candidate: ObservedTrajectoryBlockedCandidate,
+): ReuseDecision {
+  return {
+    ...baseDecisionFields(candidate),
+    reasons: candidate.reasons,
+    status: "blocked",
+  };
+}
+
+function baseDecisionFields(
+  candidate:
+    | ObservedTrajectoryReusableNode
+    | ObservedTrajectoryBlockedCandidate,
+): Omit<ReuseDecision, "reasons" | "status"> {
+  return {
+    ...(candidate.cacheKey === undefined
+      ? {}
+      : { cacheKey: candidate.cacheKey }),
+    dependencyEvidence: evidenceForCheck(candidate, "dependency_equality"),
+    estimates: candidate.estimates,
+    freshnessEvidence: evidenceForCheck(candidate, "freshness_constraints"),
+    nodeId: candidate.nodeId,
+    operationKind: candidate.operationKind,
+    policyConstraints: evidenceForCheck(candidate, "policy_constraints"),
+    previousNodeId: candidate.previousNodeId,
+    requiredValidators: candidate.requiredValidators,
+    ...(candidate.sideEffectClass === undefined
+      ? {}
+      : { sideEffectClass: candidate.sideEffectClass }),
+  };
+}
+
+function evidenceForCheck(
+  candidate:
+    | ObservedTrajectoryReusableNode
+    | ObservedTrajectoryBlockedCandidate,
+  name: ObservedTrajectoryCheckName,
+): ReuseDecisionEvidenceSummary {
+  const check = candidate.checks.find((item) => item.name === name);
+
+  return {
+    message: check?.message ?? `Missing ${name} evidence.`,
+    status: check?.status ?? "unknown",
+  };
+}
+
+function sortReuseDecisions(
+  decisions: readonly ReuseDecision[],
+): readonly ReuseDecision[] {
+  return [...decisions].sort((left, right) => {
+    const statusDelta =
+      decisionStatusRank(left.status) - decisionStatusRank(right.status);
+
+    if (statusDelta !== 0) {
+      return statusDelta;
+    }
+
+    return left.nodeId.localeCompare(right.nodeId);
+  });
+}
+
+function decisionStatusRank(status: ReuseDecisionStatus): number {
+  switch (status) {
+    case "allowed":
+      return 0;
+    case "needs_review":
+      return 1;
+    case "blocked":
+      return 2;
+  }
+}
+
+function formatDecisionLines(
+  decisions: readonly ReuseDecision[],
+): readonly string[] {
+  if (decisions.length === 0) {
+    return ["- none"];
+  }
+
+  return decisions.map((decision) => {
+    const reasons =
+      decision.reasons.length === 0
+        ? "all required evidence passed"
+        : decision.reasons
+            .map((reason) => `${reason.code}: ${reason.message}`)
+            .join("; ");
+
+    return `- [${decision.status}] ${decision.nodeId} (${decision.operationKind}): ${reasons}`;
+  });
 }
 
 function checkCacheKeyEquality(
@@ -851,4 +1142,25 @@ function readStringArray(
   }
 
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(toStableJsonValue(value));
+}
+
+function toStableJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(toStableJsonValue);
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, toStableJsonValue(item)]),
+  );
 }

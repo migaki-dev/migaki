@@ -23,6 +23,7 @@ migaki replay --input trace.json [--format human|json]
 
 - `migaki.evidence-bundle.v0`
 - `migaki.trace-artifact.v0`
+- `migaki.reuse-decision.v0`
 
 The default format is `human`. `--format json` returns stable JSON with
 `migaki.cli-report.v0`.
@@ -42,6 +43,11 @@ For evidence bundles, the report includes:
 For mock trace artifacts, the report includes trace id, plan id, backend,
 result status, step count, duration when known, validator results, evidence
 bundle reference warnings, and `migaki.cli-report.v0` in JSON mode.
+
+For reuse decision artifacts, the report includes comparison run ids, allowed /
+needs-review / blocked counts, per-node decision status, reason codes, and the
+observation-only invariant. Human output includes the full decision artifact
+rendering; JSON output returns a compact `migaki.cli-report.v0` summary.
 
 Unsupported artifact versions and invalid artifacts exit non-zero with stderr.
 
