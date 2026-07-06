@@ -83,7 +83,22 @@ export interface MIRToolCall {
   readonly name: string;
   readonly requiresApprovalId?: string;
   readonly schemaRef?: string;
+  readonly sideEffects?: MIRToolSideEffects;
 }
+
+export interface MIRToolSideEffects {
+  readonly approvalEvidenceRef?: string;
+  readonly idempotencyKeyRef?: string;
+  readonly policyEvidenceRef?: string;
+  readonly sideEffectClass: MIRSideEffectClass;
+}
+
+export type MIRSideEffectClass =
+  | "approval_required"
+  | "idempotent_mutation"
+  | "non_idempotent_mutation"
+  | "read_only"
+  | "unknown";
 
 export interface MIRRetrievalCallNode extends MIRNodeBase<"retrieval_call"> {
   readonly queryContext: string;

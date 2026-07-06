@@ -75,7 +75,11 @@ artifacts by default.
   constraints and validators.
 - `migaki.runtime.retry_fallback_planning`: reports retry and fallback planning
   boundaries, blocks unsafe side-effecting retries, and filters fallbacks
-  through provider constraints.
+  through provider constraints. Tool retry safety uses the mIR side-effect
+  classes `read_only`, `idempotent_mutation`, `non_idempotent_mutation`,
+  `approval_required`, and `unknown`; mutating or unknown tool operations are
+  not retryable unless matching idempotency, policy, and when needed approval
+  evidence is present.
 
 ## Compatibility
 

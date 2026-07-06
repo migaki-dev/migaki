@@ -101,6 +101,13 @@ const retentionModes = new Set([
 ]);
 const auditLevels = new Set(["evidence_bundle", "none", "summary"]);
 const replayPolicies = new Set(["full_trace", "metadata", "none"]);
+const sideEffectClasses = new Set([
+  "approval_required",
+  "idempotent_mutation",
+  "non_idempotent_mutation",
+  "read_only",
+  "unknown",
+]);
 const edgeKinds = new Set(["control", "data", "fallback", "validation"]);
 const modelTasks = new Set([
   "classification",
@@ -616,6 +623,41 @@ function validateToolCallNode(
     errors,
   );
   optionalString(tool, "schemaRef", `${path}.tool.schemaRef`, errors);
+
+  const sideEffects = optionalRecord(
+    tool,
+    "sideEffects",
+    `${path}.tool.sideEffects`,
+    errors,
+  );
+
+  if (sideEffects !== undefined) {
+    requiredEnum(
+      sideEffects,
+      "sideEffectClass",
+      `${path}.tool.sideEffects.sideEffectClass`,
+      sideEffectClasses,
+      errors,
+    );
+    optionalString(
+      sideEffects,
+      "approvalEvidenceRef",
+      `${path}.tool.sideEffects.approvalEvidenceRef`,
+      errors,
+    );
+    optionalString(
+      sideEffects,
+      "idempotencyKeyRef",
+      `${path}.tool.sideEffects.idempotencyKeyRef`,
+      errors,
+    );
+    optionalString(
+      sideEffects,
+      "policyEvidenceRef",
+      `${path}.tool.sideEffects.policyEvidenceRef`,
+      errors,
+    );
+  }
 }
 
 function validateRetrievalCallNode(

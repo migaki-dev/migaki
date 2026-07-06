@@ -9,6 +9,7 @@ import {
   type MIRPlan,
   type MIRPrivacyClass,
   type MIRProvenanceSource,
+  type MIRSideEffectClass,
 } from "./index.js";
 
 const everyNodeKind = [
@@ -70,6 +71,14 @@ const everyEdgeKind = [
   "fallback",
   "validation",
 ] as const satisfies readonly MIREdgeKind[];
+
+const everySideEffectClass = [
+  "approval_required",
+  "idempotent_mutation",
+  "non_idempotent_mutation",
+  "read_only",
+  "unknown",
+] as const satisfies readonly MIRSideEffectClass[];
 
 const examplePlan = {
   id: "mir-plan-rag-example",
@@ -179,6 +188,9 @@ const examplePlan = {
       tool: {
         name: "quote-selector",
         inputRef: "fixture://tool-input",
+        sideEffects: {
+          sideEffectClass: "read_only",
+        },
       },
     },
     {
@@ -266,5 +278,6 @@ describe("mIR v0 core types", () => {
     expect(everyPrivacyClass).toContain("restricted");
     expect(everyProvenanceSource).toContain("validator");
     expect(everyEdgeKind).toContain("validation");
+    expect(everySideEffectClass).toContain("approval_required");
   });
 });
