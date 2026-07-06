@@ -271,6 +271,7 @@ function createRate(
     observedAt: "2026-01-01",
     source: {
       kind: "fixture",
+      label: "Unit test cost-rate fixture",
       note: "Unit test rate fixture.",
     },
     ...overrides,

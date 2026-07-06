@@ -111,6 +111,29 @@ describe("OpenAI-style adapter lowering", () => {
     ]);
   });
 
+  it("fails closed with drift warnings when capability metadata is stale", () => {
+    const capabilities = {
+      ...requiredOpenAIStyleCapabilities(),
+      staleAfter: "2026-01-31",
+    } satisfies ProviderCapabilities;
+
+    const result = lowerOpenAIStyleModelRequest({
+      capabilities,
+      nodeId: "node-synthesize",
+      plan: createPlan({
+        createdAt: "2026-02-01T00:00:00.000Z",
+      }),
+    });
+
+    expect(result.supported).toBe(false);
+    expect(result.warnings).toMatchObject([
+      {
+        code: "capability_fixture_stale",
+        severity: "error",
+      },
+    ]);
+  });
+
   it("sends lowered requests through injected fake transport without persisting auth secrets", async () => {
     const seenRequests: FetchProviderRequest[] = [];
     const adapter = createOpenAIStyleAdapter({
@@ -150,13 +173,14 @@ describe("OpenAI-style adapter lowering", () => {
 function createPlan(
   options: {
     readonly cacheKeyRef?: string;
+    readonly createdAt?: string;
   } = {},
 ): MIRPlan {
   return {
     id: "openai-style-plan",
     version: MIR_V0_VERSION,
     metadata: {
-      createdAt: "2026-01-01T00:00:00.000Z",
+      createdAt: options.createdAt ?? "2026-01-01T00:00:00.000Z",
     },
     constraints: {
       allowedProviders: ["openai-style"],
