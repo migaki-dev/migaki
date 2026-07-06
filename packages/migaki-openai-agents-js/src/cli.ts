@@ -4,8 +4,10 @@ import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
+  runCodeReviewWorkflowBenchmark,
   runParallelMigakiBenchmark,
   runRepoAgentReuseBenchmark,
+  type CodeReviewWorkflowBenchmarkResult,
   type ParallelMigakiBenchmarkOptions,
   type ParallelMigakiBenchmarkResult,
   type RepoAgentReuseBenchmarkResult,
@@ -44,6 +46,8 @@ interface RepoAgentBenchmarkArgs {
   readonly storeDirectory: string;
 }
 
+type CodeReviewBenchmarkArgs = RepoAgentBenchmarkArgs;
+
 const defaultStoreDirectory = ".migaki";
 
 const defaultIo: MigakiOpenAIAgentsCliIo = {
@@ -67,6 +71,10 @@ export async function runCli(
 
   if (command === "repo-agent-benchmark") {
     return runRepoAgentBenchmarkCommand(argv.slice(1));
+  }
+
+  if (command === "code-review-benchmark") {
+    return runCodeReviewBenchmarkCommand(argv.slice(1));
   }
 
   if (command === "--help" || command === "-h") {
@@ -162,6 +170,37 @@ async function runRepoAgentBenchmarkCommand(
     args.format === "json"
       ? renderRepoAgentBenchmarkJson(args, result)
       : renderRepoAgentBenchmarkHuman(args, result),
+  );
+}
+
+async function runCodeReviewBenchmarkCommand(
+  argv: readonly string[],
+): Promise<MigakiOpenAIAgentsCliResult> {
+  if (includesHelp(argv)) {
+    return succeed(renderCodeReviewBenchmarkUsage());
+  }
+
+  const args = parseCodeReviewBenchmarkArgs(argv);
+
+  if (typeof args === "string") {
+    return fail(`${args}\n\n${renderCodeReviewBenchmarkUsage()}`);
+  }
+
+  let result: CodeReviewWorkflowBenchmarkResult;
+
+  try {
+    result = await runCodeReviewWorkflowBenchmark({
+      runId: args.runId,
+      store: new LocalMigakiStore(args.storeDirectory),
+    });
+  } catch (error) {
+    return fail(`Code-review benchmark failed: ${errorMessage(error)}`);
+  }
+
+  return succeed(
+    args.format === "json"
+      ? renderCodeReviewBenchmarkJson(args, result)
+      : renderCodeReviewBenchmarkHuman(args, result),
   );
 }
 
@@ -265,6 +304,19 @@ function parseBenchmarkArgs(argv: readonly string[]): BenchmarkArgs | string {
 function parseRepoAgentBenchmarkArgs(
   argv: readonly string[],
 ): RepoAgentBenchmarkArgs | string {
+  return parseFixtureBenchmarkArgs(argv, "repo-agent-benchmark");
+}
+
+function parseCodeReviewBenchmarkArgs(
+  argv: readonly string[],
+): CodeReviewBenchmarkArgs | string {
+  return parseFixtureBenchmarkArgs(argv, "code-review-benchmark");
+}
+
+function parseFixtureBenchmarkArgs(
+  argv: readonly string[],
+  commandName: string,
+): RepoAgentBenchmarkArgs | string {
   let format: MigakiOpenAIAgentsCliFormat = "human";
   let runId: string | undefined;
   let storeDirectory = defaultStoreDirectory;
@@ -308,7 +360,7 @@ function parseRepoAgentBenchmarkArgs(
       continue;
     }
 
-    return `Unknown repo-agent-benchmark argument: ${String(arg)}.`;
+    return `Unknown ${commandName} argument: ${String(arg)}.`;
   }
 
   if (runId === undefined) {
@@ -497,13 +549,68 @@ function renderRepoAgentBenchmarkHuman(
   ].join("\n");
 }
 
+function renderCodeReviewBenchmarkJson(
+  args: CodeReviewBenchmarkArgs,
+  result: CodeReviewWorkflowBenchmarkResult,
+): string {
+  return `${serializeStableJson(
+    {
+      artifacts: codeReviewWorkflowArtifacts(args.storeDirectory, result),
+      command: "code-review-benchmark",
+      comparison: result.comparison.summary,
+      contextDiff: result.contextDiff,
+      currentRunId: result.current.runId,
+      metrics: result.metrics,
+      migakiPath: result.migakiPath,
+      previousRunId: result.previous.runId,
+      reuseDecision: result.reuseDecision.summary,
+      runId: result.runId,
+      version: MIGAKI_OPENAI_AGENTS_JS_CLI_VERSION,
+      warningList: result.warningList,
+    },
+    2,
+  )}\n`;
+}
+
+function renderCodeReviewBenchmarkHuman(
+  args: CodeReviewBenchmarkArgs,
+  result: CodeReviewWorkflowBenchmarkResult,
+): string {
+  const artifacts = codeReviewWorkflowArtifacts(args.storeDirectory, result);
+
+  return [
+    "Migaki OpenAI Agents Code-Review Workflow Benchmark",
+    `Version: ${MIGAKI_OPENAI_AGENTS_JS_CLI_VERSION}`,
+    `Run: ${result.runId}`,
+    `Previous run: ${result.previous.runId}`,
+    `Current run: ${result.current.runId}`,
+    `Comment acceptance proxy: ${formatOptionalNumber(result.metrics.commentAcceptanceProxy)}`,
+    `False-positive proxy: ${formatOptionalNumber(result.metrics.falsePositiveProxy)}`,
+    `Validator pass rate: ${formatOptionalNumber(result.metrics.validatorPassRate)}`,
+    `Cost delta USD: ${formatOptionalCost(result.metrics.costDeltaUsd)}`,
+    `Latency delta ms: ${formatOptionalNumber(result.metrics.latencyDeltaMs)}`,
+    "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
+    "Artifacts:",
+    `- previous events: ${artifacts.previousEvents}`,
+    `- previous graph: ${artifacts.previousGraph}`,
+    `- current events: ${artifacts.currentEvents}`,
+    `- current graph: ${artifacts.currentGraph}`,
+    `- comparison report: ${artifacts.report}`,
+    `- comparison artifact: ${artifacts.comparison}`,
+    `- metrics artifact: ${artifacts.metrics}`,
+    `- reuse decision artifact: ${artifacts.reuseDecision}`,
+    "",
+  ].join("\n");
+}
+
 function renderUsage(): string {
   return [
     "Usage: migaki-openai-agents-js <command> [options]",
     "",
     "Commands:",
-    "  benchmark              Run baseline and Migaki lanes in parallel.",
-    "  repo-agent-benchmark   Run the deterministic repo-agent benchmark fixture.",
+    "  benchmark                Run baseline and Migaki lanes in parallel.",
+    "  repo-agent-benchmark     Run the deterministic repo-agent benchmark fixture.",
+    "  code-review-benchmark   Run the deterministic code-review workflow fixture.",
     "",
     "Run a command with --help for command-specific options.",
     "",
@@ -537,6 +644,18 @@ function renderRepoAgentBenchmarkUsage(): string {
   ].join("\n");
 }
 
+function renderCodeReviewBenchmarkUsage(): string {
+  return [
+    "Usage: migaki-openai-agents-js code-review-benchmark --run-id <id> [options]",
+    "",
+    "Options:",
+    "  --run-id <id>            Code-review fixture run id.",
+    "  --store <dir>            Local Migaki store directory. Defaults to .migaki.",
+    "  --format human|json      Output format. Defaults to human.",
+    "",
+  ].join("\n");
+}
+
 function parallelArtifacts(
   storeDirectory: string,
   result: ParallelMigakiBenchmarkResult,
@@ -557,6 +676,18 @@ function parallelArtifacts(
 function repoAgentReuseArtifacts(
   storeDirectory: string,
   result: RepoAgentReuseBenchmarkResult,
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(result.artifacts).map(([key, path]) => [
+      key,
+      join(storeDirectory, path),
+    ]),
+  );
+}
+
+function codeReviewWorkflowArtifacts(
+  storeDirectory: string,
+  result: CodeReviewWorkflowBenchmarkResult,
 ): Readonly<Record<string, string>> {
   return Object.fromEntries(
     Object.entries(result.artifacts).map(([key, path]) => [

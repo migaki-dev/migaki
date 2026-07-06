@@ -79,6 +79,79 @@ export interface RepoAgentReuseBenchmarkResult {
   readonly runId: string;
 }
 
+export interface CodeReviewWorkflowBenchmarkOptions {
+  readonly runId?: string;
+  readonly store?: MigakiStore;
+}
+
+export interface CodeReviewBaselineSummary {
+  readonly contextLoads: readonly string[];
+  readonly modelPath: "review-and-final-comments";
+}
+
+export interface CodeReviewMigakiPathSummary {
+  readonly changedFiles: {
+    readonly droppable: false;
+    readonly role: "non-droppable";
+  };
+  readonly finalComments: {
+    readonly validatorBound: true;
+    readonly validatorsRequired: readonly string[];
+  };
+  readonly staticChecks: {
+    readonly deterministic: true;
+  };
+  readonly styleGuidance: {
+    readonly cacheable: true;
+    readonly mutability: "fixed";
+  };
+  readonly unrelatedHistory: {
+    readonly removable: true;
+  };
+}
+
+export interface CodeReviewWorkflowMetrics {
+  readonly commentAcceptanceProxy: number;
+  readonly costDeltaUsd: number;
+  readonly falsePositiveProxy: number;
+  readonly latencyDeltaMs: number;
+  readonly validatorPassRate: number;
+}
+
+export interface CodeReviewContextDiff {
+  readonly changedFileFingerprints: {
+    readonly current: string;
+    readonly previous: string;
+  };
+  readonly fixedCacheable: readonly string[];
+  readonly nonDroppable: readonly string[];
+  readonly removed: readonly string[];
+}
+
+export interface CodeReviewWorkflowBenchmarkResult {
+  readonly artifacts: {
+    readonly comparison: string;
+    readonly currentEvents: string;
+    readonly currentGraph: string;
+    readonly metrics: string;
+    readonly previousEvents: string;
+    readonly previousGraph: string;
+    readonly report: string;
+    readonly reuseDecision: string;
+  };
+  readonly baseline: CodeReviewBaselineSummary;
+  readonly comparison: ObservedTrajectoryComparison;
+  readonly contextDiff: CodeReviewContextDiff;
+  readonly current: RepoAgentBenchmarkResult;
+  readonly metrics: CodeReviewWorkflowMetrics;
+  readonly migakiPath: CodeReviewMigakiPathSummary;
+  readonly previous: RepoAgentBenchmarkResult;
+  readonly report: string;
+  readonly reuseDecision: ReuseDecisionArtifact;
+  readonly runId: string;
+  readonly warningList: readonly string[];
+}
+
 export type MigakiBenchmarkLane = "baseline" | "migaki";
 
 export interface MigakiAgentRunSpec {
@@ -136,6 +209,7 @@ export interface ParallelMigakiBenchmarkResult {
 
 const defaultRunId = "repo-agent-benchmark";
 const defaultReuseRunId = "repo-agent-reuse-benchmark";
+const defaultCodeReviewRunId = "code-review-workflow-benchmark";
 const executionGraphVersion = "migaki.execution-graph.v0";
 
 const defaultTimer: MigakiBenchmarkTimer = {
@@ -407,6 +481,90 @@ export async function runRepoAgentReuseBenchmark(
   };
 }
 
+export async function runCodeReviewWorkflowBenchmark(
+  options: CodeReviewWorkflowBenchmarkOptions = {},
+): Promise<CodeReviewWorkflowBenchmarkResult> {
+  const runId = options.runId ?? defaultCodeReviewRunId;
+  const store = options.store ?? new LocalMigakiStore();
+  const previousRunId = `${runId}-a`;
+  const currentRunId = `${runId}-b`;
+  const previous = await recordCodeReviewWorkflowTrajectory({
+    runId: previousRunId,
+    store,
+    variant: "previous",
+  });
+  const current = await recordCodeReviewWorkflowTrajectory({
+    runId: currentRunId,
+    store,
+    variant: "current",
+  });
+  const comparison = compareObservedExecutionGraphs(
+    toExecutionGraph(previous.graph, "migaki-openai-agents-js/code-review/v0"),
+    toExecutionGraph(current.graph, "migaki-openai-agents-js/code-review/v0"),
+  );
+  const reuseDecision = createReuseDecisionArtifact(comparison, {
+    createdAt: "2026-01-01T00:00:00.000Z",
+  });
+  const baseline = codeReviewBaselineSummary();
+  const migakiPath = codeReviewMigakiPathSummary();
+  const metrics = codeReviewWorkflowMetrics();
+  const contextDiff = codeReviewContextDiff();
+  const warningList = codeReviewWarningList(comparison);
+  const artifacts = codeReviewWorkflowArtifacts(
+    runId,
+    previousRunId,
+    currentRunId,
+  );
+  const report = renderCodeReviewWorkflowBenchmarkReport({
+    artifacts,
+    baseline,
+    comparison,
+    contextDiff,
+    metrics,
+    migakiPath,
+    reuseDecision,
+    runId,
+    warningList,
+  });
+
+  if (isReportStore(store)) {
+    await store.writeReport(runId, report);
+  }
+
+  if (isArtifactStore(store)) {
+    await store.writeArtifact(
+      runId,
+      "comparison.json",
+      serializeStableJson(comparison, 2),
+    );
+    await store.writeArtifact(
+      runId,
+      "metrics.json",
+      serializeStableJson(metrics, 2),
+    );
+    await store.writeArtifact(
+      runId,
+      "reuse-decision.json",
+      serializeStableJson(reuseDecision, 2),
+    );
+  }
+
+  return {
+    artifacts,
+    baseline,
+    comparison,
+    contextDiff,
+    current,
+    metrics,
+    migakiPath,
+    previous,
+    report,
+    reuseDecision,
+    runId,
+    warningList,
+  };
+}
+
 function recordModelCall(
   recorder: MigakiRecorder,
   clock: MigakiClock,
@@ -583,12 +741,140 @@ async function recordRepoAgentReuseTrajectory(input: {
   };
 }
 
-function reusableModelMetadata(): Readonly<Record<string, unknown>> {
+async function recordCodeReviewWorkflowTrajectory(input: {
+  readonly runId: string;
+  readonly store: MigakiStore;
+  readonly variant: "current" | "previous";
+}): Promise<RepoAgentBenchmarkResult> {
+  const changedFileFingerprint =
+    input.variant === "previous"
+      ? "sha256:changed-files-v1"
+      : "sha256:changed-files-v2";
+  const clock = new StepClock("2026-01-01T00:00:00.000Z");
+  const recorder = new MigakiRecorder({
+    clock,
+    metadata: {
+      benchmark: "code-review-workflow",
+      liveProviders: false,
+    },
+    runId: input.runId,
+    store: input.store,
+  });
+
+  recorder.recordRunStarted({
+    task: "Review fixture changed files with reusable style guidance and validator-bound final comments.",
+  });
+  recorder.recordAgentStarted({
+    agentName: "code-review-agent",
+    input: "Produce grounded code-review comments for the fixture patch.",
+  });
+  recordToolCall(recorder, clock, {
+    args: { contentRef: "fixture://code-review/style-guide" },
+    metadata: readOnlyToolMetadata({
+      artifactId: "ctx-style-guide",
+      fingerprint: "sha256:style-guide-v1",
+    }),
+    output: {
+      cachePolicy: "eligible",
+      mutability: "fixed",
+      tokenEstimate: 240,
+    },
+    toolName: "loadStyleGuide",
+  });
+  recordModelCall(recorder, clock, {
+    input: {
+      context: ["ctx-style-guide"],
+      removableContext: ["ctx-unrelated-history"],
+      task: "summarize stable review guidance",
+    },
+    metadata: reusableModelMetadata(["validator-review-grounding"]),
+    modelName: "gpt-5-mini",
+    output: {
+      summary: "Prefer grounded, actionable review comments.",
+    },
+    spanId: "review-context-summary",
+    totalTokens: 96,
+  });
+  recordModelCall(recorder, clock, {
+    input: {
+      changedFileFingerprint,
+      context: ["ctx-style-guide", "ctx-changed-files"],
+      droppable: false,
+      task: "review changed file content",
+    },
+    metadata: reusableModelMetadata(["validator-review-grounding"]),
+    modelName: "gpt-5-mini",
+    output: {
+      findings:
+        input.variant === "previous"
+          ? ["Prefer explicit validator evidence."]
+          : ["Preserve non-droppable changed file content."],
+    },
+    spanId: "review-changed-files",
+    totalTokens: 120,
+  });
+  recordModelCall(recorder, clock, {
+    input: {
+      context: ["ctx-style-guide", "ctx-static-check-summary"],
+      task: "write final review comments",
+    },
+    metadata:
+      input.variant === "previous"
+        ? reusableModelMetadata(["validator-review-grounding"])
+        : validatorBoundModelMetadata({
+            passed: [],
+            required: ["validator-review-grounding"],
+          }),
+    modelName: "gpt-5-mini",
+    output: {
+      comments: ["The fixture keeps review feedback grounded."],
+    },
+    spanId: "final-comments",
+    totalTokens: 144,
+  });
+
+  const output = "Deterministic code-review workflow trajectory recorded.";
+  const graph = await recorder.finalizeRunCompleted(output);
+  const summary = createMigakiReportSummary(graph);
+
+  return {
+    graph,
+    metrics: {
+      cacheableNodeCount: summary.cacheableNodeCount,
+      duplicateModelCallShapedOperations:
+        summary.duplicateModelCallShapedOperations,
+      duplicateToolCalls: summary.duplicateToolCalls,
+      llmCalls: summary.llmCalls,
+      potentialCacheHits: summary.potentialCacheHits,
+      tokens: summary.tokens,
+      toolCalls: summary.toolCalls,
+      ...(summary.latencyMs !== undefined
+        ? { latencyMs: summary.latencyMs }
+        : {}),
+    },
+    output,
+    runId: input.runId,
+  };
+}
+
+function reusableModelMetadata(
+  validators: readonly string[] = ["deterministic-fixture-output"],
+): Readonly<Record<string, unknown>> {
+  return validatorBoundModelMetadata({
+    passed: validators,
+    required: validators,
+  });
+}
+
+function validatorBoundModelMetadata(input: {
+  readonly passed: readonly string[];
+  readonly required: readonly string[];
+}): Readonly<Record<string, unknown>> {
   return {
     reuse: {
       policyAllowed: true,
-      validatorsPassed: ["deterministic-fixture-output"],
-      validatorsRequired: ["deterministic-fixture-output"],
+      validatorsPassed: input.passed,
+      validatorsRequired: input.required,
     },
   };
 }
@@ -616,7 +902,10 @@ function readOnlyToolMetadata(input: {
   };
 }
 
-function toExecutionGraph(graph: MigakiGraph): ExecutionGraph {
+function toExecutionGraph(
+  graph: MigakiGraph,
+  runtimeCompatibilityKey = "migaki-openai-agents-js/repo-agent/v0",
+): ExecutionGraph {
   return {
     createdAt: graph.createdAt,
     edges: graph.edges.map(toExecutionEdge),
@@ -625,7 +914,7 @@ function toExecutionGraph(graph: MigakiGraph): ExecutionGraph {
       ...graph.metadata,
       reuse: {
         ...(readRecord(graph.metadata, "reuse") ?? {}),
-        runtimeCompatibilityKey: "migaki-openai-agents-js/repo-agent/v0",
+        runtimeCompatibilityKey,
       },
     },
     nodes: graph.nodes.map(toExecutionNode),
@@ -802,6 +1091,164 @@ function renderRepoAgentReuseBenchmarkReport(input: {
     "",
     "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
     "Estimated avoidable token, cost, and latency values are comparison metadata for future replay validation, not realized savings.",
+    "",
+  ].join("\n");
+}
+
+function codeReviewBaselineSummary(): CodeReviewBaselineSummary {
+  return {
+    contextLoads: ["repository-context", "changed-files", "style-guide"],
+    modelPath: "review-and-final-comments",
+  };
+}
+
+function codeReviewMigakiPathSummary(): CodeReviewMigakiPathSummary {
+  return {
+    changedFiles: {
+      droppable: false,
+      role: "non-droppable",
+    },
+    finalComments: {
+      validatorBound: true,
+      validatorsRequired: ["validator-review-grounding"],
+    },
+    staticChecks: {
+      deterministic: true,
+    },
+    styleGuidance: {
+      cacheable: true,
+      mutability: "fixed",
+    },
+    unrelatedHistory: {
+      removable: true,
+    },
+  };
+}
+
+function codeReviewWorkflowMetrics(): CodeReviewWorkflowMetrics {
+  return {
+    commentAcceptanceProxy: 0.86,
+    costDeltaUsd: -0.00012,
+    falsePositiveProxy: 0.08,
+    latencyDeltaMs: -37,
+    validatorPassRate: 0.5,
+  };
+}
+
+function codeReviewContextDiff(): CodeReviewContextDiff {
+  return {
+    changedFileFingerprints: {
+      current: "sha256:changed-files-v2",
+      previous: "sha256:changed-files-v1",
+    },
+    fixedCacheable: ["ctx-style-guide"],
+    nonDroppable: ["ctx-changed-files"],
+    removed: ["ctx-unrelated-history"],
+  };
+}
+
+function codeReviewWorkflowArtifacts(
+  runId: string,
+  previousRunId: string,
+  currentRunId: string,
+): CodeReviewWorkflowBenchmarkResult["artifacts"] {
+  return {
+    comparison: `runs/${runId}/artifacts/comparison.json`,
+    currentEvents: `runs/${currentRunId}/events.jsonl`,
+    currentGraph: `runs/${currentRunId}/graph.json`,
+    metrics: `runs/${runId}/artifacts/metrics.json`,
+    previousEvents: `runs/${previousRunId}/events.jsonl`,
+    previousGraph: `runs/${previousRunId}/graph.json`,
+    report: `runs/${runId}/report.md`,
+    reuseDecision: `runs/${runId}/artifacts/reuse-decision.json`,
+  };
+}
+
+function codeReviewWarningList(
+  comparison: ObservedTrajectoryComparison,
+): readonly string[] {
+  return [
+    ...comparison.changedNodes
+      .filter((node) => node.nodeId === "model-review-changed-files")
+      .map((node) => `changed-files-content blocks reuse for ${node.nodeId}`),
+    ...comparison.blockedCandidates.flatMap((candidate) =>
+      candidate.reasons.map(
+        (reason) => `${reason.code} blocks reuse for ${candidate.nodeId}`,
+      ),
+    ),
+    ...comparison.warnings.map(
+      (warning) => `${warning.code}: ${warning.message}`,
+    ),
+  ];
+}
+
+function renderCodeReviewWorkflowBenchmarkReport(input: {
+  readonly artifacts: CodeReviewWorkflowBenchmarkResult["artifacts"];
+  readonly baseline: CodeReviewBaselineSummary;
+  readonly comparison: ObservedTrajectoryComparison;
+  readonly contextDiff: CodeReviewContextDiff;
+  readonly metrics: CodeReviewWorkflowMetrics;
+  readonly migakiPath: CodeReviewMigakiPathSummary;
+  readonly reuseDecision: ReuseDecisionArtifact;
+  readonly runId: string;
+  readonly warningList: readonly string[];
+}): string {
+  return [
+    "# Migaki Code-Review Workflow Benchmark",
+    "",
+    `Run: ${input.runId}`,
+    `Previous run: ${input.comparison.previousRunId}`,
+    `Current run: ${input.comparison.currentRunId}`,
+    "",
+    "## Baseline",
+    "",
+    `- Baseline context loads: ${input.baseline.contextLoads.join(", ")}`,
+    `- Baseline model path: ${input.baseline.modelPath}`,
+    "",
+    "## Migaki Path",
+    "",
+    `- Style guidance: ${input.migakiPath.styleGuidance.mutability}, cacheable`,
+    `- Changed files: ${input.migakiPath.changedFiles.role}`,
+    `- Unrelated history: ${input.migakiPath.unrelatedHistory.removable ? "removable" : "retained"}`,
+    `- Static checks: ${input.migakiPath.staticChecks.deterministic ? "deterministic" : "non-deterministic"}`,
+    `- Final comments: ${input.migakiPath.finalComments.validatorBound ? "validator-bound" : "unvalidated"}`,
+    "",
+    "## Metrics",
+    "",
+    `- Comment acceptance proxy: ${formatOptionalBenchmarkNumber(input.metrics.commentAcceptanceProxy)}`,
+    `- False-positive proxy: ${formatOptionalBenchmarkNumber(input.metrics.falsePositiveProxy)}`,
+    `- Validator pass rate: ${formatOptionalBenchmarkNumber(input.metrics.validatorPassRate)}`,
+    `- Cost delta USD: ${formatOptionalCost(input.metrics.costDeltaUsd)}`,
+    `- Latency delta ms: ${formatOptionalBenchmarkNumber(input.metrics.latencyDeltaMs)}`,
+    "",
+    "## Context Diff",
+    "",
+    `- Fixed cacheable context: ${input.contextDiff.fixedCacheable.join(", ")}`,
+    `- Non-droppable context: ${input.contextDiff.nonDroppable.join(", ")}`,
+    `- Removed context: ${input.contextDiff.removed.join(", ")}`,
+    `- Changed-file fingerprint diff: ${input.contextDiff.changedFileFingerprints.previous} -> ${input.contextDiff.changedFileFingerprints.current}`,
+    "",
+    "## Reuse Comparison",
+    "",
+    `- Reusable model nodes: ${formatNodeIds(input.comparison.reusableModelCalls)}`,
+    `- Reusable tool nodes: ${formatNodeIds(input.comparison.reusableToolCalls)}`,
+    `- Changed nodes: ${input.comparison.changedNodes.map((node) => `${node.nodeId} (${node.reason})`).join(", ")}`,
+    `- Blocked candidates: ${input.comparison.blockedCandidates.map((candidate) => `${candidate.nodeId} [${candidate.reasons.map((reason) => reason.code).join(", ")}]`).join(", ")}`,
+    `- Warning count: ${input.warningList.length}`,
+    ...input.warningList.map((warning) => `- Warnings: ${warning}`),
+    "",
+    "## Artifacts",
+    "",
+    `- Previous events: ${input.artifacts.previousEvents}`,
+    `- Previous graph: ${input.artifacts.previousGraph}`,
+    `- Current events: ${input.artifacts.currentEvents}`,
+    `- Current graph: ${input.artifacts.currentGraph}`,
+    `- Comparison artifact: ${input.artifacts.comparison}`,
+    `- Metrics artifact: ${input.artifacts.metrics}`,
+    `- Reuse decision artifact: ${input.artifacts.reuseDecision}`,
+    "",
+    "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
+    "Delta metrics are deterministic fixture proxies for benchmark reporting; they are not realized savings.",
     "",
   ].join("\n");
 }

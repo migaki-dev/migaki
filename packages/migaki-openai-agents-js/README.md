@@ -112,6 +112,23 @@ These estimates are observation metadata only; the fixture does not replay,
 cache, skip, call live providers, call registries, use Docker, or contact
 private services by default.
 
+For the deterministic no-provider code-review workflow fixture, run:
+
+```sh
+mise run benchmark:openai-agents code-review-benchmark \
+  --run-id code-review-fixture \
+  --store .migaki
+```
+
+The code-review fixture records baseline context loading for repository
+context, changed files, and style guidance, then compares a Migaki path that
+marks style guidance as fixed/cacheable, changed files as non-droppable,
+unrelated history as removable, static checks as deterministic, and final
+comments as validator-bound. It writes comparison, reuse-decision, metrics, and
+report artifacts with comment acceptance, false-positive, validator pass-rate,
+context diff, cost delta, latency delta, and warning-list fields. The fixture is
+hermetic and deterministic; it does not call live providers or repositories.
+
 ## Explicit Non-Goals
 
 - semantic IR

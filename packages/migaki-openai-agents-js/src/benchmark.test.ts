@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { LocalMigakiStore } from "./store.js";
 import {
+  runCodeReviewWorkflowBenchmark,
   runRepoAgentReuseBenchmark,
   runParallelMigakiBenchmark,
   runRepoAgentBenchmark,
@@ -13,6 +14,122 @@ import {
 import type { MigakiEvent, MigakiGraph } from "./types.js";
 
 describe("repo-agent benchmark", () => {
+  it("reports deterministic code-review context reuse and validator quality", async () => {
+    const root = await mkdtemp(join(tmpdir(), "migaki-code-review-"));
+
+    try {
+      const result = await runCodeReviewWorkflowBenchmark({
+        runId: "code-review-test",
+        store: new LocalMigakiStore(root),
+      });
+      const runDirectory = join(root, "runs", "code-review-test");
+      const comparison = JSON.parse(
+        await readFile(
+          join(runDirectory, "artifacts", "comparison.json"),
+          "utf8",
+        ),
+      ) as unknown;
+      const metrics = JSON.parse(
+        await readFile(join(runDirectory, "artifacts", "metrics.json"), "utf8"),
+      ) as unknown;
+      const report = await readFile(join(runDirectory, "report.md"), "utf8");
+
+      expect(result.baseline).toMatchObject({
+        contextLoads: ["repository-context", "changed-files", "style-guide"],
+        modelPath: "review-and-final-comments",
+      });
+      expect(result.migakiPath).toMatchObject({
+        changedFiles: {
+          droppable: false,
+          role: "non-droppable",
+        },
+        finalComments: {
+          validatorBound: true,
+          validatorsRequired: ["validator-review-grounding"],
+        },
+        staticChecks: {
+          deterministic: true,
+        },
+        styleGuidance: {
+          cacheable: true,
+          mutability: "fixed",
+        },
+        unrelatedHistory: {
+          removable: true,
+        },
+      });
+      expect(result.metrics).toMatchObject({
+        commentAcceptanceProxy: 0.86,
+        costDeltaUsd: -0.00012,
+        falsePositiveProxy: 0.08,
+        latencyDeltaMs: -37,
+        validatorPassRate: 0.5,
+      });
+      expect(result.contextDiff).toEqual({
+        changedFileFingerprints: {
+          current: "sha256:changed-files-v2",
+          previous: "sha256:changed-files-v1",
+        },
+        fixedCacheable: ["ctx-style-guide"],
+        nonDroppable: ["ctx-changed-files"],
+        removed: ["ctx-unrelated-history"],
+      });
+      expect(result.comparison.summary).toMatchObject({
+        blockedCandidates: 1,
+        changedNodes: 1,
+        reusableModelCalls: 1,
+        reusableToolCalls: 1,
+      });
+      expect(result.warningList).toEqual([
+        "changed-files-content blocks reuse for model-review-changed-files",
+        "validator_missing blocks reuse for model-final-comments",
+        "potential_reuse_only: Observed trajectory comparison only identifies potential reusable nodes; it never executes, replays, caches, or skips work.",
+      ]);
+      expect(comparison).toMatchObject({
+        summary: {
+          blockedCandidates: 1,
+          changedNodes: 1,
+          reusableModelCalls: 1,
+          reusableToolCalls: 1,
+        },
+      });
+      expect(metrics).toMatchObject({
+        commentAcceptanceProxy: 0.86,
+        falsePositiveProxy: 0.08,
+        validatorPassRate: 0.5,
+      });
+      expect(report).toContain("Migaki Code-Review Workflow Benchmark");
+      expect(report).toContain(
+        "- Baseline context loads: repository-context, changed-files, style-guide",
+      );
+      expect(report).toContain(
+        "- Baseline model path: review-and-final-comments",
+      );
+      expect(report).toContain("- Style guidance: fixed, cacheable");
+      expect(report).toContain("- Changed files: non-droppable");
+      expect(report).toContain("- Unrelated history: removable");
+      expect(report).toContain("- Static checks: deterministic");
+      expect(report).toContain("- Final comments: validator-bound");
+      expect(report).toContain("- Comment acceptance proxy: 0.86");
+      expect(report).toContain("- False-positive proxy: 0.08");
+      expect(report).toContain("- Validator pass rate: 0.5");
+      expect(report).toContain("- Cost delta USD: -0.000120");
+      expect(report).toContain("- Latency delta ms: -37");
+      expect(report).toContain(
+        "- Changed-file fingerprint diff: sha256:changed-files-v1 -> sha256:changed-files-v2",
+      );
+      expect(report).toContain(
+        "- Warnings: validator_missing blocks reuse for model-final-comments",
+      );
+      expect(report).toContain(
+        "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
+      );
+      expect(report).not.toMatch(/\bactual savings\b/i);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   it("compares two deterministic repo-agent runs and writes reuse artifacts", async () => {
     const root = await mkdtemp(join(tmpdir(), "migaki-reuse-benchmark-"));
 

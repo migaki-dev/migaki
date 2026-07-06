@@ -13,6 +13,77 @@ import {
 import type { MigakiGraph } from "./types.js";
 
 describe("openai agents instrumentation cli", () => {
+  it("runs the deterministic code-review workflow benchmark", async () => {
+    const root = await mkdtemp(join(tmpdir(), "migaki-cli-code-review-"));
+
+    try {
+      const result = await runCli([
+        "code-review-benchmark",
+        "--run-id",
+        "cli-code-review",
+        "--store",
+        root,
+        "--format",
+        "json",
+      ]);
+      const output = JSON.parse(result.stdout) as Readonly<
+        Record<string, unknown>
+      >;
+      const metrics = output.metrics as Readonly<Record<string, unknown>>;
+      const artifacts = output.artifacts as Readonly<Record<string, unknown>>;
+
+      expect(result).toMatchObject({
+        exitCode: 0,
+        stderr: "",
+      });
+      expect(output).toMatchObject({
+        command: "code-review-benchmark",
+        currentRunId: "cli-code-review-b",
+        previousRunId: "cli-code-review-a",
+        runId: "cli-code-review",
+        version: MIGAKI_OPENAI_AGENTS_JS_CLI_VERSION,
+      });
+      expect(metrics).toMatchObject({
+        commentAcceptanceProxy: 0.86,
+        falsePositiveProxy: 0.08,
+        validatorPassRate: 0.5,
+      });
+      expect(artifacts).toEqual({
+        comparison: join(
+          root,
+          "runs",
+          "cli-code-review",
+          "artifacts",
+          "comparison.json",
+        ),
+        currentEvents: join(root, "runs", "cli-code-review-b", "events.jsonl"),
+        currentGraph: join(root, "runs", "cli-code-review-b", "graph.json"),
+        metrics: join(
+          root,
+          "runs",
+          "cli-code-review",
+          "artifacts",
+          "metrics.json",
+        ),
+        previousEvents: join(root, "runs", "cli-code-review-a", "events.jsonl"),
+        previousGraph: join(root, "runs", "cli-code-review-a", "graph.json"),
+        report: join(root, "runs", "cli-code-review", "report.md"),
+        reuseDecision: join(
+          root,
+          "runs",
+          "cli-code-review",
+          "artifacts",
+          "reuse-decision.json",
+        ),
+      });
+      await expect(
+        readFile(join(root, "runs", "cli-code-review", "report.md"), "utf8"),
+      ).resolves.toContain("Migaki Code-Review Workflow Benchmark");
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   it("runs the deterministic repo-agent benchmark and reports artifact paths", async () => {
     const root = await mkdtemp(join(tmpdir(), "migaki-cli-fixture-"));
 
