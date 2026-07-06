@@ -160,3 +160,9 @@ If a command does not exist yet, either add it as part of repository setup work 
 ## Skills
 
 Reusable task-specific instructions belong in `.agents/skills/`. Keep always-on guidance here concise; move long procedures, domain playbooks, and tool-specific workflows into skills so agents can load them only when relevant.
+
+## Project Profile
+
+Generic project automation skills should read `.agents/project-profile.md` for
+Migaki-specific SCM, source authority, semaphore, dependency, validation, and
+completion policy before selecting, claiming, reviewing, or creating issue work.
