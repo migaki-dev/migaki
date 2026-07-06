@@ -115,6 +115,9 @@ export function lowerAnthropicStyleModelRequest(
   const capabilityCheck = checkProviderCapabilityRequirements(
     capabilities,
     collectCapabilityRequirements(node),
+    {
+      checkedAt: input.plan.metadata.createdAt,
+    },
   );
   const warnings: ProviderWarning[] = [...capabilityCheck.warnings];
   const requestShape = createRequestShape({

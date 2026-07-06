@@ -5,6 +5,9 @@ Owns provider capability contracts, backend interfaces, provider-specific reques
 The v0 public API exports versioned provider capability declarations, provider warnings, lowered execution plans, execution results, and the backend interface used by future adapters.
 
 Deterministic capability fixtures are available for mock, OpenAI-style, Anthropic-style, and LiteLLM-compatible backends. They are fixtures for tests and evidence assumptions, not live provider documentation.
+Each fixture records source labels, fixture version, verification date, and
+stale-after metadata; missing or stale metadata emits fail-closed drift
+warnings during capability checks and adapter lowering.
 
 `createMockExecutionBackend` provides the v0 deterministic mock backend. It
 lowers mIR nodes into mock execution steps, executes fixture responses without

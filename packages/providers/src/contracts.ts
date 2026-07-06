@@ -20,10 +20,12 @@ export type ProviderBackendKind =
 export interface ProviderCapabilities {
   readonly backendKind: ProviderBackendKind;
   readonly cacheTtlOptions?: readonly string[];
+  readonly fixtureVersion: ProviderContractVersion;
   readonly maxContextTokens?: number;
   readonly observedAt: string;
   readonly provider: string;
   readonly source: ProviderCapabilitySource;
+  readonly staleAfter?: string;
   readonly supportsAutomaticCaching: boolean;
   readonly supportsBatching: boolean;
   readonly supportsExplicitCacheBreakpoints: boolean;
@@ -33,11 +35,13 @@ export interface ProviderCapabilities {
   readonly supportsStructuredOutputs: boolean;
   readonly supportsToolCalling: boolean;
   readonly supportsZeroDataRetention?: boolean;
+  readonly verifiedAt: string;
   readonly version: ProviderContractVersion;
 }
 
 export interface ProviderCapabilitySource {
   readonly kind: "docs" | "fixture" | "manual" | "observed";
+  readonly label: string;
   readonly note?: string;
   readonly url?: string;
 }
@@ -102,10 +106,16 @@ export interface ProviderWarning {
 
 export type ProviderWarningCode =
   | "capability_unknown"
+  | "capability_fixture_stale"
+  | "capability_metadata_missing"
   | "context_limit_exceeded"
   | "downgraded_capability"
   | "retention_unavailable"
   | "unsupported_capability";
+
+export interface ProviderCapabilityCheckOptions {
+  readonly checkedAt?: string;
+}
 
 export interface ProviderCapabilityAssumption {
   readonly capability: ProviderCapabilityName;
@@ -189,8 +199,11 @@ export interface ProviderExecutionError {
 export function checkProviderCapabilityRequirements(
   capabilities: ProviderCapabilities,
   requirements: readonly ProviderCapabilityRequirement[],
+  options: ProviderCapabilityCheckOptions = {},
 ): ProviderCapabilityCheck {
-  const warnings: ProviderWarning[] = [];
+  const warnings: ProviderWarning[] = [
+    ...checkProviderCapabilityMetadata(capabilities, options),
+  ];
 
   for (const requirement of requirements) {
     const available = isCapabilityAvailable(capabilities, requirement);
@@ -241,6 +254,48 @@ export function checkProviderCapabilityRequirements(
   };
 }
 
+export function checkProviderCapabilityMetadata(
+  capabilities: ProviderCapabilities,
+  options: ProviderCapabilityCheckOptions = {},
+): readonly ProviderWarning[] {
+  const warnings: ProviderWarning[] = [];
+  const record = capabilities as unknown as Record<string, unknown>;
+  const provider = readString(record, "provider") ?? "unknown provider";
+  const source = record["source"];
+
+  if (!isRecord(source)) {
+    warnings.push(createMetadataMissingWarning(provider, "source metadata"));
+  } else if (readString(source, "label") === undefined) {
+    warnings.push(createMetadataMissingWarning(provider, "source label"));
+  }
+
+  if (readString(record, "fixtureVersion") === undefined) {
+    warnings.push(createMetadataMissingWarning(provider, "fixture version"));
+  }
+
+  if (readString(record, "verifiedAt") === undefined) {
+    warnings.push(createMetadataMissingWarning(provider, "verification date"));
+  }
+
+  const staleAfter = readString(record, "staleAfter");
+  const checkedAt = dateOnly(options.checkedAt);
+
+  if (
+    staleAfter !== undefined &&
+    checkedAt !== undefined &&
+    checkedAt > staleAfter
+  ) {
+    warnings.push({
+      assumption: `Provider ${provider} fixture was checked at ${checkedAt} after staleAfter ${staleAfter}.`,
+      code: "capability_fixture_stale",
+      message: "Provider capability fixture metadata is stale.",
+      severity: "error",
+    });
+  }
+
+  return warnings;
+}
+
 function isCapabilityAvailable(
   capabilities: ProviderCapabilities,
   requirement: ProviderCapabilityRequirement,
@@ -275,4 +330,37 @@ function isCapabilityAvailable(
     case "zero_data_retention":
       return capabilities.supportsZeroDataRetention;
   }
+}
+
+function createMetadataMissingWarning(
+  provider: string,
+  field: string,
+): ProviderWarning {
+  return {
+    assumption: `Provider ${provider} is missing ${field}.`,
+    code: "capability_metadata_missing",
+    message: "Provider capability fixture metadata is missing.",
+    severity: "error",
+  };
+}
+
+function readString(
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null;
+}
+
+function dateOnly(value: string | undefined): string | undefined {
+  if (value === undefined || value.length < 10) {
+    return undefined;
+  }
+
+  return value.slice(0, 10);
 }

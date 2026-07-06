@@ -113,6 +113,9 @@ export function lowerOpenAIStyleModelRequest(
   const capabilityCheck = checkProviderCapabilityRequirements(
     capabilities,
     requirements,
+    {
+      checkedAt: input.plan.metadata.createdAt,
+    },
   );
   const warnings: ProviderWarning[] = [...capabilityCheck.warnings];
   const requestShape = createRequestShape({

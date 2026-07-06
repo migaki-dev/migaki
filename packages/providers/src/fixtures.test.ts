@@ -4,6 +4,7 @@ import {
   PROVIDER_CAPABILITY_FIXTURE_VERSION,
   PROVIDER_COST_RATE_FIXTURE_VERSION,
   checkProviderFixtureRequirements,
+  checkProviderCapabilityRequirements,
   citeProviderCapabilities,
   citeProviderCostRate,
   listProviderCapabilityFixtures,
@@ -25,29 +26,58 @@ describe("provider capability fixtures", () => {
     expect(
       fixtures.map((fixture) => ({
         observedAt: fixture.observedAt,
+        fixtureVersion: fixture.fixtureVersion,
+        sourceLabel: fixture.source.label,
         sourceKind: fixture.source.kind,
+        sourceUrl: fixture.source.url,
+        staleAfter: fixture.staleAfter,
         version: fixture.version,
+        verifiedAt: fixture.verifiedAt,
       })),
     ).toEqual([
       {
+        fixtureVersion: PROVIDER_CAPABILITY_FIXTURE_VERSION,
         observedAt: "2026-01-01",
+        sourceLabel: "Deterministic mock backend fixture",
         sourceKind: "fixture",
+        sourceUrl:
+          "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
+        staleAfter: "2026-12-31",
         version: PROVIDER_CAPABILITY_FIXTURE_VERSION,
+        verifiedAt: "2026-01-01",
       },
       {
+        fixtureVersion: PROVIDER_CAPABILITY_FIXTURE_VERSION,
         observedAt: "2026-01-01",
+        sourceLabel: "OpenAI-style capability fixture",
         sourceKind: "fixture",
+        sourceUrl:
+          "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
+        staleAfter: "2026-12-31",
         version: PROVIDER_CAPABILITY_FIXTURE_VERSION,
+        verifiedAt: "2026-01-01",
       },
       {
+        fixtureVersion: PROVIDER_CAPABILITY_FIXTURE_VERSION,
         observedAt: "2026-01-01",
+        sourceLabel: "Anthropic-style capability fixture",
         sourceKind: "fixture",
+        sourceUrl:
+          "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
+        staleAfter: "2026-12-31",
         version: PROVIDER_CAPABILITY_FIXTURE_VERSION,
+        verifiedAt: "2026-01-01",
       },
       {
+        fixtureVersion: PROVIDER_CAPABILITY_FIXTURE_VERSION,
         observedAt: "2026-01-01",
+        sourceLabel: "LiteLLM-compatible gateway fixture",
         sourceKind: "fixture",
+        sourceUrl:
+          "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
+        staleAfter: "2026-12-31",
         version: PROVIDER_CAPABILITY_FIXTURE_VERSION,
+        verifiedAt: "2026-01-01",
       },
     ]);
   });
@@ -60,13 +90,136 @@ describe("provider capability fixtures", () => {
       fixture === undefined ? undefined : citeProviderCapabilities(fixture),
     ).toEqual({
       backendKind: "anthropic_style",
+      fixtureVersion: PROVIDER_CAPABILITY_FIXTURE_VERSION,
       observedAt: "2026-01-01",
       provider: "anthropic-style",
       source: {
         kind: "fixture",
+        label: "Anthropic-style capability fixture",
         note: "Anthropic-style fixture with explicit cache breakpoint assumptions.",
+        url: "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
       },
+      staleAfter: "2026-12-31",
       version: PROVIDER_CAPABILITY_FIXTURE_VERSION,
+      verifiedAt: "2026-01-01",
+    });
+  });
+
+  it("keeps fresh capability fixture metadata out of warnings", () => {
+    const fixture = lookupProviderCapabilities("openai-style");
+
+    if (fixture === undefined) {
+      throw new Error("OpenAI-style fixture is missing.");
+    }
+
+    expect(
+      checkProviderCapabilityRequirements(fixture, [], {
+        checkedAt: "2026-06-01",
+      }),
+    ).toEqual({
+      supported: true,
+      warnings: [],
+    });
+  });
+
+  it("fails closed when required capability fixture source metadata is missing", () => {
+    const fixture = lookupProviderCapabilities("mock");
+
+    if (fixture === undefined) {
+      throw new Error("Mock fixture is missing.");
+    }
+
+    const withoutSource = Object.fromEntries(
+      Object.entries(fixture).filter(([key]) => key !== "source"),
+    );
+
+    expect(
+      checkProviderCapabilityRequirements(
+        withoutSource as unknown as typeof fixture,
+        [],
+        {
+          checkedAt: "2026-06-01",
+        },
+      ),
+    ).toEqual({
+      supported: false,
+      warnings: [
+        {
+          code: "capability_metadata_missing",
+          message: "Provider capability fixture metadata is missing.",
+          severity: "error",
+          assumption: "Provider mock is missing source metadata.",
+        },
+      ],
+    });
+  });
+
+  it("fails closed when capability fixture metadata is stale", () => {
+    const fixture = lookupProviderCapabilities("mock");
+
+    if (fixture === undefined) {
+      throw new Error("Mock fixture is missing.");
+    }
+
+    expect(
+      checkProviderCapabilityRequirements(
+        {
+          ...fixture,
+          staleAfter: "2026-01-31",
+        },
+        [],
+        {
+          checkedAt: "2026-02-01",
+        },
+      ),
+    ).toEqual({
+      supported: false,
+      warnings: [
+        {
+          code: "capability_fixture_stale",
+          message: "Provider capability fixture metadata is stale.",
+          severity: "error",
+          assumption:
+            "Provider mock fixture was checked at 2026-02-01 after staleAfter 2026-01-31.",
+        },
+      ],
+    });
+  });
+
+  it("preserves provider-specific capability downgrade warnings", () => {
+    const fixture = lookupProviderCapabilities("anthropic-style");
+
+    if (fixture === undefined) {
+      throw new Error("Anthropic-style fixture is missing.");
+    }
+
+    expect(
+      checkProviderCapabilityRequirements(
+        fixture,
+        [
+          {
+            capability: "structured_outputs",
+            required: false,
+            reason:
+              "Use text JSON fallback when native structured output is unavailable.",
+          },
+        ],
+        {
+          checkedAt: "2026-06-01",
+        },
+      ),
+    ).toEqual({
+      supported: true,
+      warnings: [
+        {
+          assumption:
+            "Use text JSON fallback when native structured output is unavailable.",
+          capability: "structured_outputs",
+          code: "downgraded_capability",
+          message: "Optional provider capability is unavailable.",
+          severity: "warning",
+        },
+      ],
     });
   });
 
@@ -128,7 +281,9 @@ describe("provider capability fixtures", () => {
       provider: "mock",
       source: {
         kind: "fixture",
+        label: "Mock cost-rate fixture",
         note: "Zero-cost deterministic mock backend fixture.",
+        url: "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
       },
       version: PROVIDER_COST_RATE_FIXTURE_VERSION,
     });

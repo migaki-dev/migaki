@@ -5,6 +5,7 @@ import {
   type ProviderBackendKind,
   type ProviderCapabilities,
   type ProviderCapabilityCheck,
+  type ProviderCapabilityCheckOptions,
   type ProviderCapabilityRequirement,
   type ProviderCapabilitySource,
   type ProviderCostRateEvidenceCitation,
@@ -21,21 +22,29 @@ export type ProviderCapabilityFixtureId =
 
 export interface ProviderCapabilityEvidenceCitation {
   readonly backendKind: ProviderBackendKind;
+  readonly fixtureVersion: typeof PROVIDER_CAPABILITY_FIXTURE_VERSION;
   readonly observedAt: string;
   readonly provider: string;
   readonly source: ProviderCapabilitySource;
+  readonly staleAfter?: string;
   readonly version: typeof PROVIDER_CAPABILITY_FIXTURE_VERSION;
+  readonly verifiedAt: string;
 }
 
 const providerCapabilityFixtures = {
   mock: {
     version: PROVIDER_CAPABILITY_FIXTURE_VERSION,
+    fixtureVersion: PROVIDER_CAPABILITY_FIXTURE_VERSION,
     provider: "mock",
     backendKind: "mock",
     observedAt: "2026-01-01",
+    verifiedAt: "2026-01-01",
+    staleAfter: "2026-12-31",
     source: {
       kind: "fixture",
+      label: "Deterministic mock backend fixture",
       note: "Deterministic local mock backend for tests.",
+      url: "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
     },
     supportsPromptCaching: false,
     supportsExplicitCacheBreakpoints: false,
@@ -50,12 +59,17 @@ const providerCapabilityFixtures = {
   },
   "openai-style": {
     version: PROVIDER_CAPABILITY_FIXTURE_VERSION,
+    fixtureVersion: PROVIDER_CAPABILITY_FIXTURE_VERSION,
     provider: "openai-style",
     backendKind: "openai_style",
     observedAt: "2026-01-01",
+    verifiedAt: "2026-01-01",
+    staleAfter: "2026-12-31",
     source: {
       kind: "fixture",
+      label: "OpenAI-style capability fixture",
       note: "OpenAI-style fixture with automatic prompt caching assumptions.",
+      url: "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
     },
     supportsPromptCaching: true,
     supportsExplicitCacheBreakpoints: false,
@@ -70,12 +84,17 @@ const providerCapabilityFixtures = {
   },
   "anthropic-style": {
     version: PROVIDER_CAPABILITY_FIXTURE_VERSION,
+    fixtureVersion: PROVIDER_CAPABILITY_FIXTURE_VERSION,
     provider: "anthropic-style",
     backendKind: "anthropic_style",
     observedAt: "2026-01-01",
+    verifiedAt: "2026-01-01",
+    staleAfter: "2026-12-31",
     source: {
       kind: "fixture",
+      label: "Anthropic-style capability fixture",
       note: "Anthropic-style fixture with explicit cache breakpoint assumptions.",
+      url: "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
     },
     cacheTtlOptions: ["5m", "1h"],
     supportsPromptCaching: true,
@@ -91,12 +110,17 @@ const providerCapabilityFixtures = {
   },
   "litellm-compatible": {
     version: PROVIDER_CAPABILITY_FIXTURE_VERSION,
+    fixtureVersion: PROVIDER_CAPABILITY_FIXTURE_VERSION,
     provider: "litellm-compatible",
     backendKind: "litellm_compatible",
     observedAt: "2026-01-01",
+    verifiedAt: "2026-01-01",
+    staleAfter: "2026-12-31",
     source: {
       kind: "fixture",
+      label: "LiteLLM-compatible gateway fixture",
       note: "LiteLLM-compatible fixture; gateway owns routing and connectivity.",
+      url: "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
     },
     supportsPromptCaching: false,
     supportsExplicitCacheBreakpoints: false,
@@ -122,7 +146,9 @@ const providerCostRateFixtures = [
     observedAt: "2026-01-01",
     source: {
       kind: "fixture",
+      label: "Mock cost-rate fixture",
       note: "Zero-cost deterministic mock backend fixture.",
+      url: "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
     },
   },
   {
@@ -135,7 +161,9 @@ const providerCostRateFixtures = [
     observedAt: "2026-01-01",
     source: {
       kind: "fixture",
+      label: "OpenAI-style cost-rate fixture",
       note: "Synthetic OpenAI-style cost fixture for deterministic tests.",
+      url: "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
     },
   },
   {
@@ -148,7 +176,9 @@ const providerCostRateFixtures = [
     observedAt: "2026-01-01",
     source: {
       kind: "fixture",
+      label: "Anthropic-style cost-rate fixture",
       note: "Synthetic Anthropic-style cost fixture for deterministic tests.",
+      url: "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
     },
   },
   {
@@ -161,7 +191,9 @@ const providerCostRateFixtures = [
     observedAt: "2026-01-01",
     source: {
       kind: "fixture",
+      label: "LiteLLM-compatible cost-rate fixture",
       note: "Synthetic LiteLLM-compatible gateway cost fixture.",
+      url: "https://github.com/migaki-dev/migaki/blob/main/packages/providers/src/fixtures.ts",
     },
   },
 ] as const satisfies readonly ProviderCostRateFixture[];
@@ -194,6 +226,7 @@ export function lookupProviderCostRateFixture(
 export function checkProviderFixtureRequirements(
   fixtureId: string,
   requirements: readonly ProviderCapabilityRequirement[],
+  options: ProviderCapabilityCheckOptions = {},
 ): ProviderCapabilityCheck {
   const capabilities = lookupProviderCapabilities(fixtureId);
 
@@ -210,7 +243,11 @@ export function checkProviderFixtureRequirements(
     };
   }
 
-  return checkProviderCapabilityRequirements(capabilities, requirements);
+  return checkProviderCapabilityRequirements(
+    capabilities,
+    requirements,
+    options,
+  );
 }
 
 export function citeProviderCapabilities(
@@ -218,10 +255,15 @@ export function citeProviderCapabilities(
 ): ProviderCapabilityEvidenceCitation {
   return {
     backendKind: capabilities.backendKind,
+    fixtureVersion: capabilities.fixtureVersion,
     observedAt: capabilities.observedAt,
     provider: capabilities.provider,
     source: capabilities.source,
+    ...(capabilities.staleAfter !== undefined
+      ? { staleAfter: capabilities.staleAfter }
+      : {}),
     version: capabilities.version,
+    verifiedAt: capabilities.verifiedAt,
   };
 }
 
