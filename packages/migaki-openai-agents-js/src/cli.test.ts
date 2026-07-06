@@ -30,7 +30,10 @@ describe("openai agents instrumentation cli", () => {
         Record<string, unknown>
       >;
       const artifacts = output.artifacts as Readonly<Record<string, unknown>>;
-      const metrics = output.metrics as Readonly<Record<string, unknown>>;
+      const comparison = output.comparison as Readonly<Record<string, unknown>>;
+      const reuseDecision = output.reuseDecision as Readonly<
+        Record<string, unknown>
+      >;
 
       expect(result).toMatchObject({
         exitCode: 0,
@@ -41,20 +44,43 @@ describe("openai agents instrumentation cli", () => {
         runId: "cli-fixture",
         version: MIGAKI_OPENAI_AGENTS_JS_CLI_VERSION,
       });
-      expect(metrics).toMatchObject({
-        cacheableNodeCount: 13,
-        llmCalls: 6,
-        potentialCacheHits: 3,
-        toolCalls: 7,
+      expect(comparison).toMatchObject({
+        blockedCandidates: 1,
+        changedNodes: 1,
+        reusableModelCalls: 1,
+        reusableToolCalls: 1,
+      });
+      expect(reuseDecision).toMatchObject({
+        allowed: 1,
+        blocked: 1,
+        needsReview: 1,
       });
       expect(artifacts).toEqual({
-        events: join(root, "runs", "cli-fixture", "events.jsonl"),
-        graph: join(root, "runs", "cli-fixture", "graph.json"),
+        comparison: join(
+          root,
+          "runs",
+          "cli-fixture",
+          "artifacts",
+          "comparison.json",
+        ),
+        currentEvents: join(root, "runs", "cli-fixture-b", "events.jsonl"),
+        currentGraph: join(root, "runs", "cli-fixture-b", "graph.json"),
+        currentReport: join(root, "runs", "cli-fixture-b", "report.md"),
+        previousEvents: join(root, "runs", "cli-fixture-a", "events.jsonl"),
+        previousGraph: join(root, "runs", "cli-fixture-a", "graph.json"),
+        previousReport: join(root, "runs", "cli-fixture-a", "report.md"),
         report: join(root, "runs", "cli-fixture", "report.md"),
+        reuseDecision: join(
+          root,
+          "runs",
+          "cli-fixture",
+          "artifacts",
+          "reuse-decision.json",
+        ),
       });
       await expect(
         readFile(join(root, "runs", "cli-fixture", "report.md"), "utf8"),
-      ).resolves.toContain("- Potential cache hits: 3");
+      ).resolves.toContain("- Reusable model nodes: model-summary-reuse");
     } finally {
       await rm(root, { force: true, recursive: true });
     }

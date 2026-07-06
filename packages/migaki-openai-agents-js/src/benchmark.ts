@@ -1,12 +1,29 @@
 import { performance } from "node:perf_hooks";
 
+import {
+  compareObservedExecutionGraphs,
+  createReuseDecisionArtifact,
+  renderReuseDecisionArtifact,
+} from "@migaki/runtime";
+import type {
+  Artifact,
+  ExecutionEdge,
+  ExecutionGraph,
+  ExecutionNode,
+  Metadata,
+  ObservedTrajectoryComparison,
+  ReuseDecisionArtifact,
+} from "@migaki/runtime";
+
 import { createMigakiReportSummary } from "./report.js";
-import { serializeStableJson } from "./hash.js";
+import { serializeStableJson, stableHash } from "./hash.js";
 import { LocalMigakiStore } from "./store.js";
 import type {
+  MigakiArtifactStore,
   MigakiClock,
   MigakiErrorSnapshot,
   MigakiGraph,
+  MigakiNode,
   MigakiReportStore,
   MigakiStore,
 } from "./types.js";
@@ -34,6 +51,31 @@ export interface RepoAgentBenchmarkResult {
   readonly graph: MigakiGraph;
   readonly metrics: RepoAgentBenchmarkMetrics;
   readonly output: string;
+  readonly runId: string;
+}
+
+export interface RepoAgentReuseBenchmarkOptions {
+  readonly runId?: string;
+  readonly store?: MigakiStore;
+}
+
+export interface RepoAgentReuseBenchmarkResult {
+  readonly artifacts: {
+    readonly comparison: string;
+    readonly currentEvents: string;
+    readonly currentGraph: string;
+    readonly currentReport: string;
+    readonly previousEvents: string;
+    readonly previousGraph: string;
+    readonly previousReport: string;
+    readonly report: string;
+    readonly reuseDecision: string;
+  };
+  readonly comparison: ObservedTrajectoryComparison;
+  readonly current: RepoAgentBenchmarkResult;
+  readonly previous: RepoAgentBenchmarkResult;
+  readonly report: string;
+  readonly reuseDecision: ReuseDecisionArtifact;
   readonly runId: string;
 }
 
@@ -93,6 +135,8 @@ export interface ParallelMigakiBenchmarkResult {
 }
 
 const defaultRunId = "repo-agent-benchmark";
+const defaultReuseRunId = "repo-agent-reuse-benchmark";
+const executionGraphVersion = "migaki.execution-graph.v0";
 
 const defaultTimer: MigakiBenchmarkTimer = {
   now() {
@@ -298,6 +342,71 @@ export async function runRepoAgentBenchmark(
   };
 }
 
+export async function runRepoAgentReuseBenchmark(
+  options: RepoAgentReuseBenchmarkOptions = {},
+): Promise<RepoAgentReuseBenchmarkResult> {
+  const runId = options.runId ?? defaultReuseRunId;
+  const store = options.store ?? new LocalMigakiStore();
+  const previousRunId = `${runId}-a`;
+  const currentRunId = `${runId}-b`;
+  const previous = await recordRepoAgentReuseTrajectory({
+    runId: previousRunId,
+    store,
+    variant: "previous",
+  });
+  const current = await recordRepoAgentReuseTrajectory({
+    runId: currentRunId,
+    store,
+    variant: "current",
+  });
+  const comparison = compareObservedExecutionGraphs(
+    toExecutionGraph(previous.graph),
+    toExecutionGraph(current.graph),
+  );
+  const reuseDecision = createReuseDecisionArtifact(comparison, {
+    createdAt: "2026-01-01T00:00:00.000Z",
+  });
+  const artifacts = repoAgentReuseArtifacts(runId, previousRunId, currentRunId);
+  const report = renderRepoAgentReuseBenchmarkReport({
+    artifacts,
+    comparison,
+    reuseDecision,
+    runId,
+  });
+
+  if (isReportStore(store)) {
+    await store.writeReport(runId, report);
+  }
+
+  if (isArtifactStore(store)) {
+    await store.writeArtifact(
+      runId,
+      "comparison.json",
+      serializeStableJson(comparison, 2),
+    );
+    await store.writeArtifact(
+      runId,
+      "reuse-decision.json",
+      serializeStableJson(reuseDecision, 2),
+    );
+    await store.writeArtifact(
+      runId,
+      "reuse-decision.md",
+      renderReuseDecisionArtifact(reuseDecision, "human"),
+    );
+  }
+
+  return {
+    artifacts,
+    comparison,
+    current,
+    previous,
+    report,
+    reuseDecision,
+    runId,
+  };
+}
+
 function recordModelCall(
   recorder: MigakiRecorder,
   clock: MigakiClock,
@@ -306,12 +415,13 @@ function recordModelCall(
     readonly metadata?: Readonly<Record<string, unknown>>;
     readonly modelName: string;
     readonly output: unknown;
+    readonly spanId?: string;
     readonly totalTokens: number;
   },
 ): void {
   const inputTokens = Math.floor(input.totalTokens * 0.6);
   const outputTokens = input.totalTokens - inputTokens;
-  const spanId = `benchmark-model-${clock.now().getTime()}`;
+  const spanId = input.spanId ?? `benchmark-model-${clock.now().getTime()}`;
 
   recorder.recordModelCallStarted({
     input: input.input,
@@ -375,6 +485,335 @@ function recordToolCall(
     toolVersion: "fixture.v0",
     ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
   });
+}
+
+async function recordRepoAgentReuseTrajectory(input: {
+  readonly runId: string;
+  readonly store: MigakiStore;
+  readonly variant: "current" | "previous";
+}): Promise<RepoAgentBenchmarkResult> {
+  const clock = new StepClock("2026-01-01T00:00:00.000Z");
+  const recorder = new MigakiRecorder({
+    clock,
+    metadata: {
+      benchmark: "repo-agent-reuse-task",
+      liveProviders: false,
+    },
+    runId: input.runId,
+    store: input.store,
+  });
+
+  recorder.recordRunStarted({
+    task: "Read repository context, summarize, inspect files, and propose a patch.",
+  });
+  recorder.recordAgentStarted({
+    agentName: "repo-agent",
+    input: "Compare reusable repository-agent steps.",
+  });
+  recordModelCall(recorder, clock, {
+    input: {
+      files: ["package.json", "packages/runtime/src/runner.ts"],
+      goal: "find likely patch surface",
+    },
+    metadata: reusableModelMetadata(),
+    modelName: "gpt-5-mini",
+    output: {
+      next: "readFileTool",
+      rationale: "Need the runner contract before proposing a patch.",
+    },
+    spanId: "summary-reuse",
+    totalTokens: 68,
+  });
+  recordToolCall(recorder, clock, {
+    args: { path: "packages/runtime/src/runner.ts", range: "1-80" },
+    metadata: readOnlyToolMetadata({
+      artifactId: "runner-read",
+      fingerprint: "sha256:runner-read-v1",
+    }),
+    output: { bytes: 4096, found: true },
+    toolName: "readFileTool",
+  });
+  recordToolCall(recorder, clock, {
+    args: { command: "git status --short" },
+    metadata: {
+      estimatedCostUsd: 0,
+      reuse: {
+        policyAllowed: true,
+      },
+    },
+    output: { stdout: "" },
+    toolName: "shellTool",
+  });
+  recordModelCall(recorder, clock, {
+    input: {
+      summary:
+        input.variant === "previous"
+          ? "Runner emits pass evidence."
+          : "Runner emits pass evidence and comparison metadata.",
+      task: "propose patch",
+    },
+    metadata: reusableModelMetadata(),
+    modelName: "gpt-5-mini",
+    output: { patch: "Add deterministic comparison report." },
+    spanId: "patch-plan",
+    totalTokens: 92,
+  });
+
+  const output = "Deterministic repo-agent trajectory recorded.";
+  const graph = await recorder.finalizeRunCompleted(output);
+  const summary = createMigakiReportSummary(graph);
+
+  return {
+    graph,
+    metrics: {
+      cacheableNodeCount: summary.cacheableNodeCount,
+      duplicateModelCallShapedOperations:
+        summary.duplicateModelCallShapedOperations,
+      duplicateToolCalls: summary.duplicateToolCalls,
+      llmCalls: summary.llmCalls,
+      potentialCacheHits: summary.potentialCacheHits,
+      tokens: summary.tokens,
+      toolCalls: summary.toolCalls,
+      ...(summary.latencyMs !== undefined
+        ? { latencyMs: summary.latencyMs }
+        : {}),
+    },
+    output,
+    runId: input.runId,
+  };
+}
+
+function reusableModelMetadata(): Readonly<Record<string, unknown>> {
+  return {
+    reuse: {
+      policyAllowed: true,
+      validatorsPassed: ["deterministic-fixture-output"],
+      validatorsRequired: ["deterministic-fixture-output"],
+    },
+  };
+}
+
+function readOnlyToolMetadata(input: {
+  readonly artifactId: string;
+  readonly fingerprint: string;
+}): Readonly<Record<string, unknown>> {
+  return {
+    estimatedCostUsd: 0,
+    fileArtifact: {
+      fingerprint: input.fingerprint,
+      id: input.artifactId,
+      kind: "file",
+      metadata: {
+        reuse: {
+          freshnessStatus: "verified",
+        },
+      },
+    },
+    reuse: {
+      policyAllowed: true,
+      sideEffectClass: "read_only",
+    },
+  };
+}
+
+function toExecutionGraph(graph: MigakiGraph): ExecutionGraph {
+  return {
+    createdAt: graph.createdAt,
+    edges: graph.edges.map(toExecutionEdge),
+    ...(graph.endedAt === undefined ? {} : { endedAt: graph.endedAt }),
+    metadata: {
+      ...graph.metadata,
+      reuse: {
+        ...(readRecord(graph.metadata, "reuse") ?? {}),
+        runtimeCompatibilityKey: "migaki-openai-agents-js/repo-agent/v0",
+      },
+    },
+    nodes: graph.nodes.map(toExecutionNode),
+    runId: graph.runId,
+    startedAt: graph.startedAt,
+    status: graph.status,
+    version: executionGraphVersion,
+  };
+}
+
+function toExecutionNode(node: MigakiNode): ExecutionNode {
+  const cacheKey = readRecord(node.metadata, "cacheKey");
+  const durationMs = nodeDurationMs(node);
+  const name = readNodeName(node);
+
+  return {
+    artifacts: readNodeArtifacts(node),
+    dependencies: [],
+    ...(node.endedAt === undefined ? {} : { endedAt: node.endedAt }),
+    ...(durationMs === undefined ? {} : { durationMs }),
+    id: node.id,
+    metadata: node.metadata,
+    metrics: nodeMetrics(node),
+    operation: {
+      ...(cacheKey === undefined ? {} : { fingerprint: stableHash(cacheKey) }),
+      id: node.id,
+      kind: node.kind,
+      ...(name === undefined ? {} : { name }),
+    },
+    startedAt: node.startedAt,
+    status: node.status,
+  };
+}
+
+function toExecutionEdge(edge: MigakiGraph["edges"][number]): ExecutionEdge {
+  return {
+    from: edge.from,
+    id: `${edge.from}->${edge.to}:${edge.kind}`,
+    kind: edge.kind,
+    metadata: {},
+    to: edge.to,
+  };
+}
+
+function nodeMetrics(node: MigakiNode): ExecutionNode["metrics"] {
+  const usage = readRecord(node.metadata, "usage");
+  const costUsd = readNumber(node.metadata, "estimatedCostUsd");
+  const durationMs = nodeDurationMs(node);
+  const inputTokens = readNumber(usage, "inputTokens");
+  const outputTokens = readNumber(usage, "outputTokens");
+  const totalTokens = readNumber(usage, "totalTokens");
+
+  return {
+    ...(costUsd === undefined ? {} : { costUsd }),
+    ...(durationMs === undefined ? {} : { durationMs, latencyMs: durationMs }),
+    ...(inputTokens === undefined ? {} : { inputTokens }),
+    ...(outputTokens === undefined ? {} : { outputTokens }),
+    ...(totalTokens === undefined ? {} : { totalTokens }),
+  };
+}
+
+function readNodeArtifacts(node: MigakiNode): readonly Artifact[] {
+  const artifact = readRecord(node.metadata, "fileArtifact");
+
+  if (artifact === undefined) {
+    return [];
+  }
+
+  const id = readString(artifact, "id");
+  const kind = readString(artifact, "kind");
+  const fingerprint = readString(artifact, "fingerprint");
+
+  if (id === undefined || kind === undefined) {
+    return [];
+  }
+
+  return [
+    {
+      ...(fingerprint === undefined ? {} : { fingerprint }),
+      id,
+      kind,
+      metadata: readRecord(artifact, "metadata") ?? {},
+    },
+  ];
+}
+
+function readNodeName(node: MigakiNode): string | undefined {
+  return (
+    readString(node.metadata, "modelName") ??
+    readString(node.metadata, "toolName") ??
+    readString(node.metadata, "agentName")
+  );
+}
+
+function nodeDurationMs(node: MigakiNode): number | undefined {
+  if (node.endedAt === undefined) {
+    return undefined;
+  }
+
+  return Math.max(0, Date.parse(node.endedAt) - Date.parse(node.startedAt));
+}
+
+function repoAgentReuseArtifacts(
+  runId: string,
+  previousRunId: string,
+  currentRunId: string,
+): RepoAgentReuseBenchmarkResult["artifacts"] {
+  return {
+    comparison: `runs/${runId}/artifacts/comparison.json`,
+    currentEvents: `runs/${currentRunId}/events.jsonl`,
+    currentGraph: `runs/${currentRunId}/graph.json`,
+    currentReport: `runs/${currentRunId}/report.md`,
+    previousEvents: `runs/${previousRunId}/events.jsonl`,
+    previousGraph: `runs/${previousRunId}/graph.json`,
+    previousReport: `runs/${previousRunId}/report.md`,
+    report: `runs/${runId}/report.md`,
+    reuseDecision: `runs/${runId}/artifacts/reuse-decision.json`,
+  };
+}
+
+function renderRepoAgentReuseBenchmarkReport(input: {
+  readonly artifacts: RepoAgentReuseBenchmarkResult["artifacts"];
+  readonly comparison: ObservedTrajectoryComparison;
+  readonly reuseDecision: ReuseDecisionArtifact;
+  readonly runId: string;
+}): string {
+  const blockedLines =
+    input.comparison.blockedCandidates.length === 0
+      ? ["- Blocked candidates: none"]
+      : input.comparison.blockedCandidates.map(
+          (candidate) =>
+            `- Blocked candidates: ${candidate.nodeId} [${candidate.reasons.map((reason) => reason.code).join(", ")}] ${candidate.reasons.map((reason) => reason.message).join("; ")}`,
+        );
+  const changedLines =
+    input.comparison.changedNodes.length === 0
+      ? ["- Changed nodes: none"]
+      : input.comparison.changedNodes.map(
+          (node) => `- Changed nodes: ${node.nodeId} (${node.reason})`,
+        );
+
+  return [
+    "# Migaki Repo-Agent Reuse Benchmark",
+    "",
+    `Run: ${input.runId}`,
+    `Previous run: ${input.comparison.previousRunId}`,
+    `Current run: ${input.comparison.currentRunId}`,
+    "",
+    "## Artifacts",
+    "",
+    `- Previous events: ${input.artifacts.previousEvents}`,
+    `- Previous graph: ${input.artifacts.previousGraph}`,
+    `- Previous report: ${input.artifacts.previousReport}`,
+    `- Current events: ${input.artifacts.currentEvents}`,
+    `- Current graph: ${input.artifacts.currentGraph}`,
+    `- Current report: ${input.artifacts.currentReport}`,
+    `- Comparison artifact: ${input.artifacts.comparison}`,
+    `- Reuse decision artifact: ${input.artifacts.reuseDecision}`,
+    "",
+    "## Comparison",
+    "",
+    `- Reusable model nodes: ${formatNodeIds(input.comparison.reusableModelCalls)}`,
+    `- Reusable tool nodes: ${formatNodeIds(input.comparison.reusableToolCalls)}`,
+    ...changedLines,
+    ...blockedLines,
+    `- Estimated avoidable tokens: ${formatOptionalBenchmarkNumber(input.comparison.summary.totalEstimatedAvoidableTokens)}`,
+    `- Estimated avoidable cost USD: ${formatOptionalCost(input.comparison.summary.totalEstimatedAvoidableCostUsd)}`,
+    `- Estimated avoidable latency ms: ${formatOptionalBenchmarkNumber(input.comparison.summary.totalEstimatedAvoidableLatencyMs)}`,
+    "",
+    "## Reuse Decision",
+    "",
+    `- Allowed: ${input.reuseDecision.summary.allowed}`,
+    `- Needs review: ${input.reuseDecision.summary.needsReview}`,
+    `- Blocked: ${input.reuseDecision.summary.blocked}`,
+    "",
+    "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
+    "Estimated avoidable token, cost, and latency values are comparison metadata for future replay validation, not realized savings.",
+    "",
+  ].join("\n");
+}
+
+function formatOptionalCost(value: number | undefined): string {
+  return value === undefined ? "unknown" : value.toFixed(6);
+}
+
+function formatNodeIds(nodes: readonly { readonly nodeId: string }[]): string {
+  return nodes.length === 0
+    ? "none"
+    : nodes.map((node) => node.nodeId).join(", ");
 }
 
 function tick(clock: MigakiClock, durationMs: number): void {
@@ -541,6 +980,41 @@ function formatOptionalBoolean(value: boolean | undefined): string {
 
 function isReportStore(store: MigakiStore): store is MigakiReportStore {
   return "writeReport" in store && typeof store.writeReport === "function";
+}
+
+function isArtifactStore(store: MigakiStore): store is MigakiArtifactStore {
+  return "writeArtifact" in store && typeof store.writeArtifact === "function";
+}
+
+function readRecord(
+  record: Metadata | undefined,
+  key: string,
+): Readonly<Record<string, unknown>> | undefined {
+  const value = record?.[key];
+
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as Readonly<Record<string, unknown>>;
+}
+
+function readNumber(
+  record: Readonly<Record<string, unknown>> | undefined,
+  key: string,
+): number | undefined {
+  const value = record?.[key];
+
+  return typeof value === "number" ? value : undefined;
+}
+
+function readString(
+  record: Readonly<Record<string, unknown>> | undefined,
+  key: string,
+): string | undefined {
+  const value = record?.[key];
+
+  return typeof value === "string" ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

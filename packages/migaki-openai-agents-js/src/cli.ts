@@ -5,10 +5,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   runParallelMigakiBenchmark,
-  runRepoAgentBenchmark,
+  runRepoAgentReuseBenchmark,
   type ParallelMigakiBenchmarkOptions,
   type ParallelMigakiBenchmarkResult,
-  type RepoAgentBenchmarkResult,
+  type RepoAgentReuseBenchmarkResult,
 } from "./benchmark.js";
 import { serializeStableJson } from "./hash.js";
 import { LocalMigakiStore } from "./store.js";
@@ -147,10 +147,10 @@ async function runRepoAgentBenchmarkCommand(
     return fail(`${args}\n\n${renderRepoAgentBenchmarkUsage()}`);
   }
 
-  let result: RepoAgentBenchmarkResult;
+  let result: RepoAgentReuseBenchmarkResult;
 
   try {
-    result = await runRepoAgentBenchmark({
+    result = await runRepoAgentReuseBenchmark({
       runId: args.runId,
       store: new LocalMigakiStore(args.storeDirectory),
     });
@@ -440,14 +440,16 @@ function renderBenchmarkHuman(
 
 function renderRepoAgentBenchmarkJson(
   args: RepoAgentBenchmarkArgs,
-  result: RepoAgentBenchmarkResult,
+  result: RepoAgentReuseBenchmarkResult,
 ): string {
   return `${serializeStableJson(
     {
-      artifacts: repoAgentArtifacts(args.storeDirectory, result.runId),
+      artifacts: repoAgentReuseArtifacts(args.storeDirectory, result),
       command: "repo-agent-benchmark",
-      metrics: result.metrics,
-      output: result.output,
+      comparison: result.comparison.summary,
+      currentRunId: result.current.runId,
+      previousRunId: result.previous.runId,
+      reuseDecision: result.reuseDecision.summary,
       runId: result.runId,
       version: MIGAKI_OPENAI_AGENTS_JS_CLI_VERSION,
     },
@@ -457,26 +459,40 @@ function renderRepoAgentBenchmarkJson(
 
 function renderRepoAgentBenchmarkHuman(
   args: RepoAgentBenchmarkArgs,
-  result: RepoAgentBenchmarkResult,
+  result: RepoAgentReuseBenchmarkResult,
 ): string {
-  const artifacts = repoAgentArtifacts(args.storeDirectory, result.runId);
+  const artifacts = repoAgentReuseArtifacts(args.storeDirectory, result);
 
   return [
-    "Migaki OpenAI Agents Repo-Agent Benchmark",
+    "Migaki OpenAI Agents Repo-Agent Reuse Benchmark",
     `Version: ${MIGAKI_OPENAI_AGENTS_JS_CLI_VERSION}`,
     `Run: ${result.runId}`,
-    `Output: ${result.output}`,
-    `LLM calls: ${result.metrics.llmCalls}`,
-    `Tool calls: ${result.metrics.toolCalls}`,
-    `Tokens: ${result.metrics.tokens}`,
-    `Duplicate tool calls: ${result.metrics.duplicateToolCalls}`,
-    `Duplicate model-call-shaped operations: ${result.metrics.duplicateModelCallShapedOperations}`,
-    `Cacheable nodes: ${result.metrics.cacheableNodeCount}`,
-    `Potential cache hits: ${result.metrics.potentialCacheHits}`,
+    `Previous run: ${result.previous.runId}`,
+    `Current run: ${result.current.runId}`,
+    `Reusable model nodes: ${result.comparison.summary.reusableModelCalls}`,
+    `Reusable tool nodes: ${result.comparison.summary.reusableToolCalls}`,
+    `Changed nodes: ${result.comparison.summary.changedNodes}`,
+    `Blocked candidates: ${result.comparison.summary.blockedCandidates}`,
+    `Estimated avoidable tokens: ${formatOptionalNumber(
+      result.comparison.summary.totalEstimatedAvoidableTokens,
+    )}`,
+    `Estimated avoidable cost USD: ${formatOptionalCost(
+      result.comparison.summary.totalEstimatedAvoidableCostUsd,
+    )}`,
+    `Estimated avoidable latency ms: ${formatOptionalNumber(
+      result.comparison.summary.totalEstimatedAvoidableLatencyMs,
+    )}`,
+    "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
     "Artifacts:",
-    `- events: ${artifacts.events}`,
-    `- graph: ${artifacts.graph}`,
-    `- report: ${artifacts.report}`,
+    `- previous events: ${artifacts.previousEvents}`,
+    `- previous graph: ${artifacts.previousGraph}`,
+    `- previous report: ${artifacts.previousReport}`,
+    `- current events: ${artifacts.currentEvents}`,
+    `- current graph: ${artifacts.currentGraph}`,
+    `- current report: ${artifacts.currentReport}`,
+    `- comparison report: ${artifacts.report}`,
+    `- comparison artifact: ${artifacts.comparison}`,
+    `- reuse decision artifact: ${artifacts.reuseDecision}`,
     "",
   ].join("\n");
 }
@@ -538,15 +554,16 @@ function parallelArtifacts(
   };
 }
 
-function repoAgentArtifacts(
+function repoAgentReuseArtifacts(
   storeDirectory: string,
-  runId: string,
+  result: RepoAgentReuseBenchmarkResult,
 ): Readonly<Record<string, string>> {
-  return {
-    events: join(storeDirectory, "runs", runId, "events.jsonl"),
-    graph: join(storeDirectory, "runs", runId, "graph.json"),
-    report: join(storeDirectory, "runs", runId, "report.md"),
-  };
+  return Object.fromEntries(
+    Object.entries(result.artifacts).map(([key, path]) => [
+      key,
+      join(storeDirectory, path),
+    ]),
+  );
 }
 
 function resolveModuleSpecifier(modulePath: string, cwd: string): string {
@@ -589,6 +606,14 @@ function formatNumber(value: number): string {
   }
 
   return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatOptionalNumber(value: number | undefined): string {
+  return value === undefined ? "unknown" : formatNumber(value);
+}
+
+function formatOptionalCost(value: number | undefined): string {
+  return value === undefined ? "unknown" : value.toFixed(6);
 }
 
 function formatOptionalBoolean(value: boolean | undefined): string {
