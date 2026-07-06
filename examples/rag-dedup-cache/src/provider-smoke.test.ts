@@ -67,6 +67,8 @@ describe("RAG provider lowering smoke", () => {
           "connectivity",
           "budget_enforcement",
           "fallback_policy",
+          "retry_policy",
+          "cache_backend",
           "observability",
         ],
         id: "litellm-compatible",
@@ -107,7 +109,7 @@ describe("RAG provider lowering smoke", () => {
       },
       {
         actual:
-          "responsibilities provider_routing,connectivity,budget_enforcement,fallback_policy,observability; warning downgraded_capability:prompt_caching",
+          "responsibilities provider_routing,connectivity,budget_enforcement,fallback_policy,retry_policy,cache_backend,observability; warning downgraded_capability:prompt_caching",
         id: "litellm_gateway_cache_delegation",
         passed: true,
         required:
@@ -123,7 +125,7 @@ describe("RAG provider lowering smoke", () => {
         "- [pass] optimized_synthesis_context_refs: preserve optimized synthesis context refs for every provider (anthropic-style:fixture://rag/system,fixture://rag/question,fixture://rag/ranked-chunks | openai-style:fixture://rag/system,fixture://rag/question,fixture://rag/ranked-chunks | litellm-compatible:fixture://rag/system,fixture://rag/question,fixture://rag/ranked-chunks)",
         "- [pass] anthropic_explicit_cache_control: lower cache-eligible context into Anthropic-style cache_control blocks (fixture://rag/system,fixture://rag/ranked-chunks)",
         "- [pass] openai_automatic_cache_downgrade: keep OpenAI-style prompt caching provider-managed with an explicit downgrade warning (assumption automatic_caching; warning downgraded_capability:explicit_cache_breakpoints)",
-        "- [pass] litellm_gateway_cache_delegation: keep LiteLLM-compatible cache policy delegated to the gateway (responsibilities provider_routing,connectivity,budget_enforcement,fallback_policy,observability; warning downgraded_capability:prompt_caching)",
+        "- [pass] litellm_gateway_cache_delegation: keep LiteLLM-compatible cache policy delegated to the gateway (responsibilities provider_routing,connectivity,budget_enforcement,fallback_policy,retry_policy,cache_backend,observability; warning downgraded_capability:prompt_caching)",
         "Node: node-synthesize",
         "Optimized plan: rag-optimized",
         "Warnings: anthropic-style: none | openai-style: downgraded_capability:explicit_cache_breakpoints | litellm-compatible: downgraded_capability:prompt_caching",

@@ -98,7 +98,10 @@ transports only. They represent fixture-backed explicit cache breakpoints.
 model calls into deterministic LiteLLM-compatible chat request shapes using
 injected transports only. They record gateway assumptions that distinguish
 Migaki lowering from gateway-owned provider routing, connectivity, budget
-enforcement, fallback policy, and observability.
+enforcement, fallback policy, retry policy, cache backend behavior, and
+observability. The broader ownership rules for gateway and durable replay
+boundaries are defined in
+[Gateway and Durable Replay Boundaries v0](./gateway-durable-boundaries-v0.md).
 
 ## Compatibility
 

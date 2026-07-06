@@ -19,6 +19,10 @@ downstream integrators.
   adapter responsibilities.
 - [Evidence Bundles v0](./evidence-bundles-v0.md) describes evidence events,
   evidence bundles, redaction behavior, and mock trace replay artifacts.
+- [Gateway and Durable Replay Boundaries v0](./gateway-durable-boundaries-v0.md)
+  describes which routing, fallback, budget, retry, cache, observability, and
+  replay decisions belong to Migaki versus gateways and durable workflow
+  engines.
 - [CLI v0](./cli-v0.md) describes the `report` and `replay` command surfaces.
 - [Adaptive Policies v0](./adaptive-policies-v0.md) describes
   meta-observations, policy proposals, policy diffs, and accepted policy
