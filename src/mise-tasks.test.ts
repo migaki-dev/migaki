@@ -6,6 +6,36 @@ import { describe, expect, it } from "vitest";
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 
 describe("mise tasks", () => {
+  it("installs dependencies once before quality check fanout", async () => {
+    const config = await readFile(`${repositoryRoot}/mise.toml`, "utf8");
+    const setupTask = readTask(config, "setup");
+    const installTask = readTask(config, "install");
+    const checkTask = readTask(config, "check");
+    const checkTasksTask = readTask(config, "check:tasks");
+
+    expect(setupTask).toContain('depends = ["hooks:install", "install"]');
+    expect(installTask).toContain(
+      'description = "Install pnpm workspace dependencies from the lockfile"',
+    );
+    expect(installTask).toContain('run = "pnpm install --frozen-lockfile"');
+    expect(checkTask).toContain('depends = ["install"]');
+    expect(checkTask).toContain('run = "mise run check:tasks"');
+
+    for (const task of [
+      "format:check",
+      "lint",
+      "typecheck",
+      "test",
+      "test:e2e",
+      "build",
+      "bootstrap:check",
+    ]) {
+      expect(checkTasksTask).toContain(`"${task}"`);
+    }
+
+    expect(checkTasksTask).not.toContain('"install"');
+  });
+
   it("wires OpenAI Agents benchmark CLI execution", async () => {
     const config = await readFile(`${repositoryRoot}/mise.toml`, "utf8");
     const task = readTask(config, "benchmark:openai-agents");
@@ -140,9 +170,10 @@ describe("mise tasks", () => {
 });
 
 function readTask(config: string, taskName: string): string {
-  const escapedName = escapeRegExp(taskName);
+  const escapedBareHeader = escapeRegExp(`[tasks.${taskName}]`);
+  const escapedQuotedHeader = escapeRegExp(`[tasks."${taskName}"]`);
   const match = new RegExp(
-    String.raw`\[tasks\."${escapedName}"\]\n(?<task>[\s\S]*?)(?=\n\[tasks[.\"]|\n$)`,
+    String.raw`(?:${escapedBareHeader}|${escapedQuotedHeader})\n(?<task>[\s\S]*?)(?=\n\[tasks[.\"]|\n$)`,
   ).exec(config);
 
   if (match?.groups?.task === undefined) {

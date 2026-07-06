@@ -15,8 +15,11 @@ description = "Run the default project quality gate"
 depends = ["check"]
 
 [tasks.setup]
+description = "Prepare repository hooks and pnpm workspace dependencies"
+depends = ["hooks:install", "install"]
+
+[tasks.install]
 description = "Install pnpm workspace dependencies from the lockfile"
-depends = ["hooks:install"]
 run = "pnpm install --frozen-lockfile"
 
 [tasks."hooks:install"]
@@ -191,6 +194,11 @@ fi
 
 [tasks.check]
 description = "Run the repository quality gate"
+depends = ["install"]
+run = "mise run check:tasks"
+
+[tasks."check:tasks"]
+description = "Run repository quality tasks after dependencies are installed"
 depends = [
   "format:check",
   "lint",
