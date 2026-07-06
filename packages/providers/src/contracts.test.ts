@@ -13,11 +13,15 @@ import { MIR_V0_VERSION, type MIRPlan } from "@migaki/mir";
 const capabilityFixtures = [
   {
     version: PROVIDER_CONTRACT_VERSION,
+    fixtureVersion: PROVIDER_CONTRACT_VERSION,
     provider: "mock",
     backendKind: "mock",
     observedAt: "2026-01-01",
+    verifiedAt: "2026-01-01",
+    staleAfter: "2026-12-31",
     source: {
       kind: "fixture",
+      label: "Deterministic mock backend fixture",
       note: "Deterministic local mock backend for tests.",
     },
     supportsPromptCaching: false,
@@ -33,11 +37,15 @@ const capabilityFixtures = [
   },
   {
     version: PROVIDER_CONTRACT_VERSION,
+    fixtureVersion: PROVIDER_CONTRACT_VERSION,
     provider: "openai-style",
     backendKind: "openai_style",
     observedAt: "2026-01-01",
+    verifiedAt: "2026-01-01",
+    staleAfter: "2026-12-31",
     source: {
       kind: "fixture",
+      label: "OpenAI-style capability fixture",
       note: "OpenAI-style capability fixture for request lowering tests.",
     },
     supportsPromptCaching: true,
@@ -53,11 +61,15 @@ const capabilityFixtures = [
   },
   {
     version: PROVIDER_CONTRACT_VERSION,
+    fixtureVersion: PROVIDER_CONTRACT_VERSION,
     provider: "anthropic-style",
     backendKind: "anthropic_style",
     observedAt: "2026-01-01",
+    verifiedAt: "2026-01-01",
+    staleAfter: "2026-12-31",
     source: {
       kind: "fixture",
+      label: "Anthropic-style capability fixture",
       note: "Anthropic-style capability fixture for request lowering tests.",
     },
     cacheTtlOptions: ["5m", "1h"],
@@ -74,11 +86,15 @@ const capabilityFixtures = [
   },
   {
     version: PROVIDER_CONTRACT_VERSION,
+    fixtureVersion: PROVIDER_CONTRACT_VERSION,
     provider: "litellm-compatible",
     backendKind: "litellm_compatible",
     observedAt: "2026-01-01",
+    verifiedAt: "2026-01-01",
+    staleAfter: "2026-12-31",
     source: {
       kind: "fixture",
+      label: "LiteLLM-compatible gateway fixture",
       note: "Gateway-compatible fixture; gateway owns routing and connectivity.",
     },
     supportsPromptCaching: false,

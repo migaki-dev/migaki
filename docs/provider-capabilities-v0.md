@@ -30,7 +30,10 @@ provider backend. The implemented backend kinds are `mock`, `openai_style`,
 
 The v0 capability fields include:
 
-- provider id, backend kind, version, observation time, and source
+- provider id, backend kind, contract version, fixture version, observation
+  time, verification date, and source
+- source kind, label, optional URL, and optional note
+- optional stale-after metadata used to detect drift risk
 - maximum context tokens when known
 - prompt caching, explicit cache breakpoints, automatic caching, batching,
   structured outputs, tool calling, reasoning controls, remote MCP, and zero
@@ -47,10 +50,16 @@ documentation.
 capability fixture and returns a supported boolean plus structured warnings.
 Required missing capabilities produce `error` warnings and fail closed.
 Optional missing capabilities produce downgrade warnings.
+Missing fixture freshness metadata produces `capability_metadata_missing`
+errors. Stale fixtures produce `capability_fixture_stale` errors when checked
+against an explicit evaluation date, such as a plan creation timestamp during
+adapter lowering. These warnings fail closed so lowering and evidence do not
+silently rely on missing or stale provider assumptions.
 
-Implemented warning codes are `capability_unknown`, `context_limit_exceeded`,
-`downgraded_capability`, `retention_unavailable`, and
-`unsupported_capability`.
+Implemented warning codes are `capability_unknown`,
+`capability_fixture_stale`, `capability_metadata_missing`,
+`context_limit_exceeded`, `downgraded_capability`, `retention_unavailable`,
+and `unsupported_capability`.
 
 ## Backend Lowering
 

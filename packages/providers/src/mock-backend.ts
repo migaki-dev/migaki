@@ -2,6 +2,7 @@ import type { MIRNode, MIRPlan } from "@migaki/mir";
 
 import {
   PROVIDER_CONTRACT_VERSION,
+  checkProviderCapabilityRequirements,
   type ExecutionBackend,
   type ExecutionOutput,
   type ExecutionResult,
@@ -95,7 +96,7 @@ export function createMockExecutionBackend(
     id: backendId,
     provider: "mock",
     async lower(plan: MIRPlan): Promise<MockLoweredExecutionPlan> {
-      return lowerMockPlan(plan, backendId);
+      return lowerMockPlan(plan, backendId, capabilities);
     },
     async execute(
       plan: MockLoweredExecutionPlan,
@@ -108,7 +109,16 @@ export function createMockExecutionBackend(
 function lowerMockPlan(
   plan: MIRPlan,
   backendId: string,
+  capabilities: ProviderCapabilities,
 ): MockLoweredExecutionPlan {
+  const capabilityCheck = checkProviderCapabilityRequirements(
+    capabilities,
+    [],
+    {
+      checkedAt: plan.metadata.createdAt,
+    },
+  );
+
   return {
     assumptions: [
       {
@@ -125,7 +135,10 @@ function lowerMockPlan(
     sourcePlanId: plan.id,
     steps: plan.nodes.map((node, index) => lowerNode(node, index + 1)),
     version: PROVIDER_CONTRACT_VERSION,
-    warnings: createProviderConstraintWarnings(plan),
+    warnings: [
+      ...capabilityCheck.warnings,
+      ...createProviderConstraintWarnings(plan),
+    ],
   };
 }
 
