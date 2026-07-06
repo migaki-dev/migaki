@@ -47,7 +47,8 @@ tokens/cost/latency when the current graph provides those metrics. Candidates
 must pass cache-key equality, dependency equality, runtime compatibility,
 validator, policy, freshness, status, and side-effect checks. Missing or
 unknown evidence fails closed into a blocked candidate instead of being treated
-as replay permission.
+as replay permission. Comparison results carry a `metadata_only`
+`privacyPolicy` reference to the shared evidence privacy export matrix.
 
 The v0 plan diff contract is `migaki.plan-diff.v0`. Generated diffs report
 metadata, constraint, context, node, edge, and warning changes in deterministic
@@ -61,11 +62,17 @@ validator results, routing, retry/fallback decisions, and policy decisions.
 Every event carries source, privacy, and redaction metadata so later evidence
 bundles can say what was included, omitted, or redacted.
 
+The v0 evidence privacy policy contract is `migaki.evidence-privacy-policy.v0`.
+`EVIDENCE_PRIVACY_EXPORT_MATRIX` defines metadata-only, redacted, and full
+export behavior for prompts, tool inputs, tool outputs, provider responses, file
+paths, customer data, credentials, and local machine paths.
+
 The v0 evidence bundle contract is `migaki.evidence-bundle.v0`. Bundles carry
 references to the original and optimized plans, inline plan and context diffs,
 pass summaries, warnings, grouped evidence sections, replay metadata, and
 explicit records for omitted or redacted data. Serialization is deterministic
-for golden fixtures and CI artifacts.
+for golden fixtures and CI artifacts. Bundles default to `metadata_only`; `full`
+exports require explicit code opt-in.
 
 The v0 mock trace artifact contract is `migaki.trace-artifact.v0`. It captures
 mock-backed execution steps, fixture responses, timing, usage, validator

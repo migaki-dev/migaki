@@ -19,16 +19,19 @@ Use `--run <run-id>` instead of `--latest` to promote a specific local run.
 Each promoted bundle is written to `docs/migaki-artifacts/<slug>/` and includes:
 
 - `manifest.json` with schema version, source run id, promotion timestamp,
-  source fingerprints, artifact list, and redaction records
+  source fingerprints, artifact list, privacy policy reference, and redaction
+  records
 - `report.md` copied from the validated local run report
 - `graph-summary.json` with selected redacted graph metadata
 
 Promotion validates that the source run has `events.jsonl`, `graph.json`, and
 `report.md`, then fails closed if any required artifact is missing or malformed.
-It does not promote raw `events.jsonl` by default. Raw prompts, tool input and
-output, transcript paths, file paths, summaries, and delegated task/result text
-must stay omitted or represented only by fingerprints and explicit redaction
-metadata.
+It does not promote raw `events.jsonl` by default. Promoted manifests reference
+`migaki.evidence-privacy-policy.v0` with `exportMode: "redacted"` and
+`fullTraceOptIn: false`. Raw prompts, tool input and output, provider responses,
+customer data, credentials, transcript paths, file paths, summaries, local
+machine paths, and delegated task/result text must stay omitted or represented
+only by fingerprints and explicit redaction metadata.
 
 Promoted `file_reuse` findings are advisory unless the report includes explicit
 freshness evidence and source-equivalence evidence. A repeated redacted file

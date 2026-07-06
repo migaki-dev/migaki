@@ -18,6 +18,11 @@
   ],
   "createdAt": "2026-07-04T03:06:33.272Z",
   "name": "first-dogfood",
+  "privacyPolicy": {
+    "exportMatrixVersion": "migaki.evidence-privacy-policy.v0",
+    "exportMode": "redacted",
+    "fullTraceOptIn": false
+  },
   "redactions": [
     {
       "mode": "omitted",

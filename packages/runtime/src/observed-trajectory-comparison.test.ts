@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   EXECUTION_GRAPH_VERSION,
+  EVIDENCE_PRIVACY_POLICY_VERSION,
   OBSERVED_TRAJECTORY_COMPARISON_VERSION,
   compareObservedExecutionGraphs,
   stableExecutionHash,
@@ -45,6 +46,11 @@ describe("observed trajectory comparison", () => {
       version: OBSERVED_TRAJECTORY_COMPARISON_VERSION,
       previousRunId: "previous",
       currentRunId: "current",
+      privacyPolicy: {
+        exportMatrixVersion: EVIDENCE_PRIVACY_POLICY_VERSION,
+        exportMode: "metadata_only",
+        fullTraceOptIn: false,
+      },
       summary: {
         blockedCandidates: 0,
         changedNodes: 0,

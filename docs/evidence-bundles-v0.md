@@ -4,6 +4,7 @@
 
 - Evidence event contract: `migaki.evidence-event.v0`
 - Evidence bundle contract: `migaki.evidence-bundle.v0`
+- Evidence privacy policy contract: `migaki.evidence-privacy-policy.v0`
 - Mock trace artifact contract: `migaki.trace-artifact.v0`
 - Owning package: `@migaki/runtime`
 - Source of truth: `packages/runtime/src/evidence.ts`,
@@ -52,12 +53,38 @@ An `EvidenceBundle` has `migaki.evidence-bundle.v0` and records:
   retry/fallback, policy decisions, and validator results
 - replay metadata
 - redaction records
+- privacy policy reference: export matrix version, export mode, and whether
+  full-trace export was explicitly opted into
 - export mode: `full`, `metadata_only`, or `redacted`
 
 `createEvidenceBundle` groups event sections deterministically and applies
-export-mode behavior. In `metadata_only` mode, full-trace evidence events are
-omitted and recorded as redactions. In `redacted` mode, sensitive events become
-redacted event shells and redaction records.
+export-mode behavior. The default export mode is `metadata_only`. In
+`metadata_only` mode, full-trace evidence events are omitted and recorded as
+redactions. In `redacted` mode, sensitive events become redacted event shells and
+redaction records. `full` exports require explicit code opt-in with
+`allowFullTraceExport: true`.
+
+## Evidence Privacy Export Matrix
+
+The `migaki.evidence-privacy-policy.v0` matrix defines what raw sensitive fields
+may appear in each export mode:
+
+| Field               | `metadata_only` | `redacted`                             | `full`                                          |
+| ------------------- | --------------- | -------------------------------------- | ----------------------------------------------- |
+| Prompts             | omitted         | redacted shell or record               | may appear only with explicit full-trace opt-in |
+| Tool inputs         | omitted         | redacted shell or record               | may appear only with explicit full-trace opt-in |
+| Tool outputs        | omitted         | redacted shell or record               | may appear only with explicit full-trace opt-in |
+| Provider responses  | omitted         | redacted shell or record               | may appear only with explicit full-trace opt-in |
+| File paths          | omitted         | redacted shell, fingerprint, or record | may appear only with explicit full-trace opt-in |
+| Customer data       | omitted         | redacted shell or record               | may appear only with explicit full-trace opt-in |
+| Credentials         | omitted         | redaction record only                  | raw credentials must not appear                 |
+| Local machine paths | omitted         | redacted shell, fingerprint, or record | may appear only with explicit full-trace opt-in |
+
+Default local reports, promoted artifacts, evidence bundles, comparison reports,
+and reuse-decision artifacts must use `metadata_only` or `redacted` policy
+references unless a caller deliberately requests a full export in code.
+Full-trace opt-in is never inferred from CLI defaults, promotion, comparison, or
+reuse advice.
 
 Serialization is deterministic for golden fixtures and CI artifacts. Validation
 returns structured errors or throws `EvidenceBundleValidationFailure` through
@@ -117,6 +144,9 @@ The `file_reuse` opportunity report represents this explicitly:
 Reports and advice may coach an agent to check prior context or read the
 smallest missing range once, but they must not imply cache, replay, suppressed
 reads, or other hidden execution behavior.
+File-reuse decision artifacts inherit the `metadata_only` evidence privacy
+policy: raw file paths, commands, tool inputs, and tool outputs stay omitted or
+represented by redacted fingerprints plus explicit omission records.
 
 ## Observed Trajectory Comparison Semantics
 
@@ -133,6 +163,10 @@ constraints, status, and side-effect checks. Unknown or missing evidence fails
 closed into a blocked candidate with blocker reasons and warning metadata.
 Estimated avoidable tokens, cost, and latency are included only when the
 observed graph already carries those metrics.
+Comparison artifacts include a `privacyPolicy` reference to
+`migaki.evidence-privacy-policy.v0` and use `metadata_only` by default; they do
+not carry raw prompts, tool payloads, provider responses, credentials, or local
+machine paths.
 
 Tool-call comparison uses the same side-effect vocabulary as mIR:
 `read_only`, `idempotent_mutation`, `non_idempotent_mutation`,
