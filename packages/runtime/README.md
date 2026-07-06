@@ -35,6 +35,18 @@ equivalence, and automatic-skip safety. Today the Codex hook records repeated
 identity but not freshness or command-output equivalence, so automatic skip
 remains disallowed.
 
+The v0 observed trajectory comparison contract is
+`migaki.observed-trajectory-comparison.v0`. `compareObservedExecutionGraphs`
+compares two `migaki.execution-graph.v0` runs as data only. It never executes,
+replays, caches, or skips work. The result classifies exact reusable
+`model_call` and `tool_call` nodes, changed nodes, and blocked reuse candidates
+with blocker reasons, warning metadata, and estimated avoidable
+tokens/cost/latency when the current graph provides those metrics. Candidates
+must pass cache-key equality, dependency equality, runtime compatibility,
+validator, policy, freshness, status, and side-effect checks. Missing or
+unknown evidence fails closed into a blocked candidate instead of being treated
+as replay permission.
+
 The v0 plan diff contract is `migaki.plan-diff.v0`. Generated diffs report
 metadata, constraint, context, node, edge, and warning changes in deterministic
 order. Diff entries identify changed artifacts and fields, but omit before and

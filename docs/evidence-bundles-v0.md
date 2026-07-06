@@ -113,6 +113,22 @@ advice may coach an agent to check prior context or read the smallest missing
 range once, but they must not imply cache, replay, suppressed reads, or other
 hidden execution behavior.
 
+## Observed Trajectory Comparison Semantics
+
+The `migaki.observed-trajectory-comparison.v0` contract compares two
+`migaki.execution-graph.v0` runs without executing, replaying, caching, or
+skipping work. It classifies exact reusable model-call nodes, exact reusable
+tool-call nodes, changed nodes, and blocked reuse candidates. Reusable means
+"potentially reusable under the comparison contract"; it is not permission to
+serve prior outputs or suppress future execution.
+
+Every candidate records cache-key equality, dependency equality, runtime
+compatibility, validator requirements, policy constraints, freshness
+constraints, status, and side-effect checks. Unknown or missing evidence fails
+closed into a blocked candidate with blocker reasons and warning metadata.
+Estimated avoidable tokens, cost, and latency are included only when the
+observed graph already carries those metrics.
+
 ## Compatibility
 
 Changing event kinds, required event fields, bundle section names, redaction
