@@ -56,6 +56,36 @@ describe("retryFallbackPlanningPass", () => {
     });
   });
 
+  it("does not warn for approved idempotent mutation tool nodes with policy evidence", async () => {
+    const result = await retryFallbackPlanningPass.apply(
+      createApprovedToolPlan(),
+      passContext,
+    );
+
+    expect(result.warnings).toEqual([]);
+    expect(
+      result.evidence.filter(
+        (event) =>
+          event.kind === "retry_fallback_decision" &&
+          event.retryFallbackDecision.decision === "not_retryable",
+      ),
+    ).toEqual([]);
+  });
+
+  it("marks unknown side-effect tool nodes not retryable", async () => {
+    const result = await retryFallbackPlanningPass.apply(
+      createUnknownToolPlan(),
+      passContext,
+    );
+
+    expect(result.warnings).toMatchObject([
+      {
+        code: "retry_side_effect_not_retryable",
+        severity: "warning",
+      },
+    ]);
+  });
+
   it("chooses fallback providers that satisfy allowed and denied provider constraints", async () => {
     const result = await retryFallbackPlanningPass.apply(
       createFallbackPlan(),
@@ -188,11 +218,69 @@ function createToolPlan(): MIRPlan {
         kind: "tool_call",
         metadata: {
           retryFallback: {
-            sideEffecting: true,
+            sideEffectClass: "non_idempotent_mutation",
           },
         },
         tool: {
           name: "charge-card",
+        },
+      },
+    ],
+    edges: [],
+  };
+}
+
+function createApprovedToolPlan(): MIRPlan {
+  return {
+    id: "approved-tool-retry-plan",
+    version: MIR_V0_VERSION,
+    metadata: {
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    constraints: {},
+    context: [],
+    nodes: [
+      {
+        id: "node-charge-card",
+        kind: "tool_call",
+        metadata: {
+          retryFallback: {
+            approvalEvidenceRef: "approval:human-reviewed-charge-1",
+            idempotencyKeyRef: "idempotency:charge-request-1",
+            policyEvidenceRef: "policy:tool-retry-allowlist-1",
+            sideEffectClass: "approval_required",
+          },
+        },
+        tool: {
+          name: "charge-card",
+          requiresApprovalId: "approval-charge-card",
+        },
+      },
+    ],
+    edges: [],
+  };
+}
+
+function createUnknownToolPlan(): MIRPlan {
+  return {
+    id: "unknown-tool-retry-plan",
+    version: MIR_V0_VERSION,
+    metadata: {
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    constraints: {},
+    context: [],
+    nodes: [
+      {
+        id: "node-native-github",
+        kind: "tool_call",
+        metadata: {
+          retryFallback: {
+            sideEffectClass: "unknown",
+          },
+        },
+        tool: {
+          name: "github-update-issue",
         },
       },
     ],

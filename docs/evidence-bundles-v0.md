@@ -134,6 +134,21 @@ closed into a blocked candidate with blocker reasons and warning metadata.
 Estimated avoidable tokens, cost, and latency are included only when the
 observed graph already carries those metrics.
 
+Tool-call comparison uses the same side-effect vocabulary as mIR:
+`read_only`, `idempotent_mutation`, `non_idempotent_mutation`,
+`approval_required`, and `unknown`. Read-only tool calls can be classified as
+potentially reusable when the other checks pass. Idempotent or
+approval-required mutations require matching idempotency, policy, and approval
+evidence as applicable. Non-idempotent, unknown, or under-evidenced tool
+operations remain blocked. Native GitHub, tool, provider, or other API
+mutations are never replayable from observation alone; they require explicit
+policy evidence before any narrower decision can be reported.
+
+Execution-report `parallelism` opportunities intentionally do not assign these
+classes. They are sequence-only dependency-review prompts, remain `blocked`, and
+require a reviewer or later pass to prove data independence, side-effect class,
+and user-visible ordering before any parallel execution is allowed.
+
 ## Compatibility
 
 Changing event kinds, required event fields, bundle section names, redaction

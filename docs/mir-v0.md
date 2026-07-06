@@ -51,6 +51,14 @@ Model calls declare a task and optional required capabilities such as
 `custom`, `policy`, `schema`, and `source_grounding` kinds. Validator failure
 policy is explicit: `fail_plan`, `retry_node`, or `warn`.
 
+Tool calls may declare `tool.sideEffects` metadata. The v0 side-effect classes
+are `read_only`, `idempotent_mutation`, `non_idempotent_mutation`,
+`approval_required`, and `unknown`. Mutating classes can also carry
+`idempotencyKeyRef`, `policyEvidenceRef`, and `approvalEvidenceRef` when a
+caller has explicit evidence that a replay, retry, or reuse decision is safe.
+Missing or `unknown` side-effect metadata must fail closed in replay-sensitive
+consumers.
+
 ## Context Blocks
 
 Context blocks are first-class graph artifacts. Each block has an id,

@@ -1,3 +1,5 @@
+import type { MIRSideEffectClass } from "@migaki/mir";
+
 import {
   stableExecutionDigest,
   type Artifact,
@@ -38,6 +40,8 @@ export type ObservedTrajectoryBlockerCode =
   | "policy_denied"
   | "runtime_incompatible"
   | "runtime_unknown"
+  | "side_effect_policy_missing"
+  | "side_effect_unknown"
   | "side_effecting_tool"
   | "validator_missing";
 
@@ -48,6 +52,7 @@ export interface ObservedTrajectoryEstimate {
 }
 
 export interface ObservedTrajectoryCheck {
+  readonly blockerCode?: ObservedTrajectoryBlockerCode;
   readonly message: string;
   readonly name: ObservedTrajectoryCheckName;
   readonly status: ObservedTrajectoryCheckStatus;
@@ -117,6 +122,21 @@ interface CandidateReview {
   readonly estimates: ObservedTrajectoryEstimate;
   readonly reasons: readonly ObservedTrajectoryBlocker[];
 }
+
+interface ToolReplaySafetyMetadata {
+  readonly approvalEvidenceRef?: string;
+  readonly idempotencyKeyRef?: string;
+  readonly policyEvidenceRef?: string;
+  readonly sideEffectClass?: MIRSideEffectClass;
+}
+
+const sideEffectClasses = new Set<MIRSideEffectClass>([
+  "approval_required",
+  "idempotent_mutation",
+  "non_idempotent_mutation",
+  "read_only",
+  "unknown",
+]);
 
 export function compareObservedExecutionGraphs(
   previous: ExecutionGraph,
@@ -467,33 +487,89 @@ function checkSideEffects(
     };
   }
 
-  const previousSideEffecting = readBoolean(
-    readRecord(previousNode.metadata, "reuse"),
-    "sideEffecting",
-  );
-  const currentSideEffecting = readBoolean(
-    readRecord(currentNode.metadata, "reuse"),
-    "sideEffecting",
-  );
+  const previousReplaySafety = readToolReplaySafety(previousNode);
+  const currentReplaySafety = readToolReplaySafety(currentNode);
 
   if (
-    previousSideEffecting === undefined ||
-    currentSideEffecting === undefined
+    previousReplaySafety.sideEffectClass === undefined ||
+    currentReplaySafety.sideEffectClass === undefined ||
+    previousReplaySafety.sideEffectClass === "unknown" ||
+    currentReplaySafety.sideEffectClass === "unknown"
   ) {
     return {
+      blockerCode: "side_effect_unknown",
       message:
-        "Tool-call reuse requires explicit side-effect metadata in both runs.",
+        "Tool-call reuse requires known side-effect class metadata in both runs.",
       name: "side_effects",
       status: "unknown",
     };
   }
 
-  return {
-    message:
-      "Side-effecting tool calls are not reusable without a stricter replay policy.",
-    name: "side_effects",
-    status: previousSideEffecting || currentSideEffecting ? "failed" : "passed",
-  };
+  if (
+    previousReplaySafety.sideEffectClass !== currentReplaySafety.sideEffectClass
+  ) {
+    return {
+      blockerCode: "side_effect_policy_missing",
+      message:
+        "Tool-call reuse requires matching side-effect class metadata in both runs.",
+      name: "side_effects",
+      status: "failed",
+    };
+  }
+
+  switch (currentReplaySafety.sideEffectClass) {
+    case "read_only":
+      return {
+        message: "Tool-call side-effect class is read-only in both runs.",
+        name: "side_effects",
+        status: "passed",
+      };
+    case "idempotent_mutation":
+      return matchingReplayEvidence(previousReplaySafety, currentReplaySafety, [
+        "idempotencyKeyRef",
+        "policyEvidenceRef",
+      ])
+        ? {
+            message:
+              "Idempotent mutation tool calls include matching policy and idempotency evidence.",
+            name: "side_effects",
+            status: "passed",
+          }
+        : {
+            blockerCode: "side_effect_policy_missing",
+            message:
+              "Idempotent mutation reuse requires matching idempotency and policy evidence.",
+            name: "side_effects",
+            status: "failed",
+          };
+    case "approval_required":
+      return matchingReplayEvidence(previousReplaySafety, currentReplaySafety, [
+        "approvalEvidenceRef",
+        "idempotencyKeyRef",
+        "policyEvidenceRef",
+      ])
+        ? {
+            message:
+              "Approval-required tool calls include matching approval, policy, and idempotency evidence.",
+            name: "side_effects",
+            status: "passed",
+          }
+        : {
+            blockerCode: "side_effect_policy_missing",
+            message:
+              "Approval-required reuse requires matching approval, idempotency, and policy evidence.",
+            name: "side_effects",
+            status: "failed",
+          };
+    case "non_idempotent_mutation":
+      return {
+        blockerCode: "side_effecting_tool",
+        message:
+          "Non-idempotent mutation tool calls are not reusable without a stricter replay policy.",
+        name: "side_effects",
+        status: "failed",
+      };
+  }
 }
 
 function blockersForChecks(
@@ -547,7 +623,11 @@ function blockersForChecks(
       case "side_effects":
         return [
           {
-            code: "side_effecting_tool",
+            code:
+              check.blockerCode ??
+              (check.status === "unknown"
+                ? "side_effect_unknown"
+                : "side_effecting_tool"),
             message: check.message,
           },
         ];
@@ -660,6 +740,54 @@ function readValidationMetadata(metadata: Metadata): {
     passed: readStringArray(reuse, "validatorsPassed"),
     required: readStringArray(reuse, "validatorsRequired"),
   };
+}
+
+function readToolReplaySafety(node: ExecutionNode): ToolReplaySafetyMetadata {
+  const reuse = readRecord(node.metadata, "reuse");
+  const approvalEvidenceRef = readString(reuse, "approvalEvidenceRef");
+  const idempotencyKeyRef = readString(reuse, "idempotencyKeyRef");
+  const policyEvidenceRef = readString(reuse, "policyEvidenceRef");
+  const sideEffecting = readBoolean(reuse, "sideEffecting");
+  const sideEffectClass =
+    readSideEffectClass(readString(reuse, "sideEffectClass")) ??
+    (sideEffecting === true
+      ? "non_idempotent_mutation"
+      : sideEffecting === false
+        ? "read_only"
+        : undefined);
+
+  return {
+    ...(approvalEvidenceRef === undefined ? {} : { approvalEvidenceRef }),
+    ...(idempotencyKeyRef === undefined ? {} : { idempotencyKeyRef }),
+    ...(policyEvidenceRef === undefined ? {} : { policyEvidenceRef }),
+    ...(sideEffectClass === undefined ? {} : { sideEffectClass }),
+  };
+}
+
+function readSideEffectClass(
+  value: string | undefined,
+): MIRSideEffectClass | undefined {
+  return value !== undefined &&
+    sideEffectClasses.has(value as MIRSideEffectClass)
+    ? (value as MIRSideEffectClass)
+    : undefined;
+}
+
+function matchingReplayEvidence(
+  previous: ToolReplaySafetyMetadata,
+  current: ToolReplaySafetyMetadata,
+  keys: readonly (keyof ToolReplaySafetyMetadata)[],
+): boolean {
+  return keys.every((key) => {
+    const previousValue = previous[key];
+    const currentValue = current[key];
+
+    return (
+      typeof previousValue === "string" &&
+      previousValue.length > 0 &&
+      previousValue === currentValue
+    );
+  });
 }
 
 function allValidatorsPassed(input: {

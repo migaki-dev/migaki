@@ -270,13 +270,13 @@ describe("observed trajectory comparison", () => {
     const previous = graph("previous", [
       toolNode("tool-write", {
         fingerprintSeed: "write-file",
-        sideEffecting: true,
+        sideEffectClass: "non_idempotent_mutation",
       }),
     ]);
     const current = graph("current", [
       toolNode("tool-write", {
         fingerprintSeed: "write-file",
-        sideEffecting: true,
+        sideEffectClass: "non_idempotent_mutation",
       }),
     ]);
 
@@ -289,7 +289,93 @@ describe("observed trajectory comparison", () => {
           {
             code: "side_effecting_tool",
             message:
-              "Side-effecting tool calls are not reusable without a stricter replay policy.",
+              "Non-idempotent mutation tool calls are not reusable without a stricter replay policy.",
+          },
+        ],
+      }),
+    ]);
+  });
+
+  it("reuses read-only tool candidates with explicit side-effect metadata", () => {
+    const previous = graph("previous", [
+      toolNode("tool-read", {
+        fingerprintSeed: "read-state",
+        sideEffectClass: "read_only",
+      }),
+    ]);
+    const current = graph("current", [
+      toolNode("tool-read", {
+        fingerprintSeed: "read-state",
+        sideEffectClass: "read_only",
+      }),
+    ]);
+
+    const comparison = compareObservedExecutionGraphs(previous, current);
+
+    expect(comparison.blockedCandidates).toEqual([]);
+    expect(comparison.reusableToolCalls).toMatchObject([
+      {
+        nodeId: "tool-read",
+        operationKind: "tool_call",
+      },
+    ]);
+  });
+
+  it("reuses approved idempotent mutation candidates with matching policy evidence", () => {
+    const replaySafety = {
+      approvalEvidenceRef: "approval:human-reviewed-charge-1",
+      idempotencyKeyRef: "idempotency:charge-request-1",
+      policyEvidenceRef: "policy:tool-replay-allowlist-1",
+      sideEffectClass: "approval_required",
+    };
+    const previous = graph("previous", [
+      toolNode("tool-charge", {
+        fingerprintSeed: "charge-request",
+        replaySafety,
+      }),
+    ]);
+    const current = graph("current", [
+      toolNode("tool-charge", {
+        fingerprintSeed: "charge-request",
+        replaySafety,
+      }),
+    ]);
+
+    const comparison = compareObservedExecutionGraphs(previous, current);
+
+    expect(comparison.blockedCandidates).toEqual([]);
+    expect(comparison.reusableToolCalls).toMatchObject([
+      {
+        nodeId: "tool-charge",
+        operationKind: "tool_call",
+      },
+    ]);
+  });
+
+  it("blocks unknown side-effect candidates", () => {
+    const previous = graph("previous", [
+      toolNode("tool-native-github", {
+        fingerprintSeed: "github-mutation",
+        sideEffectClass: "unknown",
+      }),
+    ]);
+    const current = graph("current", [
+      toolNode("tool-native-github", {
+        fingerprintSeed: "github-mutation",
+        sideEffectClass: "unknown",
+      }),
+    ]);
+
+    expect(
+      compareObservedExecutionGraphs(previous, current).blockedCandidates,
+    ).toEqual([
+      expect.objectContaining({
+        nodeId: "tool-native-github",
+        reasons: [
+          {
+            code: "side_effect_unknown",
+            message:
+              "Tool-call reuse requires known side-effect class metadata in both runs.",
           },
         ],
       }),
@@ -356,7 +442,8 @@ function toolNode(
     readonly dependencies?: ExecutionNode["dependencies"];
     readonly fingerprintSeed?: string;
     readonly latencyMs?: number;
-    readonly sideEffecting?: boolean;
+    readonly replaySafety?: Readonly<Record<string, string>>;
+    readonly sideEffectClass?: string;
     readonly status?: ExecutionNode["status"];
     readonly totalTokens?: number;
   },
@@ -378,7 +465,9 @@ function toolNode(
     metadata: {
       reuse: {
         policyAllowed: true,
-        sideEffecting: options.sideEffecting ?? false,
+        ...(options.replaySafety ?? {
+          sideEffectClass: options.sideEffectClass ?? "read_only",
+        }),
       },
     },
   });

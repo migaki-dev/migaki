@@ -1,4 +1,9 @@
-import type { MIREdge, MIRNode, MIRPlan } from "@migaki/mir";
+import type {
+  MIREdge,
+  MIRNode,
+  MIRPlan,
+  MIRSideEffectClass,
+} from "@migaki/mir";
 
 import { diffMIRPlans } from "./diff.js";
 import {
@@ -21,10 +26,21 @@ export type RetryFallbackPlanningVersion =
   typeof RETRY_FALLBACK_PLANNING_VERSION;
 
 export interface RetryFallbackPolicyMetadata {
+  readonly approvalEvidenceRef?: string;
   readonly fallbackProviders?: readonly string[];
   readonly idempotencyKeyRef?: string;
+  readonly policyEvidenceRef?: string;
+  readonly sideEffectClass?: MIRSideEffectClass;
   readonly sideEffecting?: boolean;
 }
+
+const sideEffectClasses = new Set<MIRSideEffectClass>([
+  "approval_required",
+  "idempotent_mutation",
+  "non_idempotent_mutation",
+  "read_only",
+  "unknown",
+]);
 
 const passIdentity = {
   name: "migaki.runtime.retry_fallback_planning",
@@ -105,12 +121,13 @@ export const retryFallbackPlanningPass = {
     for (const node of plan.nodes) {
       const metadata = readRetryFallbackMetadata(node);
 
-      if (isUnsafeSideEffect(node, metadata)) {
+      const sideEffectBlocker = retrySideEffectBlocker(node, metadata);
+
+      if (sideEffectBlocker !== undefined) {
         const warning: PassWarning = {
-          assumption:
-            "Side-effecting tool node lacks idempotency metadata or human approval.",
+          assumption: sideEffectBlocker.assumption,
           code: "retry_side_effect_not_retryable",
-          message: "Side-effecting tool node is not retryable.",
+          message: "Tool node is not retryable under its side-effect policy.",
           path: nodePath(node.id),
           severity: "warning",
         };
@@ -123,7 +140,7 @@ export const retryFallbackPlanningPass = {
             nodeId: node.id,
             refs: [RETRY_FALLBACK_PLANNING_VERSION],
             scope: "node",
-            summary: `Node ${node.id} is not retryable without idempotency or approval metadata.`,
+            summary: `Node ${node.id} is not retryable: ${sideEffectBlocker.summary}`,
           }),
         );
         evidenceIndex += 1;
@@ -248,18 +265,50 @@ function chooseFallbackProvider(
   return undefined;
 }
 
-function isUnsafeSideEffect(
+function retrySideEffectBlocker(
   node: MIRNode,
   metadata: RetryFallbackPolicyMetadata,
-): boolean {
-  if (node.kind !== "tool_call" || metadata.sideEffecting !== true) {
-    return false;
+): { readonly assumption: string; readonly summary: string } | undefined {
+  if (node.kind !== "tool_call") {
+    return undefined;
   }
 
-  return (
-    metadata.idempotencyKeyRef === undefined &&
-    node.tool.requiresApprovalId === undefined
-  );
+  const sideEffectClass = effectiveSideEffectClass(metadata);
+
+  switch (sideEffectClass) {
+    case "read_only":
+      return undefined;
+    case "idempotent_mutation":
+      return hasIdempotentPolicyEvidence(metadata)
+        ? undefined
+        : {
+            assumption:
+              "Idempotent mutation tool node lacks idempotency or policy evidence.",
+            summary:
+              "idempotent mutation lacks idempotency or policy evidence.",
+          };
+    case "approval_required":
+      return hasIdempotentPolicyEvidence(metadata) &&
+        hasApprovalEvidence(node, metadata)
+        ? undefined
+        : {
+            assumption:
+              "Approval-required tool node lacks idempotency, policy, or approval evidence.",
+            summary:
+              "approval-required mutation lacks idempotency, policy, or approval evidence.",
+          };
+    case "non_idempotent_mutation":
+      return {
+        assumption:
+          "Non-idempotent mutation tool node cannot be retried safely.",
+        summary: "non-idempotent mutation.",
+      };
+    case "unknown":
+      return {
+        assumption: "Tool node side-effect class is unknown.",
+        summary: "side-effect class is unknown.",
+      };
+  }
 }
 
 function readRetryFallbackMetadata(node: MIRNode): RetryFallbackPolicyMetadata {
@@ -270,16 +319,68 @@ function readRetryFallbackMetadata(node: MIRNode): RetryFallbackPolicyMetadata {
   }
 
   const fallbackProviders = readStringArray(raw["fallbackProviders"]);
+  const sideEffectClass = readSideEffectClass(raw["sideEffectClass"]);
 
   return {
+    ...(typeof raw["approvalEvidenceRef"] === "string"
+      ? { approvalEvidenceRef: raw["approvalEvidenceRef"] }
+      : {}),
     ...(fallbackProviders !== undefined ? { fallbackProviders } : {}),
     ...(typeof raw["idempotencyKeyRef"] === "string"
       ? { idempotencyKeyRef: raw["idempotencyKeyRef"] }
       : {}),
+    ...(typeof raw["policyEvidenceRef"] === "string"
+      ? { policyEvidenceRef: raw["policyEvidenceRef"] }
+      : {}),
+    ...(sideEffectClass === undefined ? {} : { sideEffectClass }),
     ...(typeof raw["sideEffecting"] === "boolean"
       ? { sideEffecting: raw["sideEffecting"] }
       : {}),
   };
+}
+
+function effectiveSideEffectClass(
+  metadata: RetryFallbackPolicyMetadata,
+): MIRSideEffectClass {
+  if (metadata.sideEffectClass !== undefined) {
+    return metadata.sideEffectClass;
+  }
+
+  if (metadata.sideEffecting === true) {
+    return "non_idempotent_mutation";
+  }
+
+  if (metadata.sideEffecting === false) {
+    return "read_only";
+  }
+
+  return "unknown";
+}
+
+function hasIdempotentPolicyEvidence(
+  metadata: RetryFallbackPolicyMetadata,
+): boolean {
+  return (
+    metadata.idempotencyKeyRef !== undefined &&
+    metadata.policyEvidenceRef !== undefined
+  );
+}
+
+function hasApprovalEvidence(
+  node: Extract<MIRNode, { kind: "tool_call" }>,
+  metadata: RetryFallbackPolicyMetadata,
+): boolean {
+  return (
+    metadata.approvalEvidenceRef !== undefined ||
+    node.tool.requiresApprovalId !== undefined
+  );
+}
+
+function readSideEffectClass(value: unknown): MIRSideEffectClass | undefined {
+  return typeof value === "string" &&
+    sideEffectClasses.has(value as MIRSideEffectClass)
+    ? (value as MIRSideEffectClass)
+    : undefined;
 }
 
 function createRetryFallbackEvidence(input: {
