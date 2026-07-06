@@ -361,6 +361,17 @@ export function createEvidenceBundle(
       continue;
     }
 
+    if (exportMode === "full" && event.redaction.mode === "omitted") {
+      redactions.push(createDeclaredRedactionRecord(event));
+      continue;
+    }
+
+    if (exportMode === "full" && shouldRedactFullExportEvent(event)) {
+      redactions.push(createRedactedEventRecord(event));
+      events.push(createRedactedEventShell(event));
+      continue;
+    }
+
     if (exportMode === "redacted" && shouldRedactEvent(event)) {
       redactions.push(createRedactedEventRecord(event));
       events.push(createRedactedEventShell(event));
@@ -520,6 +531,13 @@ function shouldRedactEvent(event: EvidenceEvent): boolean {
   return (
     event.redaction.mode !== "none" ||
     sensitivePrivacyClasses.has(event.privacy.privacyClass)
+  );
+}
+
+function shouldRedactFullExportEvent(event: EvidenceEvent): boolean {
+  return (
+    event.redaction.mode === "redacted" ||
+    event.privacy.privacyClass === "secret"
   );
 }
 

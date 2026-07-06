@@ -354,6 +354,61 @@ describe("evidence bundles", () => {
     });
   });
 
+  it("redacts secret-bearing events even in full exports", () => {
+    const rawSecret = "sk-live-secret-fixture";
+    const bundle = createEvidenceBundle({
+      ...baseBundleInput(),
+      events: [
+        {
+          ...createEvent(
+            "credential-warning",
+            "warning",
+            {
+              warning: {
+                code: rawSecret,
+                severity: "warning",
+              },
+            },
+            {
+              privacyClass: "secret",
+              replayMode: "full_trace",
+            },
+          ),
+          summary: `Credential leaked: ${rawSecret}`,
+        },
+      ],
+      exportMode: "full",
+      allowFullTraceExport: true,
+    });
+    const serialized = serializeEvidenceBundle(bundle);
+
+    expect(bundle.events).toMatchObject([
+      {
+        id: "credential-warning",
+        kind: "warning",
+        redaction: {
+          mode: "redacted",
+        },
+        summary: "Redacted evidence event credential-warning.",
+      },
+    ]);
+    const [redactedEvent] = bundle.events;
+
+    expect(redactedEvent).toBeDefined();
+    expect(redactedEvent !== undefined && "warning" in redactedEvent).toBe(
+      false,
+    );
+    expect(bundle.redactions).toMatchObject([
+      {
+        eventId: "credential-warning",
+        mode: "redacted",
+        privacyClass: "secret",
+      },
+    ]);
+    expect(serialized).not.toContain(rawSecret);
+    expect(validateEvidenceBundle(bundle).success).toBe(true);
+  });
+
   it("replaces sensitive events with redacted shells in redacted exports", () => {
     const bundle = createEvidenceBundle({
       ...baseBundleInput(),
