@@ -63,6 +63,10 @@ importers:
         version: link:../runtime
 
   packages/migaki-openai-agents-js:
+    dependencies:
+      '@migaki/runtime':
+        specifier: workspace:*
+        version: link:../runtime
     devDependencies:
       '@openai/agents':
         specifier: 0.12.0

@@ -4,12 +4,12 @@ import { join } from "node:path";
 import { serializeStableJson, stableHash } from "./hash.js";
 import type {
   MigakiCacheKey,
+  MigakiArtifactStore,
   MigakiEvent,
   MigakiGraph,
-  MigakiReportStore,
 } from "./types.js";
 
-export class LocalMigakiStore implements MigakiReportStore {
+export class LocalMigakiStore implements MigakiArtifactStore {
   readonly #rootDirectory: string;
 
   constructor(rootDirectory = ".migaki") {
@@ -42,6 +42,22 @@ export class LocalMigakiStore implements MigakiReportStore {
     await writeFile(
       join(runDirectory, "report.md"),
       report.endsWith("\n") ? report : `${report}\n`,
+      "utf8",
+    );
+  }
+
+  async writeArtifact(
+    runId: string,
+    name: string,
+    content: string,
+  ): Promise<void> {
+    assertSafeArtifactName(name);
+
+    const runDirectory = await this.#ensureRunDirectory(runId);
+
+    await writeFile(
+      join(runDirectory, "artifacts", name),
+      content.endsWith("\n") ? content : `${content}\n`,
       "utf8",
     );
   }
@@ -90,6 +106,14 @@ export function assertSafeRunId(runId: string): void {
   if (!/^[A-Za-z0-9._-]+$/.test(runId)) {
     throw new Error(
       "Migaki runId may contain only letters, numbers, dots, underscores, and hyphens.",
+    );
+  }
+}
+
+function assertSafeArtifactName(name: string): void {
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+    throw new Error(
+      "Migaki artifact names may contain only letters, numbers, dots, underscores, and hyphens.",
     );
   }
 }

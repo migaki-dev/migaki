@@ -83,7 +83,7 @@ export function createRun(lane) {
 }
 ```
 
-For the deterministic no-provider fixture, run:
+For the deterministic no-provider repo-agent reuse fixture, run:
 
 ```sh
 pnpm exec migaki-openai-agents-js repo-agent-benchmark \
@@ -100,6 +100,17 @@ mise run benchmark:openai-agents repo-agent-benchmark \
 ```
 
 Add `--format json` to either command for machine-readable output.
+
+The fixture records two hermetic repo-agent trajectories under
+`<runId>-a` and `<runId>-b`, then writes a comparison run under `<runId>`.
+The comparison report links the local `events.jsonl`, `graph.json`,
+`report.md`, `artifacts/comparison.json`, and
+`artifacts/reuse-decision.json` files. The comparison identifies exact
+reusable model and read-only tool nodes, changed nodes, blocked reuse
+candidates, and estimated avoidable tokens, cost, and latency when available.
+These estimates are observation metadata only; the fixture does not replay,
+cache, skip, call live providers, call registries, use Docker, or contact
+private services by default.
 
 ## Explicit Non-Goals
 
