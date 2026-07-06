@@ -17,8 +17,12 @@ import {
 import type { PassContractVersion, PassIdentity, PassWarning } from "./pass.js";
 
 export const EVIDENCE_BUNDLE_VERSION = "migaki.evidence-bundle.v0";
+export const EVIDENCE_PRIVACY_POLICY_VERSION =
+  "migaki.evidence-privacy-policy.v0";
 
 export type EvidenceBundleVersion = typeof EVIDENCE_BUNDLE_VERSION;
+export type EvidencePrivacyPolicyVersion =
+  typeof EVIDENCE_PRIVACY_POLICY_VERSION;
 
 export const EVIDENCE_BUNDLE_EXPORT_MODES = [
   "full",
@@ -28,6 +32,170 @@ export const EVIDENCE_BUNDLE_EXPORT_MODES = [
 
 export type EvidenceBundleExportMode =
   (typeof EVIDENCE_BUNDLE_EXPORT_MODES)[number];
+
+export const EVIDENCE_PRIVACY_EXPORT_FIELDS = [
+  "prompt",
+  "tool_input",
+  "tool_output",
+  "provider_response",
+  "file_path",
+  "customer_data",
+  "credential",
+  "local_machine_path",
+] as const;
+
+export type EvidencePrivacyExportField =
+  (typeof EVIDENCE_PRIVACY_EXPORT_FIELDS)[number];
+
+export type EvidencePrivacyExportDisposition = "include" | "omit" | "redact";
+
+export interface EvidencePrivacyExportRule {
+  readonly disposition: EvidencePrivacyExportDisposition;
+  readonly reason: string;
+  readonly requiresExplicitOptIn?: boolean;
+}
+
+export type EvidencePrivacyExportMatrix = {
+  readonly [field in EvidencePrivacyExportField]: {
+    readonly [mode in EvidenceBundleExportMode]: EvidencePrivacyExportRule;
+  };
+};
+
+export interface EvidencePrivacyPolicyReference {
+  readonly exportMatrixVersion: EvidencePrivacyPolicyVersion;
+  readonly exportMode: EvidenceBundleExportMode;
+  readonly fullTraceOptIn: boolean;
+}
+
+const omitMetadataReason =
+  "Metadata-only exports omit raw sensitive values and keep fingerprints, summaries, counts, or explicit omission records only.";
+const redactReason =
+  "Redacted exports replace raw sensitive values with redacted shells, fingerprints, or explicit redaction records.";
+const fullTraceReason =
+  "Full exports may include raw trace values only when the caller explicitly opts in.";
+
+export const EVIDENCE_PRIVACY_EXPORT_MATRIX = {
+  prompt: {
+    metadata_only: {
+      disposition: "omit",
+      reason: omitMetadataReason,
+    },
+    redacted: {
+      disposition: "redact",
+      reason: redactReason,
+    },
+    full: {
+      disposition: "include",
+      reason: fullTraceReason,
+      requiresExplicitOptIn: true,
+    },
+  },
+  tool_input: {
+    metadata_only: {
+      disposition: "omit",
+      reason: omitMetadataReason,
+    },
+    redacted: {
+      disposition: "redact",
+      reason: redactReason,
+    },
+    full: {
+      disposition: "include",
+      reason: fullTraceReason,
+      requiresExplicitOptIn: true,
+    },
+  },
+  tool_output: {
+    metadata_only: {
+      disposition: "omit",
+      reason: omitMetadataReason,
+    },
+    redacted: {
+      disposition: "redact",
+      reason: redactReason,
+    },
+    full: {
+      disposition: "include",
+      reason: fullTraceReason,
+      requiresExplicitOptIn: true,
+    },
+  },
+  provider_response: {
+    metadata_only: {
+      disposition: "omit",
+      reason: omitMetadataReason,
+    },
+    redacted: {
+      disposition: "redact",
+      reason: redactReason,
+    },
+    full: {
+      disposition: "include",
+      reason: fullTraceReason,
+      requiresExplicitOptIn: true,
+    },
+  },
+  file_path: {
+    metadata_only: {
+      disposition: "omit",
+      reason: omitMetadataReason,
+    },
+    redacted: {
+      disposition: "redact",
+      reason: redactReason,
+    },
+    full: {
+      disposition: "include",
+      reason: fullTraceReason,
+      requiresExplicitOptIn: true,
+    },
+  },
+  customer_data: {
+    metadata_only: {
+      disposition: "omit",
+      reason: omitMetadataReason,
+    },
+    redacted: {
+      disposition: "redact",
+      reason: redactReason,
+    },
+    full: {
+      disposition: "include",
+      reason: fullTraceReason,
+      requiresExplicitOptIn: true,
+    },
+  },
+  credential: {
+    metadata_only: {
+      disposition: "omit",
+      reason: "Metadata-only exports omit credentials entirely.",
+    },
+    redacted: {
+      disposition: "redact",
+      reason: "Redacted exports may include only credential redaction records.",
+    },
+    full: {
+      disposition: "redact",
+      reason: "Credentials must not appear raw, even in full exports.",
+      requiresExplicitOptIn: true,
+    },
+  },
+  local_machine_path: {
+    metadata_only: {
+      disposition: "omit",
+      reason: omitMetadataReason,
+    },
+    redacted: {
+      disposition: "redact",
+      reason: redactReason,
+    },
+    full: {
+      disposition: "include",
+      reason: fullTraceReason,
+      requiresExplicitOptIn: true,
+    },
+  },
+} as const satisfies EvidencePrivacyExportMatrix;
 
 export interface EvidenceBundlePlanRef {
   readonly hash?: string;
@@ -90,6 +258,7 @@ export interface EvidenceBundle {
   readonly originalPlan: EvidenceBundlePlanRef;
   readonly passes: readonly EvidenceBundlePassSummary[];
   readonly planDiff: MIRPlanDiff;
+  readonly privacyPolicy: EvidencePrivacyPolicyReference;
   readonly policyDecisions: readonly PolicyDecisionEvidenceEvent[];
   readonly providerAssumptions: readonly CapabilityAssumptionEvidenceEvent[];
   readonly redactions: readonly EvidenceBundleRedactionRecord[];
@@ -110,6 +279,7 @@ export interface CreateEvidenceBundleInput {
   readonly originalPlan: EvidenceBundlePlanRef;
   readonly passes: readonly EvidenceBundlePassSummary[];
   readonly planDiff: MIRPlanDiff;
+  readonly allowFullTraceExport?: boolean;
   readonly redactions?: readonly EvidenceBundleRedactionRecord[];
   readonly replay: EvidenceBundleReplayMetadata;
   readonly runId: string;
@@ -169,7 +339,14 @@ const sensitivePrivacyClasses = new Set<
 export function createEvidenceBundle(
   input: CreateEvidenceBundleInput,
 ): EvidenceBundle {
-  const exportMode = input.exportMode ?? "full";
+  const exportMode = input.exportMode ?? "metadata_only";
+
+  if (exportMode === "full" && input.allowFullTraceExport !== true) {
+    throw new Error(
+      "Full-trace evidence bundle exports require explicit opt-in.",
+    );
+  }
+
   const redactions: EvidenceBundleRedactionRecord[] = [
     ...(input.redactions ?? []),
   ];
@@ -181,6 +358,17 @@ export function createEvidenceBundle(
       event.privacy.replayMode === "full_trace"
     ) {
       redactions.push(createMetadataOnlyOmission(event));
+      continue;
+    }
+
+    if (exportMode === "full" && event.redaction.mode === "omitted") {
+      redactions.push(createDeclaredRedactionRecord(event));
+      continue;
+    }
+
+    if (exportMode === "full" && shouldRedactFullExportEvent(event)) {
+      redactions.push(createRedactedEventRecord(event));
+      events.push(createRedactedEventShell(event));
       continue;
     }
 
@@ -215,6 +403,11 @@ export function createEvidenceBundle(
     originalPlan: input.originalPlan,
     passes: input.passes,
     planDiff: input.planDiff,
+    privacyPolicy: {
+      exportMatrixVersion: EVIDENCE_PRIVACY_POLICY_VERSION,
+      exportMode,
+      fullTraceOptIn: input.allowFullTraceExport === true,
+    },
     policyDecisions: collectEvents(fullEvents, "policy_decision"),
     providerAssumptions: collectEvents(fullEvents, "capability_assumption"),
     redactions,
@@ -284,6 +477,7 @@ export function validateEvidenceBundle(
   requireEnum(bundle, "exportMode", "$.exportMode", exportModes, errors);
   validatePlanRef(bundle, "originalPlan", "$.originalPlan", errors);
   validatePlanRef(bundle, "optimizedPlan", "$.optimizedPlan", errors);
+  validatePrivacyPolicy(bundle, errors);
   requireRecord(bundle.planDiff, "$.planDiff", errors);
   requireRecord(bundle.replay, "$.replay", errors);
 
@@ -337,6 +531,13 @@ function shouldRedactEvent(event: EvidenceEvent): boolean {
   return (
     event.redaction.mode !== "none" ||
     sensitivePrivacyClasses.has(event.privacy.privacyClass)
+  );
+}
+
+function shouldRedactFullExportEvent(event: EvidenceEvent): boolean {
+  return (
+    event.redaction.mode === "redacted" ||
+    event.privacy.privacyClass === "secret"
   );
 }
 
@@ -421,6 +622,46 @@ function validatePlanRef(
 
   requireString(planRef, "planId", `${path}.planId`, errors);
   requireString(planRef, "version", `${path}.version`, errors);
+}
+
+function validatePrivacyPolicy(
+  bundle: Readonly<Record<string, unknown>>,
+  errors: EvidenceBundleValidationError[],
+): void {
+  const policy = requireRecord(bundle.privacyPolicy, "$.privacyPolicy", errors);
+
+  if (policy === undefined) {
+    return;
+  }
+
+  const version = requireString(
+    policy,
+    "exportMatrixVersion",
+    "$.privacyPolicy.exportMatrixVersion",
+    errors,
+  );
+
+  if (version !== undefined && version !== EVIDENCE_PRIVACY_POLICY_VERSION) {
+    errors.push({
+      code: "unknown_version",
+      message: "Unsupported evidence privacy policy version.",
+      path: "$.privacyPolicy.exportMatrixVersion",
+    });
+  }
+
+  requireEnum(
+    policy,
+    "exportMode",
+    "$.privacyPolicy.exportMode",
+    exportModes,
+    errors,
+  );
+  requireBoolean(
+    policy,
+    "fullTraceOptIn",
+    "$.privacyPolicy.fullTraceOptIn",
+    errors,
+  );
 }
 
 function validateEvents(
@@ -562,6 +803,35 @@ function requireString(
     errors.push({
       code: "invalid_type",
       message: "Expected string.",
+      path,
+    });
+    return undefined;
+  }
+
+  return value;
+}
+
+function requireBoolean(
+  parent: Readonly<Record<string, unknown>>,
+  key: string,
+  path: string,
+  errors: EvidenceBundleValidationError[],
+): boolean | undefined {
+  const value = parent[key];
+
+  if (value === undefined) {
+    errors.push({
+      code: "missing_required",
+      message: "Missing required boolean.",
+      path,
+    });
+    return undefined;
+  }
+
+  if (typeof value !== "boolean") {
+    errors.push({
+      code: "invalid_type",
+      message: "Expected boolean.",
       path,
     });
     return undefined;

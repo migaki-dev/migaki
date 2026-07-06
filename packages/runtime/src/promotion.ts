@@ -4,9 +4,9 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
-  EXECUTION_GRAPH_VERSION,
   assertSafeRunId,
   createExecutionReportSummary,
+  EXECUTION_GRAPH_VERSION,
   parseExecutionEvent,
   serializeExecutionJson,
   type Artifact,
@@ -15,6 +15,10 @@ import {
   type ExecutionNode,
   type ExecutionReportSummary,
 } from "./execution.js";
+import {
+  EVIDENCE_PRIVACY_POLICY_VERSION,
+  type EvidencePrivacyPolicyReference,
+} from "./evidence-bundle.js";
 
 export const PROMOTED_ARTIFACT_VERSION = "migaki.promoted-artifact.v0";
 export const PROMOTED_GRAPH_SUMMARY_VERSION =
@@ -73,6 +77,7 @@ export interface PromotedArtifactManifest {
   readonly artifacts: readonly PromotedArtifactFile[];
   readonly createdAt: string;
   readonly name: string;
+  readonly privacyPolicy: EvidencePrivacyPolicyReference;
   readonly redactions: readonly PromotedArtifactRedactionRecord[];
   readonly source: {
     readonly localRunPath: string;
@@ -271,6 +276,11 @@ export async function promoteExecutionRun(
     ],
     createdAt,
     name: options.name,
+    privacyPolicy: {
+      exportMatrixVersion: EVIDENCE_PRIVACY_POLICY_VERSION,
+      exportMode: "redacted",
+      fullTraceOptIn: false,
+    },
     redactions: [
       {
         mode: "omitted",

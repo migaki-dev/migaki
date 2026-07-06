@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   EXECUTION_EVENT_VERSION,
+  EVIDENCE_PRIVACY_POLICY_VERSION,
   PROMOTED_ARTIFACT_VERSION,
   buildExecutionGraph,
   findLatestExecutionRun,
@@ -73,6 +74,11 @@ describe("promoteExecutionRun", () => {
     expect(manifest).toMatchObject({
       createdAt: "2026-01-01T00:00:00.000Z",
       name: "fixture-promotion",
+      privacyPolicy: {
+        exportMatrixVersion: EVIDENCE_PRIVACY_POLICY_VERSION,
+        exportMode: "redacted",
+        fullTraceOptIn: false,
+      },
       source: {
         localRunPath: `.migaki/runs/${runId}`,
         runId,

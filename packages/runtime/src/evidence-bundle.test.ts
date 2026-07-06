@@ -4,6 +4,9 @@ import { MIR_V0_VERSION, type MIRPlan } from "@migaki/mir";
 
 import {
   EVIDENCE_BUNDLE_VERSION,
+  EVIDENCE_PRIVACY_EXPORT_FIELDS,
+  EVIDENCE_PRIVACY_EXPORT_MATRIX,
+  EVIDENCE_PRIVACY_POLICY_VERSION,
   EVIDENCE_EVENT_VERSION,
   PASS_CONTRACT_VERSION,
   createEvidenceBundle,
@@ -28,6 +31,36 @@ const warning: PassWarning = {
 };
 
 describe("evidence bundles", () => {
+  it("defines the v0 evidence privacy export matrix", () => {
+    expect(EVIDENCE_PRIVACY_EXPORT_FIELDS).toEqual([
+      "prompt",
+      "tool_input",
+      "tool_output",
+      "provider_response",
+      "file_path",
+      "customer_data",
+      "credential",
+      "local_machine_path",
+    ]);
+    expect(EVIDENCE_PRIVACY_EXPORT_MATRIX.prompt).toMatchObject({
+      metadata_only: { disposition: "omit" },
+      redacted: { disposition: "redact" },
+      full: { disposition: "include", requiresExplicitOptIn: true },
+    });
+    expect(EVIDENCE_PRIVACY_EXPORT_MATRIX.credential).toMatchObject({
+      metadata_only: { disposition: "omit" },
+      redacted: { disposition: "redact" },
+      full: { disposition: "redact", requiresExplicitOptIn: true },
+    });
+    for (const field of EVIDENCE_PRIVACY_EXPORT_FIELDS) {
+      expect(Object.keys(EVIDENCE_PRIVACY_EXPORT_MATRIX[field])).toEqual([
+        "metadata_only",
+        "redacted",
+        "full",
+      ]);
+    }
+  });
+
   it("builds v0 bundle sections from plan diffs, pass summaries, and evidence", () => {
     const before = createPlan("bundle-before", ["ctx-a", "ctx-b"]);
     const after = createPlan("bundle-after", ["ctx-a"]);
@@ -62,6 +95,7 @@ describe("evidence bundles", () => {
         }),
       ],
       exportMode: "full",
+      allowFullTraceExport: true,
       optimizedPlan: {
         planId: after.id,
         ref: "mir://runs/bundle-run/optimized",
@@ -95,6 +129,11 @@ describe("evidence bundles", () => {
     });
 
     expect(bundle.version).toBe(EVIDENCE_BUNDLE_VERSION);
+    expect(bundle.privacyPolicy).toEqual({
+      exportMatrixVersion: EVIDENCE_PRIVACY_POLICY_VERSION,
+      exportMode: "full",
+      fullTraceOptIn: true,
+    });
     expect(bundle.contextDiff).toEqual(
       planDiff.changes.filter((change) => change.artifactKind === "context"),
     );
@@ -145,6 +184,7 @@ describe("evidence bundles", () => {
         }),
       ],
       exportMode: "full",
+      allowFullTraceExport: true,
       optimizedPlan: {
         planId: "plan-after",
         version: MIR_V0_VERSION,
@@ -185,6 +225,7 @@ describe("evidence bundles", () => {
       "passes",
       "planDiff",
       "policyDecisions",
+      "privacyPolicy",
       "providerAssumptions",
       "redactions",
       "replay",
@@ -236,6 +277,136 @@ describe("evidence bundles", () => {
           "Event requires full trace replay and was omitted from metadata-only export.",
       },
     ]);
+  });
+
+  it("uses metadata-only export by default so raw full-trace events are omitted", () => {
+    const rawPrompt = "raw customer prompt with sk-live-fixture";
+    const bundle = createEvidenceBundle({
+      ...baseBundleInput(),
+      events: [
+        {
+          ...createEvent(
+            "raw-prompt",
+            "pass_decision",
+            {
+              passDecision: {
+                decision: "applied",
+                pass: passIdentity,
+              },
+            },
+            {
+              privacyClass: "confidential",
+              replayMode: "full_trace",
+            },
+          ),
+          summary: rawPrompt,
+        },
+      ],
+    });
+    const serialized = serializeEvidenceBundle(bundle);
+
+    expect(bundle.exportMode).toBe("metadata_only");
+    expect(bundle.events).toEqual([]);
+    expect(bundle.redactions).toMatchObject([
+      {
+        eventId: "raw-prompt",
+        mode: "omitted",
+        path: '$.events[?(@.id=="raw-prompt")]',
+        privacyClass: "confidential",
+      },
+    ]);
+    expect(serialized).not.toContain(rawPrompt);
+    expect(serialized).not.toContain("sk-live-fixture");
+  });
+
+  it("requires explicit code opt-in for full-trace exports", () => {
+    const fullTraceInput = {
+      ...baseBundleInput(),
+      events: [
+        createEvent(
+          "full-trace-event",
+          "pass_decision",
+          {
+            passDecision: {
+              decision: "applied",
+              pass: passIdentity,
+            },
+          },
+          {
+            replayMode: "full_trace",
+          },
+        ),
+      ],
+      exportMode: "full" as const,
+    };
+
+    expect(() => createEvidenceBundle(fullTraceInput)).toThrow(
+      "Full-trace evidence bundle exports require explicit opt-in.",
+    );
+
+    expect(
+      createEvidenceBundle({
+        ...fullTraceInput,
+        allowFullTraceExport: true,
+      }).privacyPolicy,
+    ).toMatchObject({
+      fullTraceOptIn: true,
+    });
+  });
+
+  it("redacts secret-bearing events even in full exports", () => {
+    const rawSecret = "sk-live-secret-fixture";
+    const bundle = createEvidenceBundle({
+      ...baseBundleInput(),
+      events: [
+        {
+          ...createEvent(
+            "credential-warning",
+            "warning",
+            {
+              warning: {
+                code: rawSecret,
+                severity: "warning",
+              },
+            },
+            {
+              privacyClass: "secret",
+              replayMode: "full_trace",
+            },
+          ),
+          summary: `Credential leaked: ${rawSecret}`,
+        },
+      ],
+      exportMode: "full",
+      allowFullTraceExport: true,
+    });
+    const serialized = serializeEvidenceBundle(bundle);
+
+    expect(bundle.events).toMatchObject([
+      {
+        id: "credential-warning",
+        kind: "warning",
+        redaction: {
+          mode: "redacted",
+        },
+        summary: "Redacted evidence event credential-warning.",
+      },
+    ]);
+    const [redactedEvent] = bundle.events;
+
+    expect(redactedEvent).toBeDefined();
+    expect(redactedEvent !== undefined && "warning" in redactedEvent).toBe(
+      false,
+    );
+    expect(bundle.redactions).toMatchObject([
+      {
+        eventId: "credential-warning",
+        mode: "redacted",
+        privacyClass: "secret",
+      },
+    ]);
+    expect(serialized).not.toContain(rawSecret);
+    expect(validateEvidenceBundle(bundle).success).toBe(true);
   });
 
   it("replaces sensitive events with redacted shells in redacted exports", () => {

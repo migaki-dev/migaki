@@ -8,6 +8,10 @@ import {
   type ExecutionNode,
   type Metadata,
 } from "./execution.js";
+import {
+  EVIDENCE_PRIVACY_POLICY_VERSION,
+  type EvidencePrivacyPolicyReference,
+} from "./evidence-bundle.js";
 
 export const OBSERVED_TRAJECTORY_COMPARISON_VERSION =
   "migaki.observed-trajectory-comparison.v0";
@@ -108,6 +112,7 @@ export interface ObservedTrajectoryComparison {
   readonly blockedCandidates: readonly ObservedTrajectoryBlockedCandidate[];
   readonly changedNodes: readonly ObservedTrajectoryChangedNode[];
   readonly currentRunId: string;
+  readonly privacyPolicy: EvidencePrivacyPolicyReference;
   readonly previousRunId: string;
   readonly reusableModelCalls: readonly ObservedTrajectoryReusableNode[];
   readonly reusableToolCalls: readonly ObservedTrajectoryReusableNode[];
@@ -255,6 +260,11 @@ export function compareObservedExecutionGraphs(
     blockedCandidates,
     changedNodes,
     currentRunId: current.runId,
+    privacyPolicy: {
+      exportMatrixVersion: EVIDENCE_PRIVACY_POLICY_VERSION,
+      exportMode: "metadata_only",
+      fullTraceOptIn: false,
+    },
     previousRunId: previous.runId,
     reusableModelCalls,
     reusableToolCalls,
