@@ -357,6 +357,7 @@ file paths, and delegated task/result text remain omitted.
   execution reports.
 - `packages/cli/` owns developer-facing report and replay command surfaces.
 - `examples/rag-dedup-cache/` contains the v0 RAG deduplication, cache-layout, and provider-lowering example workspace.
+- `examples/structured-output-validation/` contains the v0.4 structured-output validation example with provider fallback evidence.
 - `scripts/bootstrap` bootstraps a development machine.
 - `CONTRIBUTING.md` defines contribution standards for humans and coding
   agents.

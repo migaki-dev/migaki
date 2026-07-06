@@ -45,6 +45,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/runtime
 
+  examples/structured-output-validation:
+    dependencies:
+      '@migaki/mir':
+        specifier: workspace:*
+        version: link:../../packages/mir
+      '@migaki/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
+      '@migaki/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+
   packages/adapters: {}
 
   packages/cli:
