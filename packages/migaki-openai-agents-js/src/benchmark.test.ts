@@ -6,12 +6,122 @@ import { describe, expect, it } from "vitest";
 
 import { LocalMigakiStore } from "./store.js";
 import {
+  runRepoAgentReuseBenchmark,
   runParallelMigakiBenchmark,
   runRepoAgentBenchmark,
 } from "./benchmark.js";
 import type { MigakiEvent, MigakiGraph } from "./types.js";
 
 describe("repo-agent benchmark", () => {
+  it("compares two deterministic repo-agent runs and writes reuse artifacts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "migaki-reuse-benchmark-"));
+
+    try {
+      const result = await runRepoAgentReuseBenchmark({
+        runId: "reuse-test",
+        store: new LocalMigakiStore(root),
+      });
+      const previousRunDirectory = join(root, "runs", "reuse-test-a");
+      const currentRunDirectory = join(root, "runs", "reuse-test-b");
+      const comparisonDirectory = join(root, "runs", "reuse-test");
+      const comparison = JSON.parse(
+        await readFile(
+          join(comparisonDirectory, "artifacts", "comparison.json"),
+          "utf8",
+        ),
+      ) as unknown;
+      const reuseDecision = JSON.parse(
+        await readFile(
+          join(comparisonDirectory, "artifacts", "reuse-decision.json"),
+          "utf8",
+        ),
+      ) as unknown;
+      const report = await readFile(
+        join(comparisonDirectory, "report.md"),
+        "utf8",
+      );
+
+      await expect(
+        readFile(join(previousRunDirectory, "events.jsonl"), "utf8"),
+      ).resolves.toContain('"type":"run.started"');
+      await expect(
+        readFile(join(previousRunDirectory, "graph.json"), "utf8"),
+      ).resolves.toContain('"runId": "reuse-test-a"');
+      await expect(
+        readFile(join(previousRunDirectory, "report.md"), "utf8"),
+      ).resolves.toContain("Migaki Run Report");
+      await expect(
+        readFile(join(currentRunDirectory, "events.jsonl"), "utf8"),
+      ).resolves.toContain('"type":"run.started"');
+      await expect(
+        readFile(join(currentRunDirectory, "graph.json"), "utf8"),
+      ).resolves.toContain('"runId": "reuse-test-b"');
+      await expect(
+        readFile(join(currentRunDirectory, "report.md"), "utf8"),
+      ).resolves.toContain("Migaki Run Report");
+
+      expect(result.comparison.summary).toMatchObject({
+        blockedCandidates: 1,
+        changedNodes: 1,
+        reusableModelCalls: 1,
+        reusableToolCalls: 1,
+      });
+      expect(result.comparison.summary.totalEstimatedAvoidableTokens).toBe(68);
+      expect(result.comparison.summary.totalEstimatedAvoidableCostUsd).toBe(
+        0.000034,
+      );
+      expect(result.comparison.summary.totalEstimatedAvoidableLatencyMs).toBe(
+        22,
+      );
+      expect(result.reuseDecision.summary).toMatchObject({
+        allowed: 1,
+        blocked: 1,
+        needsReview: 1,
+        totalCandidates: 3,
+      });
+      expect(comparison).toMatchObject({
+        currentRunId: "reuse-test-b",
+        previousRunId: "reuse-test-a",
+        summary: {
+          blockedCandidates: 1,
+          changedNodes: 1,
+          reusableModelCalls: 1,
+          reusableToolCalls: 1,
+        },
+      });
+      expect(reuseDecision).toMatchObject({
+        summary: {
+          allowed: 1,
+          blocked: 1,
+          needsReview: 1,
+        },
+      });
+      expect(report).toContain("Migaki Repo-Agent Reuse Benchmark");
+      expect(report).toContain(
+        "- Previous events: runs/reuse-test-a/events.jsonl",
+      );
+      expect(report).toContain("- Current graph: runs/reuse-test-b/graph.json");
+      expect(report).toContain("- Reusable model nodes: model-summary-reuse");
+      expect(report).toContain("- Reusable tool nodes: tool_call-0002");
+      expect(report).toContain(
+        "- Changed nodes: model-patch-plan (cache_key_changed)",
+      );
+      expect(report).toContain(
+        "- Blocked candidates: tool_call-0003 [side_effect_unknown]",
+      );
+      expect(report).toContain("- Estimated avoidable tokens: 68");
+      expect(report).toContain("- Estimated avoidable cost USD: 0.000034");
+      expect(report).toContain("- Estimated avoidable latency ms: 22");
+      expect(report).toContain(
+        "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
+      );
+      expect(report).not.toMatch(/\bactual savings\b/i);
+      expect(report).not.toMatch(/\bspeedup\b/i);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   it("writes JSONL events, a graph, and the first useful report", async () => {
     const root = await mkdtemp(join(tmpdir(), "migaki-benchmark-"));
 

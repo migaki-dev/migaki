@@ -110,6 +110,10 @@ export interface MigakiReportStore extends MigakiStore {
   writeReport(runId: string, report: string): Promise<void>;
 }
 
+export interface MigakiArtifactStore extends MigakiReportStore {
+  writeArtifact(runId: string, name: string, content: string): Promise<void>;
+}
+
 export interface MigakiClock {
   now(): Date;
 }
