@@ -88,6 +88,8 @@ The built-in suites are:
   because the full MVP ladder is still incomplete.
 - `repo-agent-implementation-debug`: one implementation-and-debug fixture;
   exits non-zero because the full MVP ladder is still incomplete.
+- `repo-agent-ci-toolchain-triage`: one CI and toolchain triage fixture; exits
+  non-zero because the full MVP ladder is still incomplete.
 - `repo-agent-mvp`: all MVP repo-agent fixture families; exits zero when all
   deterministic fixture artifacts are written.
 
@@ -109,6 +111,12 @@ Implementation-and-debug fixture artifacts identify reusable read/search
 context nodes, blocked apply-patch and focused-test side effects, retry
 boundaries, validator requirements, changed debug inputs, and estimated
 avoidable tokens, cost, and latency without replaying or mutating work.
+
+CI and toolchain triage fixture artifacts distinguish reusable log and check
+status parsing from fresh local command execution, record the defended
+`code-quality` gate contract, block reuse when command, lockfile, tool version,
+or environment fingerprints drift, and report a local rerun next action when CI
+evidence is insufficient.
 
 ## Argument Contract
 

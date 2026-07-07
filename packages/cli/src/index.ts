@@ -295,6 +295,11 @@ const taskSuites: readonly TaskSuiteDefinition[] = [
     id: "repo-agent-implementation-debug",
   },
   {
+    description: "One CI and toolchain triage repo-agent fixture.",
+    fixtureFamilies: ["ci-and-toolchain-triage"],
+    id: "repo-agent-ci-toolchain-triage",
+  },
+  {
     description: "All MVP repo-agent task ladder fixture families.",
     fixtureFamilies: repoAgentFixtureFamilyIds,
     id: "repo-agent-mvp",
@@ -669,6 +674,10 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
     return createImplementationAndDebugFixture(familyId);
   }
 
+  if (familyId === "ci-and-toolchain-triage") {
+    return createCiAndToolchainTriageFixture(familyId);
+  }
+
   const previousRunId = `${familyId}-previous`;
   const currentRunId = `${familyId}-current`;
   const previousGraph = graph(previousRunId, familyId, [
@@ -1019,6 +1028,272 @@ function createImplementationAndDebugFixture(
   };
 }
 
+function createCiAndToolchainTriageFixture(
+  familyId: RepoAgentFixtureFamilyId,
+): {
+  readonly currentGraph: ExecutionGraph;
+  readonly eventsJsonl: string;
+  readonly previousGraph: ExecutionGraph;
+} {
+  const previousRunId = `${familyId}-previous`;
+  const currentRunId = `${familyId}-current`;
+  const checkContract =
+    "github-check:code-quality:. scripts/env && mise run check";
+  const stableLogMetadata = {
+    ciToolchainTriage: {
+      checkContract,
+      evidenceKind: "check_log_excerpt",
+      rawLogStorage: "omitted",
+      stage: "ci_log_read",
+    },
+  };
+  const logClassificationMetadata = {
+    ciToolchainTriage: {
+      checkContract,
+      evidenceKind: "log_classification",
+      rawLogStorage: "omitted",
+      stage: "log_classification",
+    },
+  };
+  const checkStatusMetadata = {
+    ciToolchainTriage: {
+      checkContract,
+      evidenceKind: "check_status_summary",
+      rawStatusStorage: "omitted",
+      stage: "check_status_read",
+    },
+  };
+  const installMetadata = {
+    ciToolchainTriage: {
+      commandFingerprint: "pnpm-install-frozen-lockfile-v1",
+      evidenceKind: "setup_repair_command",
+      stage: "install_repair",
+    },
+  };
+  const previousLocalCheckMetadata = {
+    ciToolchainTriage: {
+      checkContract,
+      commandFingerprint: "mise-run-check-v1",
+      evidenceKind: "fresh_local_execution",
+      localExecutionRequired: true,
+      lockfileFingerprint: "pnpm-lock-v1",
+      stage: "local_reproduction",
+    },
+  };
+  const currentLocalCheckMetadata = {
+    ciToolchainTriage: {
+      checkContract,
+      commandFingerprint: "mise-run-check-v2",
+      evidenceKind: "fresh_local_execution",
+      localExecutionRequired: true,
+      lockfileFingerprint: "pnpm-lock-v2",
+      stage: "local_reproduction",
+    },
+  };
+  const localRerunRequiredMetadata = {
+    ciToolchainTriage: {
+      checkContract,
+      commandFingerprint: "mise-run-check-rerun-required-v1",
+      evidenceKind: "fresh_local_execution",
+      localExecutionRequired: true,
+      stage: "local_verification",
+    },
+  };
+  const previousEnvironmentMetadata = {
+    ciToolchainTriage: {
+      environmentFingerprint: "env:node-24.2.0:pnpm-10.12.1",
+      evidenceKind: "toolchain_fingerprint",
+      hostSpecificPaths: "omitted",
+      toolVersionFingerprint: "mise-node-24.2.0-pnpm-10.12.1",
+    },
+  };
+  const currentEnvironmentMetadata = {
+    ciToolchainTriage: {
+      environmentFingerprint: "env:node-24.3.0:pnpm-10.12.1",
+      evidenceKind: "toolchain_fingerprint",
+      hostSpecificPaths: "omitted",
+      toolVersionFingerprint: "mise-node-24.3.0-pnpm-10.12.1",
+    },
+  };
+  const previousLockfileMetadata = {
+    ciToolchainTriage: {
+      evidenceKind: "lockfile_fingerprint",
+      lockfileFingerprint: "pnpm-lock-v1",
+      rawLockfileStorage: "omitted",
+    },
+  };
+  const currentLockfileMetadata = {
+    ciToolchainTriage: {
+      evidenceKind: "lockfile_fingerprint",
+      lockfileFingerprint: "pnpm-lock-v2",
+      rawLockfileStorage: "omitted",
+    },
+  };
+  const previousNextActionMetadata = {
+    ciToolchainTriage: {
+      checkContract,
+      ciEvidenceStatus: "insufficient",
+      evidenceKind: "triage_next_action",
+      nextAction:
+        "rerun . scripts/env && mise run check locally before reporting success",
+    },
+  };
+  const currentNextActionMetadata = {
+    ciToolchainTriage: {
+      checkContract,
+      ciEvidenceStatus: "insufficient",
+      evidenceKind: "triage_next_action",
+      nextAction:
+        "rerun . scripts/env && mise run check locally because CI evidence is incomplete",
+    },
+  };
+
+  const previousGraph = graph(previousRunId, familyId, [
+    ciReadOnlyToolNode(
+      `${familyId}-tool-check-log-read`,
+      familyId,
+      "ci-log:code-quality:excerpt-a",
+      stableLogMetadata,
+      {
+        artifacts: [
+          fileArtifact(`${familyId}-ci-log`, "ci-log-excerpt-v1", "verified", {
+            codex: {
+              checkContract,
+              redaction: "raw log omitted",
+            },
+          }),
+        ],
+      },
+    ),
+    ciModelNode(
+      `${familyId}-model-log-classification`,
+      familyId,
+      "classify-ci-log:missing-install:v1",
+      logClassificationMetadata,
+    ),
+    ciReadOnlyToolNode(
+      `${familyId}-tool-check-status-read`,
+      familyId,
+      "ci-status:code-quality:failed",
+      checkStatusMetadata,
+    ),
+    ciMutationNode(
+      `${familyId}-tool-local-check`,
+      familyId,
+      "local-check:mise-run-check:v1:pnpm-lock-v1",
+      "approval_required",
+      previousLocalCheckMetadata,
+    ),
+    ciMutationNode(
+      `${familyId}-tool-local-rerun-required`,
+      familyId,
+      "local-check:rerun-required:v1",
+      "approval_required",
+      localRerunRequiredMetadata,
+    ),
+    ciMutationNode(
+      `${familyId}-tool-install`,
+      familyId,
+      "install:pnpm-frozen-lockfile:v1",
+      "non_idempotent_mutation",
+      installMetadata,
+    ),
+    ciReadOnlyToolNode(
+      `${familyId}-tool-environment-read`,
+      familyId,
+      "env:node-24.2.0:pnpm-10.12.1",
+      previousEnvironmentMetadata,
+    ),
+    ciReadOnlyToolNode(
+      `${familyId}-tool-lockfile-read`,
+      familyId,
+      "lockfile:pnpm-lock-v1",
+      previousLockfileMetadata,
+    ),
+    ciModelNode(
+      `${familyId}-model-next-action`,
+      familyId,
+      "next-action:ci-insufficient:local-check-v1",
+      previousNextActionMetadata,
+    ),
+  ]);
+  const currentGraph = graph(currentRunId, familyId, [
+    ciReadOnlyToolNode(
+      `${familyId}-tool-check-log-read`,
+      familyId,
+      "ci-log:code-quality:excerpt-a",
+      stableLogMetadata,
+      {
+        artifacts: [
+          fileArtifact(`${familyId}-ci-log`, "ci-log-excerpt-v1", "verified", {
+            codex: {
+              checkContract,
+              redaction: "raw log omitted",
+            },
+          }),
+        ],
+      },
+    ),
+    ciModelNode(
+      `${familyId}-model-log-classification`,
+      familyId,
+      "classify-ci-log:missing-install:v1",
+      logClassificationMetadata,
+    ),
+    ciReadOnlyToolNode(
+      `${familyId}-tool-check-status-read`,
+      familyId,
+      "ci-status:code-quality:failed",
+      checkStatusMetadata,
+    ),
+    ciMutationNode(
+      `${familyId}-tool-local-check`,
+      familyId,
+      "local-check:mise-run-check:v2:pnpm-lock-v2",
+      "approval_required",
+      currentLocalCheckMetadata,
+    ),
+    ciMutationNode(
+      `${familyId}-tool-local-rerun-required`,
+      familyId,
+      "local-check:rerun-required:v1",
+      "approval_required",
+      localRerunRequiredMetadata,
+    ),
+    ciMutationNode(
+      `${familyId}-tool-install`,
+      familyId,
+      "install:pnpm-frozen-lockfile:v1",
+      "non_idempotent_mutation",
+      installMetadata,
+    ),
+    ciReadOnlyToolNode(
+      `${familyId}-tool-environment-read`,
+      familyId,
+      "env:node-24.3.0:pnpm-10.12.1",
+      currentEnvironmentMetadata,
+    ),
+    ciReadOnlyToolNode(
+      `${familyId}-tool-lockfile-read`,
+      familyId,
+      "lockfile:pnpm-lock-v2",
+      currentLockfileMetadata,
+    ),
+    ciModelNode(
+      `${familyId}-model-next-action`,
+      familyId,
+      "next-action:ci-insufficient:local-check-v2",
+      currentNextActionMetadata,
+    ),
+  ]);
+
+  return {
+    currentGraph,
+    eventsJsonl: renderFixtureEventsJsonl(familyId, currentGraph),
+    previousGraph,
+  };
+}
+
 function createReadOnlyReconnaissanceFixture(
   familyId: RepoAgentFixtureFamilyId,
 ): {
@@ -1355,6 +1630,68 @@ function implementationTerminalNode(
   });
 }
 
+function ciModelNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  return node(id, "model_call", familyId, fingerprintSeed, {
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        validatorsPassed: ["ci-log-classification", "next-action-grounding"],
+        validatorsRequired: ["ci-log-classification", "next-action-grounding"],
+      },
+    },
+    totalTokens: 108,
+  });
+}
+
+function ciReadOnlyToolNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+  options: {
+    readonly artifacts?: ExecutionNode["artifacts"];
+  } = {},
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    ...(options.artifacts === undefined
+      ? {}
+      : { artifacts: options.artifacts }),
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        sideEffectClass: "read_only",
+      },
+    },
+    totalTokens: 12,
+  });
+}
+
+function ciMutationNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  sideEffectClass: "approval_required" | "non_idempotent_mutation",
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        sideEffectClass,
+      },
+    },
+    totalTokens: 12,
+  });
+}
+
 function toolNode(
   id: string,
   familyId: RepoAgentFixtureFamilyId,
@@ -1446,6 +1783,9 @@ function renderFixtureEventsJsonl(
       ...(node.metadata.retryBoundary === undefined
         ? {}
         : { retryBoundary: node.metadata.retryBoundary }),
+      ...(node.metadata.ciToolchainTriage === undefined
+        ? {}
+        : { ciToolchainTriage: node.metadata.ciToolchainTriage }),
       privacyMode: "metadata_only",
       source: "repo-agent-task-suite",
     },
@@ -1541,12 +1881,29 @@ function renderTaskSuiteFixtureReport(input: {
       (decision) =>
         `- ${decision.nodeId}: validator_requirements ${decision.requiredValidators.join(", ") || "none"}`,
     ),
+    ...taskSuiteFixtureFamilyReportLines(input.familyId),
     "",
     renderReuseDecisionArtifact(input.reuseDecision, "human").trimEnd(),
     "",
     renderExecutionReport(input.graph).trimEnd(),
     "",
   ].join("\n");
+}
+
+function taskSuiteFixtureFamilyReportLines(
+  familyId: RepoAgentFixtureFamilyId,
+): readonly string[] {
+  if (familyId !== "ci-and-toolchain-triage") {
+    return [];
+  }
+
+  return [
+    "",
+    "CI/toolchain triage:",
+    "- check/gate contract: github-check:code-quality:. scripts/env && mise run check",
+    "- Evidence mode: metadata_only; raw logs, credentials, and host-specific paths omitted.",
+    "- Next action: rerun `. scripts/env && mise run check` locally because CI evidence is incomplete.",
+  ];
 }
 
 async function writeTaskSuiteArtifact(
