@@ -97,6 +97,8 @@ The built-in suites are:
   incomplete.
 - `repo-agent-pr-review-merge-readiness`: one PR review and merge-readiness
   fixture; exits non-zero because the full MVP ladder is still incomplete.
+- `repo-agent-evidence-promotion-handoff`: one evidence promotion and handoff
+  fixture; exits non-zero because the full MVP ladder is still incomplete.
 - `repo-agent-mvp`: all MVP repo-agent fixture families; exits zero when all
   deterministic fixture artifacts are written.
 
@@ -137,6 +139,13 @@ threads, finding generation, and final review comments. The report keeps
 changed-file content non-droppable, blocks reuse on fingerprint drift or
 missing grounding validators, covers missing tests, stale base, and unresolved
 review threads, and separates review advice from any merge action.
+
+Evidence promotion and handoff fixture artifacts compare local run inspection,
+redacted manifest metadata, graph summaries, reuse advice, promotion command
+safety, and handoff summaries. The report distinguishes preserved project
+knowledge from short-lived local `.migaki/runs` state, carries explicit
+omission records for prohibited raw fields, and names completed work, checks
+run, blocked checks, remaining blockers, and the next eligible issue.
 
 ## Argument Contract
 

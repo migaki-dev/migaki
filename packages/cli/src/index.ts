@@ -316,6 +316,11 @@ const taskSuites: readonly TaskSuiteDefinition[] = [
     id: "repo-agent-pr-review-merge-readiness",
   },
   {
+    description: "One evidence promotion and handoff repo-agent fixture.",
+    fixtureFamilies: ["evidence-promotion-and-handoff"],
+    id: "repo-agent-evidence-promotion-handoff",
+  },
+  {
     description: "All MVP repo-agent task ladder fixture families.",
     fixtureFamilies: repoAgentFixtureFamilyIds,
     id: "repo-agent-mvp",
@@ -706,6 +711,10 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
     return createPrReviewAndMergeReadinessFixture(familyId);
   }
 
+  if (familyId === "evidence-promotion-and-handoff") {
+    return createEvidencePromotionAndHandoffFixture(familyId);
+  }
+
   const previousRunId = `${familyId}-previous`;
   const currentRunId = `${familyId}-current`;
   const previousGraph = graph(previousRunId, familyId, [
@@ -729,6 +738,264 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
       sideEffectClass: "unknown",
     }),
     modelNode(`${familyId}-model-changed`, familyId, "model-changed-v2"),
+  ]);
+
+  return {
+    currentGraph,
+    eventsJsonl: renderFixtureEventsJsonl(familyId, currentGraph),
+    previousGraph,
+  };
+}
+
+function createEvidencePromotionAndHandoffFixture(
+  familyId: RepoAgentFixtureFamilyId,
+): {
+  readonly currentGraph: ExecutionGraph;
+  readonly eventsJsonl: string;
+  readonly previousGraph: ExecutionGraph;
+} {
+  const previousRunId = `${familyId}-previous`;
+  const currentRunId = `${familyId}-current`;
+  const rawRunPrevious = {
+    evidencePromotion: {
+      candidateRunId: "codex-turn-evidence-promotion-a",
+      sourceArtifact:
+        ".migaki/runs/codex-turn-evidence-promotion-a/events.jsonl",
+      stateBoundary: "short_lived_local_session_state",
+      stage: "raw_run_inspection",
+    },
+  };
+  const rawRunCurrent = {
+    evidencePromotion: {
+      candidateRunId: "codex-turn-evidence-promotion-b",
+      sourceArtifact:
+        ".migaki/runs/codex-turn-evidence-promotion-b/events.jsonl",
+      stateBoundary: "short_lived_local_session_state",
+      stage: "raw_run_inspection",
+    },
+  };
+  const manifestMetadata = {
+    evidencePromotion: {
+      artifact: "manifest.json",
+      omittedFields: [
+        "prompt",
+        "tool_input",
+        "tool_output",
+        "provider_response",
+        "credential",
+        "local_machine_path",
+      ],
+      privacyPolicy: "migaki.evidence-privacy-policy.v0",
+      stage: "manifest_metadata",
+      stateBoundary: "promoted_project_knowledge",
+    },
+  };
+  const graphSummaryMetadata = {
+    evidencePromotion: {
+      artifact: "graph-summary.json",
+      redactionStatus: "passed",
+      stage: "graph_summary",
+      stateBoundary: "promoted_project_knowledge",
+    },
+  };
+  const redactionAuditMetadata = {
+    evidencePromotion: {
+      explicitOmissionRecords: [
+        "prompt",
+        "tool_input",
+        "tool_output",
+        "provider_response",
+        "credential",
+        "local_machine_path",
+      ],
+      stage: "redaction_audit",
+      status: "passed",
+    },
+  };
+  const adviceMetadata = {
+    evidencePromotion: {
+      adviceArtifact: "advice.json",
+      omissionRecordsInherited: true,
+      privacyMode: "metadata_only",
+      stage: "reuse_advice",
+    },
+  };
+  const provenanceMetadata = {
+    evidencePromotion: {
+      artifactProvenance: "source fingerprints only",
+      localPathPolicy: "omit",
+      stage: "artifact_provenance_summary",
+    },
+  };
+  const handoffPrevious = {
+    handoff: {
+      checksBlocked: ["github-code-quality-pending-pr"],
+      checksRun: ["focused-task-suite-test"],
+      completedWork: ["manifest-metadata", "graph-summary"],
+      nextEligibleIssue: "#158",
+      remainingBlockers: ["#159 blocked by #158"],
+      stage: "handoff_summary",
+    },
+  };
+  const handoffCurrent = {
+    handoff: {
+      checksBlocked: ["github-code-quality-pending-pr"],
+      checksRun: ["focused-task-suite-test", "mise-run-check"],
+      completedWork: ["manifest-metadata", "graph-summary", "reuse-advice"],
+      nextEligibleIssue: "#159 after #158 merges",
+      remainingBlockers: ["#159 blocked by #158"],
+      stage: "handoff_summary",
+    },
+  };
+  const promotionCommandMetadata = {
+    evidencePromotion: {
+      command: "migaki:promote",
+      stage: "promotion_command",
+      writesProjectArtifacts: true,
+    },
+    reuse: {
+      policyAllowed: true,
+      sideEffectClass: "approval_required",
+    },
+  };
+
+  const previousGraph = graph(previousRunId, familyId, [
+    evidencePromotionReadOnlyToolNode(
+      `${familyId}-tool-raw-run-inspection`,
+      familyId,
+      "raw-run-selection:a",
+      rawRunPrevious,
+    ),
+    evidencePromotionReadOnlyToolNode(
+      `${familyId}-tool-promote-manifest`,
+      familyId,
+      "manifest:redacted:v1",
+      manifestMetadata,
+      {
+        artifacts: [
+          {
+            fingerprint: stableExecutionHash({
+              artifact: "manifest",
+              omittedFields: "privacy-contract-v1",
+            }),
+            id: `${familyId}-manifest`,
+            kind: "manifest",
+            metadata: {
+              redaction: {
+                mode: "omitted",
+                reason:
+                  "Raw prompts, tool payloads, provider responses, credentials, and local paths are omitted.",
+              },
+            },
+          },
+        ],
+      },
+    ),
+    evidencePromotionReadOnlyToolNode(
+      `${familyId}-tool-graph-summary`,
+      familyId,
+      "graph-summary:redacted:v1",
+      graphSummaryMetadata,
+    ),
+    evidencePromotionReadOnlyToolNode(
+      `${familyId}-tool-redaction-audit`,
+      familyId,
+      "redaction-audit:passed:v1",
+      redactionAuditMetadata,
+    ),
+    evidencePromotionModelNode(
+      `${familyId}-model-reuse-advice`,
+      familyId,
+      "reuse-advice:metadata-only:v1",
+      adviceMetadata,
+    ),
+    evidencePromotionModelNode(
+      `${familyId}-model-artifact-provenance`,
+      familyId,
+      "artifact-provenance:v1",
+      provenanceMetadata,
+    ),
+    evidencePromotionToolNode(
+      `${familyId}-tool-promote-command`,
+      familyId,
+      "promotion-command:v1",
+      promotionCommandMetadata,
+    ),
+    evidencePromotionModelNode(
+      `${familyId}-model-handoff-summary`,
+      familyId,
+      "handoff-summary:before-check:v1",
+      handoffPrevious,
+    ),
+  ]);
+  const currentGraph = graph(currentRunId, familyId, [
+    evidencePromotionReadOnlyToolNode(
+      `${familyId}-tool-raw-run-inspection`,
+      familyId,
+      "raw-run-selection:b",
+      rawRunCurrent,
+    ),
+    evidencePromotionReadOnlyToolNode(
+      `${familyId}-tool-promote-manifest`,
+      familyId,
+      "manifest:redacted:v1",
+      manifestMetadata,
+      {
+        artifacts: [
+          {
+            fingerprint: stableExecutionHash({
+              artifact: "manifest",
+              omittedFields: "privacy-contract-v1",
+            }),
+            id: `${familyId}-manifest`,
+            kind: "manifest",
+            metadata: {
+              redaction: {
+                mode: "omitted",
+                reason:
+                  "Raw prompts, tool payloads, provider responses, credentials, and local paths are omitted.",
+              },
+            },
+          },
+        ],
+      },
+    ),
+    evidencePromotionReadOnlyToolNode(
+      `${familyId}-tool-graph-summary`,
+      familyId,
+      "graph-summary:redacted:v1",
+      graphSummaryMetadata,
+    ),
+    evidencePromotionReadOnlyToolNode(
+      `${familyId}-tool-redaction-audit`,
+      familyId,
+      "redaction-audit:passed:v1",
+      redactionAuditMetadata,
+    ),
+    evidencePromotionModelNode(
+      `${familyId}-model-reuse-advice`,
+      familyId,
+      "reuse-advice:metadata-only:v1",
+      adviceMetadata,
+    ),
+    evidencePromotionModelNode(
+      `${familyId}-model-artifact-provenance`,
+      familyId,
+      "artifact-provenance:v1",
+      provenanceMetadata,
+    ),
+    evidencePromotionToolNode(
+      `${familyId}-tool-promote-command`,
+      familyId,
+      "promotion-command:v1",
+      promotionCommandMetadata,
+    ),
+    evidencePromotionModelNode(
+      `${familyId}-model-handoff-summary`,
+      familyId,
+      "handoff-summary:after-check:v1",
+      handoffCurrent,
+    ),
   ]);
 
   return {
@@ -2849,6 +3116,67 @@ function prReviewReadOnlyToolNode(
   });
 }
 
+function evidencePromotionModelNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  const validators = [
+    "redaction-policy-check",
+    "source-fingerprint-check",
+    "handoff-completeness-check",
+  ];
+
+  return node(id, "model_call", familyId, fingerprintSeed, {
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        validatorsPassed: validators,
+        validatorsRequired: validators,
+      },
+    },
+    totalTokens: 144,
+  });
+}
+
+function evidencePromotionReadOnlyToolNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+  options: {
+    readonly artifacts?: ExecutionNode["artifacts"];
+  } = {},
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    ...(options.artifacts === undefined
+      ? {}
+      : { artifacts: options.artifacts }),
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        sideEffectClass: "read_only",
+      },
+    },
+    totalTokens: 12,
+  });
+}
+
+function evidencePromotionToolNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    metadata,
+    totalTokens: 12,
+  });
+}
+
 function toolNode(
   id: string,
   familyId: RepoAgentFixtureFamilyId,
@@ -2952,6 +3280,12 @@ function renderFixtureEventsJsonl(
       ...(node.metadata.prReview === undefined
         ? {}
         : { prReview: node.metadata.prReview }),
+      ...(node.metadata.evidencePromotion === undefined
+        ? {}
+        : { evidencePromotion: node.metadata.evidencePromotion }),
+      ...(node.metadata.handoff === undefined
+        ? {}
+        : { handoff: node.metadata.handoff }),
       privacyMode: "metadata_only",
       source: "repo-agent-task-suite",
     },
@@ -3095,6 +3429,19 @@ function taskSuiteFixtureFamilyReportLines(
       "- Final review comments remain blocked or needs_review when grounding validators are missing.",
       "- Review advice is separated from merge action; fixture records no auto-merge or live SCM mutation.",
       "- Evidence mode: metadata_only; changed-file content, live GitHub payloads, and local paths omitted.",
+    ];
+  }
+
+  if (familyId === "evidence-promotion-and-handoff") {
+    return [
+      "",
+      "Evidence promotion and handoff:",
+      "- Promoted artifacts are preserved project knowledge; raw `.migaki/runs` evidence remains short-lived local session state.",
+      "- Manifest, graph summary, reuse advice, and handoff artifacts carry redacted metadata only.",
+      "- Reuse advice inherits metadata_only privacy and records explicit omissions for prompts, tool payloads, provider responses, credentials, and local paths.",
+      "- Handoff output names completed work, checks run, checks blocked, remaining blockers, and next eligible issue.",
+      "- Next eligible issue: #159 after #158 merges.",
+      "- Evidence mode: metadata_only; raw prompts, tool input, tool output, provider responses, secrets, and local paths omitted.",
     ];
   }
 

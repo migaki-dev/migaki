@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { LocalMigakiStore } from "./store.js";
 import {
+  runEvidencePromotionHandoffFixture,
   runCodeReviewWorkflowBenchmark,
   runRepoAgentReuseBenchmark,
   runParallelMigakiBenchmark,
@@ -14,6 +15,116 @@ import {
 import type { MigakiEvent, MigakiGraph } from "./types.js";
 
 describe("repo-agent benchmark", () => {
+  it("promotes redacted evidence metadata and writes a handoff fixture", async () => {
+    const root = await mkdtemp(join(tmpdir(), "migaki-promotion-handoff-"));
+
+    try {
+      const result = await runEvidencePromotionHandoffFixture({
+        runId: "promotion-handoff-test",
+        store: new LocalMigakiStore(root),
+      });
+      const runDirectory = join(root, "runs", "promotion-handoff-test");
+      const manifest = JSON.parse(
+        await readFile(
+          join(runDirectory, "artifacts", "manifest.json"),
+          "utf8",
+        ),
+      ) as unknown;
+      const graphSummary = JSON.parse(
+        await readFile(
+          join(runDirectory, "artifacts", "graph-summary.json"),
+          "utf8",
+        ),
+      ) as unknown;
+      const advice = JSON.parse(
+        await readFile(join(runDirectory, "artifacts", "advice.json"), "utf8"),
+      ) as unknown;
+      const handoff = JSON.parse(
+        await readFile(join(runDirectory, "artifacts", "handoff.json"), "utf8"),
+      ) as unknown;
+      const report = await readFile(join(runDirectory, "report.md"), "utf8");
+      const promotedArtifacts = [
+        JSON.stringify(manifest),
+        JSON.stringify(graphSummary),
+        JSON.stringify(advice),
+        JSON.stringify(handoff),
+        report,
+      ].join("\n");
+
+      await expect(
+        readFile(
+          join(root, "runs", "promotion-handoff-test-source", "events.jsonl"),
+          "utf8",
+        ),
+      ).resolves.toContain('"type":"run.started"');
+
+      expect(result.manifest).toMatchObject({
+        destination: {
+          knowledgeClass: "preserved_project_knowledge",
+          ref: "docs/migaki-artifacts/evidence-promotion-handoff",
+        },
+        privacyPolicy: {
+          exportMatrixVersion: "migaki.evidence-privacy-policy.v0",
+          exportMode: "redacted",
+          fullTraceOptIn: false,
+        },
+        source: {
+          stateClass: "short_lived_local_session_state",
+        },
+      });
+      expect(manifest).toMatchObject(result.manifest);
+      expect(graphSummary).toMatchObject({
+        sourceRunId: "promotion-handoff-test-source",
+        redactionStatus: "passed",
+      });
+      expect(advice).toMatchObject({
+        omissionRecords: expect.arrayContaining([
+          expect.objectContaining({ field: "prompt" }),
+          expect.objectContaining({ field: "tool_input" }),
+          expect.objectContaining({ field: "tool_output" }),
+          expect.objectContaining({ field: "provider_response" }),
+          expect.objectContaining({ field: "local_machine_path" }),
+        ]),
+        privacyPolicy: result.manifest.privacyPolicy,
+      });
+      expect(handoff).toMatchObject({
+        checksBlocked: ["GitHub code-quality pending until PR opens"],
+        checksRun: [
+          "mise run test -- --run packages/migaki-openai-agents-js/src/benchmark.test.ts",
+          "mise run check",
+        ],
+        completedWork: [
+          "Promoted redacted manifest metadata",
+          "Validated graph summary privacy",
+          "Prepared repository-agent handoff",
+        ],
+        nextEligibleIssue: "#159 after #158 merges",
+        remainingBlockers: ["#159 remains blocked by #158 until merge"],
+      });
+      expect(report).toContain("Migaki Evidence Promotion Handoff Fixture");
+      expect(report).toContain(
+        "- Preserved project knowledge: docs/migaki-artifacts/evidence-promotion-handoff",
+      );
+      expect(report).toContain(
+        "- Short-lived local session state: .migaki/runs/promotion-handoff-test-source",
+      );
+      expect(report).toContain("- Checks run: mise run check");
+      expect(report).toContain(
+        "- Checks blocked: GitHub code-quality pending until PR opens",
+      );
+      expect(report).toContain("- Next eligible issue: #159 after #158 merges");
+      expect(promotedArtifacts).not.toContain("raw customer prompt");
+      expect(promotedArtifacts).not.toContain("tool-input-secret");
+      expect(promotedArtifacts).not.toContain("tool-output-secret");
+      expect(promotedArtifacts).not.toContain("provider-response-secret");
+      expect(promotedArtifacts).not.toContain("sk-live-promotion-fixture");
+      expect(promotedArtifacts).not.toContain("/Users/sasha");
+      expect(promotedArtifacts).not.toContain(root);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   it("reports deterministic code-review context reuse and validator quality", async () => {
     const root = await mkdtemp(join(tmpdir(), "migaki-code-review-"));
 

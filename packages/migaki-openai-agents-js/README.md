@@ -134,6 +134,13 @@ report artifacts with comment acceptance, false-positive, validator pass-rate,
 context diff, cost delta, latency delta, and warning-list fields. The fixture is
 hermetic and deterministic; it does not call live providers or repositories.
 
+`runEvidencePromotionHandoffFixture` provides the deterministic no-provider
+evidence promotion and handoff fixture used by the repo-agent MVP task suite. It
+records a short-lived local source run, then writes redacted manifest,
+graph-summary, advice, handoff, and report artifacts that keep raw prompts,
+tool payloads, provider responses, credentials, and local paths out of promoted
+metadata.
+
 ## Explicit Non-Goals
 
 - semantic IR

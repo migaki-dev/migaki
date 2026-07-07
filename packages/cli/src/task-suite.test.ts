@@ -107,6 +107,19 @@ describe("task-suite command", () => {
           ],
         },
         {
+          description: "One evidence promotion and handoff repo-agent fixture.",
+          fixtureCount: 1,
+          id: "repo-agent-evidence-promotion-handoff",
+          missingRequiredFamilies: [
+            "read-only-reconnaissance",
+            "implementation-and-debug",
+            "ci-and-toolchain-triage",
+            "docs-and-wiki-alignment",
+            "issue-planning-and-blocker-maintenance",
+            "pr-review-and-merge-readiness",
+          ],
+        },
+        {
           description: "All MVP repo-agent task ladder fixture families.",
           fixtureCount: 7,
           id: "repo-agent-mvp",
@@ -1191,6 +1204,197 @@ describe("task-suite command", () => {
     expect(events).not.toContain("non_idempotent_mutation");
     expect(events).not.toContain("idempotent_mutation");
     expect(fixtureReport).not.toContain("/Users/");
+  });
+
+  it("writes evidence promotion and handoff artifacts with redaction records", async () => {
+    const io = fakeIo();
+    const result = await runCli(
+      [
+        "task-suite",
+        "run",
+        "--suite",
+        "repo-agent-evidence-promotion-handoff",
+        "--output-dir",
+        "out",
+        "--format",
+        "json",
+      ],
+      io,
+    );
+    const report = JSON.parse(result.stdout) as {
+      readonly fixtures: readonly [
+        {
+          readonly comparison: {
+            readonly blockedCandidates: readonly {
+              readonly nodeId: string;
+              readonly reasons: readonly { readonly code: string }[];
+              readonly sideEffectClass?: string;
+            }[];
+            readonly changedNodes: readonly {
+              readonly nodeId: string;
+              readonly reason: string;
+            }[];
+          };
+          readonly familyId: string;
+          readonly metrics: {
+            readonly actualSkippedActions: number;
+            readonly allowed: number;
+            readonly blocked: number;
+            readonly changedNodes: number;
+            readonly needsReview: number;
+          };
+          readonly reuseDecision: {
+            readonly summary: {
+              readonly allowed: number;
+              readonly blocked: number;
+              readonly needsReview: number;
+              readonly totalCandidates: number;
+            };
+          };
+        },
+      ];
+      readonly success: boolean;
+    };
+    const graph = JSON.parse(
+      writtenFile(
+        io.writes,
+        "out/repo-agent-evidence-promotion-handoff/evidence-promotion-and-handoff/graph.json",
+      ),
+    ) as {
+      readonly nodes: readonly {
+        readonly artifacts: readonly {
+          readonly kind: string;
+          readonly metadata?: {
+            readonly redaction?: Readonly<Record<string, unknown>> | string;
+          };
+        }[];
+        readonly id: string;
+        readonly metadata: {
+          readonly evidencePromotion?: Readonly<Record<string, unknown>>;
+          readonly handoff?: Readonly<Record<string, unknown>>;
+          readonly reuse?: {
+            readonly sideEffectClass?: string;
+            readonly validatorsRequired?: readonly string[];
+          };
+        };
+      }[];
+    };
+    const events = writtenFile(
+      io.writes,
+      "out/repo-agent-evidence-promotion-handoff/evidence-promotion-and-handoff/events.jsonl",
+    );
+    const fixtureReport = writtenFile(
+      io.writes,
+      "out/repo-agent-evidence-promotion-handoff/evidence-promotion-and-handoff/report.md",
+    );
+    const manifest = graph.nodes.find((node) =>
+      node.id.endsWith("tool-promote-manifest"),
+    );
+    const graphSummary = graph.nodes.find((node) =>
+      node.id.endsWith("tool-graph-summary"),
+    );
+    const advice = graph.nodes.find((node) =>
+      node.id.endsWith("model-reuse-advice"),
+    );
+    const handoff = graph.nodes.find((node) =>
+      node.id.endsWith("model-handoff-summary"),
+    );
+    const rawRun = graph.nodes.find((node) =>
+      node.id.endsWith("tool-raw-run-inspection"),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(report.success).toBe(false);
+    expect(report.fixtures[0]).toMatchObject({
+      familyId: "evidence-promotion-and-handoff",
+      metrics: {
+        actualSkippedActions: 0,
+        allowed: 3,
+        blocked: 1,
+        changedNodes: 2,
+        needsReview: 2,
+      },
+      reuseDecision: {
+        summary: {
+          allowed: 3,
+          blocked: 1,
+          needsReview: 2,
+          totalCandidates: 6,
+        },
+      },
+    });
+    expect(report.fixtures[0].comparison.changedNodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "evidence-promotion-and-handoff-tool-raw-run-inspection",
+          reason: "cache_key_changed",
+        }),
+        expect.objectContaining({
+          nodeId: "evidence-promotion-and-handoff-model-handoff-summary",
+          reason: "cache_key_changed",
+        }),
+      ]),
+    );
+    expect(report.fixtures[0].comparison.blockedCandidates).toEqual([
+      expect.objectContaining({
+        nodeId: "evidence-promotion-and-handoff-tool-promote-command",
+        reasons: expect.arrayContaining([
+          expect.objectContaining({ code: "side_effect_policy_missing" }),
+        ]),
+        sideEffectClass: "approval_required",
+      }),
+    ]);
+    expect(manifest?.artifacts[0]).toMatchObject({
+      kind: "manifest",
+      metadata: {
+        redaction: {
+          mode: "omitted",
+          reason:
+            "Raw prompts, tool payloads, provider responses, credentials, and local paths are omitted.",
+        },
+      },
+    });
+    expect(graphSummary?.metadata.evidencePromotion).toMatchObject({
+      redactionStatus: "passed",
+      stateBoundary: "promoted_project_knowledge",
+    });
+    expect(advice?.metadata.reuse?.validatorsRequired).toEqual([
+      "redaction-policy-check",
+      "source-fingerprint-check",
+      "handoff-completeness-check",
+    ]);
+    expect(handoff?.metadata.handoff).toMatchObject({
+      checksBlocked: ["github-code-quality-pending-pr"],
+      checksRun: ["focused-task-suite-test", "mise-run-check"],
+      completedWork: ["manifest-metadata", "graph-summary", "reuse-advice"],
+      nextEligibleIssue: "#159 after #158 merges",
+      remainingBlockers: ["#159 blocked by #158"],
+    });
+    expect(rawRun?.metadata.evidencePromotion).toMatchObject({
+      stateBoundary: "short_lived_local_session_state",
+    });
+    expect(events).toContain("evidencePromotion");
+    expect(events).toContain("handoff");
+    expect(events).not.toContain("raw customer prompt");
+    expect(events).not.toContain("tool-input-secret");
+    expect(events).not.toContain("tool-output-secret");
+    expect(events).not.toContain("provider-response-secret");
+    expect(events).not.toContain("sk-live-promotion-fixture");
+    expect(events).not.toContain("/Users/");
+    expect(fixtureReport).toContain(
+      "- Promoted artifacts are preserved project knowledge; raw `.migaki/runs` evidence remains short-lived local session state.",
+    );
+    expect(fixtureReport).toContain(
+      "- Handoff output names completed work, checks run, checks blocked, remaining blockers, and next eligible issue.",
+    );
+    expect(fixtureReport).toContain(
+      "- Reuse advice inherits metadata_only privacy and records explicit omissions for prompts, tool payloads, provider responses, credentials, and local paths.",
+    );
+    expect(fixtureReport).toContain(
+      "- Next eligible issue: #159 after #158 merges.",
+    );
+    expect(fixtureReport).not.toContain("/Users/");
+    expect(fixtureReport).not.toContain("sk-live-promotion-fixture");
   });
 
   it("runs all repo-agent fixture families through one command", async () => {
