@@ -127,6 +127,10 @@ const hookProbeRunIdPattern = /^codex-turn-migaki-smoke-hook-probe-/u;
 const recentRealTurnLimit = 5;
 const expectedHookCommand =
   'node "$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js"';
+const expectedHookCommands = new Set([
+  expectedHookCommand,
+  `MIGAKI_CODEX_LOCAL_CONTEXT=1 ${expectedHookCommand}`,
+]);
 const requiredDogfoodHookEvents = [
   "UserPromptSubmit",
   "PreToolUse",
@@ -991,8 +995,8 @@ function inspectHookConfig(hookConfigPath: string): HookConfigInspection {
     })),
   );
   const hookCommands = hookCommandEntries.map((entry) => entry.command);
-  const expectedCommandCount = hookCommands.filter(
-    (command) => command === expectedHookCommand,
+  const expectedCommandCount = hookCommands.filter((command) =>
+    expectedHookCommands.has(command),
   ).length;
 
   return {
