@@ -1,0 +1,124 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/migaki-mvp-repo-agent-gate [--output-dir <dir>] [--format human|json] [--skip-strict-dogfood]
+
+Run the MVP repo-agent completion gate. The gate runs the deterministic
+repo-agent MVP task-suite fixtures and reports strict dogfood status
+separately, so app-surface hook gaps are visible without hiding task-suite
+success or failure.
+
+Options:
+  --output-dir DIR          Directory for generated task-suite artifacts. Default: .migaki/mvp-repo-agent-gate.
+  --format human|json       Output format. Default: human.
+  --skip-strict-dogfood     Do not run strict dogfood; report not_checked.
+  -h, --help                Show this help.
+EOF
+}
+
+output_dir=".migaki/mvp-repo-agent-gate"
+format="human"
+run_strict_dogfood=1
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output-dir)
+      if [ "${2:-}" = "" ]; then
+        printf '%s\n' "--output-dir requires a value." >&2
+        usage >&2
+        exit 2
+      fi
+      output_dir=$2
+      shift
+      ;;
+    --format)
+      if [ "${2:-}" != "human" ] && [ "${2:-}" != "json" ]; then
+        printf '%s\n' "--format must be human or json." >&2
+        usage >&2
+        exit 2
+      fi
+      format=$2
+      shift
+      ;;
+    --skip-strict-dogfood)
+      run_strict_dogfood=0
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf '%s\n' "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$ROOT_DIR"
+
+strict_dogfood_status="not_checked"
+
+mkdir -p "$output_dir"
+
+if [ "$run_strict_dogfood" -eq 1 ]; then
+  dogfood_log="$output_dir/strict-dogfood.log"
+
+  if scripts/migaki-dogfood >"$dogfood_log" 2>&1; then
+    strict_dogfood_status="passed"
+  else
+    strict_dogfood_status="failed"
+  fi
+fi
+
+MIGAKI_MVP_GATE_OUTPUT_DIR="$output_dir/task-suite" \
+MIGAKI_MVP_GATE_FORMAT="$format" \
+MIGAKI_MVP_GATE_STRICT_DOGFOOD_STATUS="$strict_dogfood_status" \
+node --input-type=module <<'EOF'
+import { createJiti } from "jiti";
+
+const jiti = createJiti(import.meta.url);
+const { runCli } = await jiti.import("./packages/cli/src/index.ts");
+
+const outputDir = process.env["MIGAKI_MVP_GATE_OUTPUT_DIR"];
+const format = process.env["MIGAKI_MVP_GATE_FORMAT"];
+const strictDogfoodStatus =
+  process.env["MIGAKI_MVP_GATE_STRICT_DOGFOOD_STATUS"];
+
+if (outputDir === undefined) {
+  throw new Error("MIGAKI_MVP_GATE_OUTPUT_DIR is required.");
+}
+
+if (format !== "human" && format !== "json") {
+  throw new Error("MIGAKI_MVP_GATE_FORMAT must be human or json.");
+}
+
+if (
+  strictDogfoodStatus !== "failed" &&
+  strictDogfoodStatus !== "not_checked" &&
+  strictDogfoodStatus !== "passed"
+) {
+  throw new Error(
+    "MIGAKI_MVP_GATE_STRICT_DOGFOOD_STATUS must be passed, failed, or not_checked.",
+  );
+}
+
+const result = await runCli([
+  "task-suite",
+  "mvp-gate",
+  "--output-dir",
+  outputDir,
+  "--format",
+  format,
+  "--strict-dogfood-status",
+  strictDogfoodStatus,
+]);
+
+process.stdout.write(result.stdout);
+process.stderr.write(result.stderr);
+process.exitCode = result.exitCode;
+EOF

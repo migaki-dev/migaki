@@ -23,6 +23,25 @@ runs the hermetic fixture harness and writes `events.jsonl`, `graph.json`,
 `report.md`, `comparison.json`, and `reuse-decision.json` under the selected
 output directory.
 
+The MVP gate runs over the full fixture ladder:
+
+```ts
+runCli([
+  "task-suite",
+  "mvp-gate",
+  "--output-dir",
+  ".migaki/mvp-repo-agent-gate/task-suite",
+  "--format",
+  "json",
+]);
+```
+
+The report summarizes coverage, reuse decisions, blocked reasons, validator
+requirements, privacy checks, and the zero-realized-savings invariant. Strict
+dogfood status is an explicit input reported separately from deterministic
+task-suite success; the repository task `mise run migaki:mvp-repo-agent-gate`
+captures that status from `mise run migaki:dogfood`.
+
 Incomplete suites exit non-zero and report missing fixture families explicitly.
 Fixture comparison and reuse-decision artifacts use metadata-only privacy mode
 and preserve the observation-only invariant. Metrics separate estimated

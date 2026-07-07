@@ -193,6 +193,14 @@ organic-turn freshness window. A passing hook probe or smoke harness is not
 enough; the gate only passes when the newest organic Codex turn is also
 native-complete and fresh. When the gate fails on stale organic-turn evidence,
 the report prints an exact fresh-turn command to ask Codex Desktop to run.
+Use `mise run migaki:mvp-repo-agent-gate` as the MVP repo-agent completion
+gate. It builds the workspace, runs the full deterministic `repo-agent-mvp`
+task-suite fixtures, summarizes task-family coverage, reuse decisions, blocked
+reasons, validators, privacy checks, and realized skipped actions, then reports
+strict dogfood status separately from deterministic fixture success. MVP
+repo-agent completion means roadmap issues are closed or intentionally
+deferred, this gate passes, `mise run check` passes, and repository docs, wiki
+links, and whitepaper claims remain aligned.
 Use `mise run migaki:ready` as the practical working-mode gate. It still reports
 strict dogfood failures, but exits successfully when either fresh organic native
 dogfooding is available or the default bridge run has fresh active command
@@ -359,6 +367,7 @@ file paths, and delegated task/result text remain omitted.
 - `examples/rag-dedup-cache/` contains the v0 RAG deduplication, cache-layout, and provider-lowering example workspace.
 - `examples/structured-output-validation/` contains the v0.4 structured-output validation example with provider fallback evidence.
 - `scripts/bootstrap` bootstraps a development machine.
+- `scripts/migaki-mvp-repo-agent-gate` runs the MVP repo-agent completion gate.
 - `CONTRIBUTING.md` defines contribution standards for humans and coding
   agents.
 - `.githooks/` contains tracked Git hooks installed by `mise run setup`.

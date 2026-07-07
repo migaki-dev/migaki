@@ -84,6 +84,11 @@ run = "scripts/migaki-doctor"
 description = "Run the Codex dogfooding gate"
 run = "scripts/migaki-dogfood"
 
+[tasks."migaki:mvp-repo-agent-gate"]
+description = "Run the MVP repo-agent completion gate"
+depends = ["build"]
+run = "scripts/migaki-mvp-repo-agent-gate"
+
 [tasks."migaki:ready"]
 description = "Check whether Migaki is usable in the current session"
 run = "scripts/migaki-ready"
@@ -148,6 +153,7 @@ sh -n scripts/migaki-exec
 sh -n scripts/migaki-finish
 sh -n scripts/migaki-hook-probe
 sh -n scripts/migaki-latest-report
+sh -n scripts/migaki-mvp-repo-agent-gate
 sh -n scripts/migaki-promote
 sh -n scripts/migaki-ready
 sh -n scripts/migaki-runs
@@ -167,6 +173,7 @@ scripts/migaki-exec --help >/dev/null
 scripts/migaki-finish --help >/dev/null
 scripts/migaki-hook-probe --help >/dev/null
 scripts/migaki-latest-report --help >/dev/null
+scripts/migaki-mvp-repo-agent-gate --help >/dev/null
 scripts/migaki-promote --help >/dev/null
 scripts/migaki-ready --help >/dev/null
 scripts/migaki-runs --help >/dev/null
