@@ -13,3 +13,16 @@ report for a v0 evidence bundle or mock trace artifact. Use
 `runCli(["replay", "--input", "trace.json"])` replays a v0 mock trace artifact
 through the deterministic mock backend and reports mismatches. Successful
 replays exit zero; mismatches and invalid trace artifacts exit non-zero.
+
+## Task Suite Command
+
+`runCli(["task-suite", "list", "--format", "json"])` lists deterministic
+repo-agent task suites for automation. `runCli(["task-suite", "run", "--suite",
+"repo-agent-mvp", "--output-dir", ".migaki/task-suites", "--format", "json"])`
+runs the hermetic fixture harness and writes `events.jsonl`, `graph.json`,
+`report.md`, `comparison.json`, and `reuse-decision.json` under the selected
+output directory.
+
+Incomplete suites exit non-zero and report missing fixture families explicitly.
+Fixture comparison and reuse-decision artifacts use metadata-only privacy mode
+and preserve the observation-only invariant.
