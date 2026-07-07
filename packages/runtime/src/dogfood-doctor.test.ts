@@ -130,6 +130,44 @@ describe("dogfood doctor report", () => {
     });
   });
 
+  it("recognizes the documented local-context hook command as the Migaki entrypoint", async () => {
+    const root = await tempRoot();
+    const runsDirectory = join(root, ".migaki", "runs");
+    const runId = "codex-turn-local-context-command";
+
+    await writeHookFiles(root, {
+      command:
+        'MIGAKI_CODEX_LOCAL_CONTEXT=1 node "$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js"',
+    });
+    await writeRun({
+      events: nativeEvents(runId),
+      graph: graph({
+        nodeHookEventName: "Stop",
+        runId,
+        toolCalls: 1,
+      }),
+      runId,
+      runsDirectory,
+    });
+
+    const report = createDogfoodDoctorReport({
+      hookConfigPath: join(root, ".codex", "hooks.json"),
+      hookEntrypointPath: join(root, "packages", "codex", "dist", "hook.js"),
+      strict: true,
+      runsDirectory,
+    });
+
+    expect(report).toContain(
+      "- Hook commands: 4/4 use the expected Migaki hook entrypoint command",
+    );
+    expect(report).toContain("- Unexpected commands: 0");
+    expect(report).toContain("Strict Verification:");
+    expect(report).toContain("- Result: ok");
+    expect(report).not.toContain(
+      "Hook config contains unexpected hook commands.",
+    );
+  });
+
   it("warns when the latest turn relies on manual exec supplementation", async () => {
     const root = await tempRoot();
     const runsDirectory = join(root, ".migaki", "runs");
@@ -963,6 +1001,7 @@ async function writeRun(input: {
 async function writeHookFiles(
   root: string,
   options: {
+    readonly command?: string;
     readonly eventNames?: readonly string[];
   } = {},
 ): Promise<void> {
@@ -974,6 +1013,9 @@ async function writeHookFiles(
     "PostToolUse",
     "Stop",
   ];
+  const command =
+    options.command ??
+    'node "$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js"';
 
   await mkdir(join(root, ".codex"), { recursive: true });
   await mkdir(join(root, "packages", "codex", "dist"), { recursive: true });
@@ -988,8 +1030,7 @@ async function writeHookFiles(
               {
                 hooks: [
                   {
-                    command:
-                      'node "$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js"',
+                    command,
                     type: "command",
                   },
                 ],
