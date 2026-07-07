@@ -41,6 +41,7 @@ required_sources:
   - docs/evidence-bundles-v0.md
   - docs/adaptive-policies-v0.md
   - docs/cli-v0.md
+  - docs/repo-agent-task-ladder-v0.md for MVP repo-agent task-family and benchmark acceptance work
   - docs/migaki-artifacts/README.md when promoted artifacts are touched
   - wiki Project Scope
   - wiki v0 Roadmap

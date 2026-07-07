@@ -112,6 +112,11 @@ These estimates are observation metadata only; the fixture does not replay,
 cache, skip, call live providers, call registries, use Docker, or contact
 private services by default.
 
+The broader MVP task-family acceptance matrix lives in
+[`docs/repo-agent-task-ladder-v0.md`](../../docs/repo-agent-task-ladder-v0.md).
+It defines the required repo-agent benchmark families, validators, metrics,
+blocked-reuse reasons, and observation-only policy for future fixtures.
+
 For the deterministic no-provider code-review workflow fixture, run:
 
 ```sh

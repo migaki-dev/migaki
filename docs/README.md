@@ -27,6 +27,9 @@ downstream integrators.
 - [Adaptive Policies v0](./adaptive-policies-v0.md) describes
   meta-observations, policy proposals, policy diffs, and accepted policy
   bundles for auditable advice-only adaptation.
+- [Repo-Agent Task Ladder v0](./repo-agent-task-ladder-v0.md) defines the MVP
+  repo-agent task-family matrix, benchmark acceptance metrics, and
+  observation-only reuse policy.
 - [Promoted Migaki Artifacts](./migaki-artifacts/README.md) describes the
   tracked location for curated project-level artifacts promoted from local
   `.migaki/runs` evidence.
@@ -38,8 +41,8 @@ downstream integrators.
 - [v0 Roadmap](https://github.com/migaki-dev/migaki/wiki/v0-Roadmap) tracks the
   v0.4 evidence-first product loop: observed trajectories -> reusable evidence
   graphs -> optimized mIR plans -> capability-aware execution -> new evidence.
-  The v0 contract docs in this directory remain the repository-versioned
-  technical surfaces that implement that direction.
+  The repo-agent ladder matrix and v0 contract docs in this directory remain
+  the repository-versioned technical surfaces that implement that direction.
 - [mIR](https://github.com/migaki-dev/migaki/wiki/mIR),
   [Optimization Passes](https://github.com/migaki-dev/migaki/wiki/Optimization-Passes),
   [Provider Capabilities](https://github.com/migaki-dev/migaki/wiki/Provider-Capabilities),
