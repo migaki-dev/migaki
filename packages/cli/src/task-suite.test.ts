@@ -94,6 +94,19 @@ describe("task-suite command", () => {
           ],
         },
         {
+          description: "One PR review and merge-readiness repo-agent fixture.",
+          fixtureCount: 1,
+          id: "repo-agent-pr-review-merge-readiness",
+          missingRequiredFamilies: [
+            "read-only-reconnaissance",
+            "implementation-and-debug",
+            "ci-and-toolchain-triage",
+            "docs-and-wiki-alignment",
+            "issue-planning-and-blocker-maintenance",
+            "evidence-promotion-and-handoff",
+          ],
+        },
+        {
           description: "All MVP repo-agent task ladder fixture families.",
           fixtureCount: 7,
           id: "repo-agent-mvp",
@@ -989,6 +1002,194 @@ describe("task-suite command", () => {
       "- Adopt existing PR #159 or active claim #158 before creating new work.",
     );
     expect(fixtureReport).toContain("Blocked by: #156");
+    expect(fixtureReport).not.toContain("/Users/");
+  });
+
+  it("writes PR review and merge-readiness artifacts with grounded review decisions", async () => {
+    const io = fakeIo();
+    const result = await runCli(
+      [
+        "task-suite",
+        "run",
+        "--suite",
+        "repo-agent-pr-review-merge-readiness",
+        "--output-dir",
+        "out",
+        "--format",
+        "json",
+      ],
+      io,
+    );
+    const report = JSON.parse(result.stdout) as {
+      readonly fixtures: readonly [
+        {
+          readonly comparison: {
+            readonly blockedCandidates: readonly {
+              readonly nodeId: string;
+              readonly reasons: readonly { readonly code: string }[];
+              readonly sideEffectClass?: string;
+            }[];
+            readonly changedNodes: readonly {
+              readonly nodeId: string;
+              readonly reason: string;
+            }[];
+          };
+          readonly familyId: string;
+          readonly metrics: {
+            readonly actualSkippedActions: number;
+            readonly allowed: number;
+            readonly blocked: number;
+            readonly changedNodes: number;
+            readonly needsReview: number;
+          };
+          readonly reuseDecision: {
+            readonly summary: {
+              readonly allowed: number;
+              readonly blocked: number;
+              readonly needsReview: number;
+              readonly totalCandidates: number;
+            };
+          };
+        },
+      ];
+      readonly success: boolean;
+    };
+    const graph = JSON.parse(
+      writtenFile(
+        io.writes,
+        "out/repo-agent-pr-review-merge-readiness/pr-review-and-merge-readiness/graph.json",
+      ),
+    ) as {
+      readonly nodes: readonly {
+        readonly artifacts: readonly {
+          readonly metadata?: {
+            readonly codex?: Readonly<Record<string, unknown>>;
+            readonly reuse?: Readonly<Record<string, unknown>>;
+          };
+        }[];
+        readonly id: string;
+        readonly metadata: {
+          readonly prReview?: Readonly<Record<string, unknown>>;
+          readonly reuse?: {
+            readonly sideEffectClass?: string;
+            readonly validatorsRequired?: readonly string[];
+          };
+        };
+      }[];
+    };
+    const events = writtenFile(
+      io.writes,
+      "out/repo-agent-pr-review-merge-readiness/pr-review-and-merge-readiness/events.jsonl",
+    );
+    const fixtureReport = writtenFile(
+      io.writes,
+      "out/repo-agent-pr-review-merge-readiness/pr-review-and-merge-readiness/report.md",
+    );
+    const changedFiles = graph.nodes.find((node) =>
+      node.id.endsWith("tool-read-changed-files"),
+    );
+    const finalComments = graph.nodes.find((node) =>
+      node.id.endsWith("model-final-review-comments"),
+    );
+    const requestedChangeDecision = graph.nodes.find((node) =>
+      node.id.endsWith("model-requested-change-decision"),
+    );
+    const reviewThreads = graph.nodes.find((node) =>
+      node.id.endsWith("tool-review-thread-state"),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(report.success).toBe(false);
+    expect(report.fixtures[0]).toMatchObject({
+      familyId: "pr-review-and-merge-readiness",
+      metrics: {
+        actualSkippedActions: 0,
+        allowed: 3,
+        blocked: 2,
+        changedNodes: 4,
+        needsReview: 2,
+      },
+      reuseDecision: {
+        summary: {
+          allowed: 3,
+          blocked: 2,
+          needsReview: 2,
+          totalCandidates: 7,
+        },
+      },
+    });
+    expect(report.fixtures[0].comparison.changedNodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "pr-review-and-merge-readiness-tool-read-changed-files",
+          reason: "cache_key_changed",
+        }),
+        expect.objectContaining({
+          nodeId: "pr-review-and-merge-readiness-model-review-findings",
+          reason: "cache_key_changed",
+        }),
+        expect.objectContaining({
+          nodeId: "pr-review-and-merge-readiness-tool-check-summary",
+          reason: "cache_key_changed",
+        }),
+        expect.objectContaining({
+          nodeId: "pr-review-and-merge-readiness-tool-merge-base-state",
+          reason: "cache_key_changed",
+        }),
+      ]),
+    );
+    expect(report.fixtures[0].comparison.blockedCandidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "pr-review-and-merge-readiness-tool-review-thread-state",
+          reasons: expect.arrayContaining([
+            expect.objectContaining({ code: "freshness_unknown" }),
+          ]),
+          sideEffectClass: "read_only",
+        }),
+        expect.objectContaining({
+          nodeId: "pr-review-and-merge-readiness-model-final-review-comments",
+          reasons: expect.arrayContaining([
+            expect.objectContaining({ code: "validator_missing" }),
+          ]),
+        }),
+      ]),
+    );
+    expect(changedFiles?.artifacts[0]?.metadata?.codex).toMatchObject({
+      droppable: false,
+      fileContentFingerprint: "changed-files-content-v2",
+    });
+    expect(finalComments?.metadata.reuse?.validatorsRequired).toEqual([
+      "inline-comment-grounding",
+      "changed-file-grounding",
+      "check-evidence-grounding",
+    ]);
+    expect(requestedChangeDecision?.metadata.prReview).toMatchObject({
+      decision: "request_changes",
+      mergeAction: "none",
+    });
+    expect(reviewThreads?.metadata.prReview).toMatchObject({
+      blockedBy: "unresolved_review_threads",
+      scenario: "blocked_unresolved_threads",
+    });
+    expect(events).toContain("prReview");
+    expect(events).toContain("missing_tests");
+    expect(events).toContain("stale_base");
+    expect(events).not.toContain("/Users/");
+    expect(fixtureReport).toContain(
+      "- Changed-file content: non-droppable; fingerprint drift blocks reuse.",
+    );
+    expect(fixtureReport).toContain(
+      "- Stable review context: repository policy, style guide, and review rubric are reusable only with verified freshness.",
+    );
+    expect(fixtureReport).toContain(
+      "- Blocked examples: missing tests, stale base, and unresolved review threads require fresh review evidence.",
+    );
+    expect(fixtureReport).toContain(
+      "- Review advice is separated from merge action; fixture records no auto-merge or live SCM mutation.",
+    );
+    expect(events).not.toContain("non_idempotent_mutation");
+    expect(events).not.toContain("idempotent_mutation");
     expect(fixtureReport).not.toContain("/Users/");
   });
 

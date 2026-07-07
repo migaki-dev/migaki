@@ -311,6 +311,11 @@ const taskSuites: readonly TaskSuiteDefinition[] = [
     id: "repo-agent-issue-planning-blockers",
   },
   {
+    description: "One PR review and merge-readiness repo-agent fixture.",
+    fixtureFamilies: ["pr-review-and-merge-readiness"],
+    id: "repo-agent-pr-review-merge-readiness",
+  },
+  {
     description: "All MVP repo-agent task ladder fixture families.",
     fixtureFamilies: repoAgentFixtureFamilyIds,
     id: "repo-agent-mvp",
@@ -695,6 +700,10 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
 
   if (familyId === "issue-planning-and-blocker-maintenance") {
     return createIssuePlanningAndBlockerMaintenanceFixture(familyId);
+  }
+
+  if (familyId === "pr-review-and-merge-readiness") {
+    return createPrReviewAndMergeReadinessFixture(familyId);
   }
 
   const previousRunId = `${familyId}-previous`;
@@ -1815,6 +1824,474 @@ function createCiAndToolchainTriageFixture(
   };
 }
 
+function createPrReviewAndMergeReadinessFixture(
+  familyId: RepoAgentFixtureFamilyId,
+): {
+  readonly currentGraph: ExecutionGraph;
+  readonly eventsJsonl: string;
+  readonly previousGraph: ExecutionGraph;
+} {
+  const previousRunId = `${familyId}-previous`;
+  const currentRunId = `${familyId}-current`;
+  const repositoryPolicyMetadata = {
+    prReview: {
+      freshnessRequirement: "verified",
+      scenario: "stable_review_context",
+      sourceKind: "repository_policy",
+      stage: "repository_policy_context",
+    },
+  };
+  const styleGuideMetadata = {
+    prReview: {
+      freshnessRequirement: "verified",
+      scenario: "stable_review_context",
+      sourceKind: "style_guide",
+      stage: "style_guidance_context",
+    },
+  };
+  const reviewRubricMetadata = {
+    prReview: {
+      freshnessRequirement: "verified",
+      scenario: "stable_review_context",
+      sourceKind: "review_rubric",
+      stage: "review_rubric_context",
+    },
+  };
+  const reviewContextSummaryMetadata = {
+    prReview: {
+      requiredSources: ["repository_policy", "style_guide", "review_rubric"],
+      scenario: "stable_review_context",
+      stage: "review_context_summary",
+    },
+  };
+  const previousChangedFilesMetadata = {
+    prReview: {
+      droppable: false,
+      fileContentFingerprint: "changed-files-content-v1",
+      scenario: "clean_mergeable_pr",
+      stage: "changed_file_content",
+    },
+  };
+  const currentChangedFilesMetadata = {
+    prReview: {
+      droppable: false,
+      fileContentFingerprint: "changed-files-content-v2",
+      scenario: "blocked_missing_tests",
+      stage: "changed_file_content",
+    },
+  };
+  const previousReviewFindingsMetadata = {
+    prReview: {
+      findings: ["clean_mergeable_pr"],
+      scenario: "clean_mergeable_pr",
+      stage: "review_finding_generation",
+    },
+  };
+  const currentReviewFindingsMetadata = {
+    prReview: {
+      findings: ["missing_tests", "stale_base", "unresolved_review_threads"],
+      scenario: "blocked_missing_tests",
+      stage: "review_finding_generation",
+    },
+  };
+  const previousCheckMetadata = {
+    prReview: {
+      checkState: "passing",
+      requiredChecks: ["code-quality", "test"],
+      scenario: "clean_mergeable_pr",
+      stage: "check_summary",
+    },
+  };
+  const currentCheckMetadata = {
+    prReview: {
+      blockedBy: "missing_tests",
+      checkState: "failing",
+      requiredChecks: ["code-quality", "test"],
+      scenario: "blocked_missing_tests",
+      stage: "check_summary",
+    },
+  };
+  const previousMergeBaseMetadata = {
+    prReview: {
+      baseState: "fresh",
+      mergeableState: "clean",
+      scenario: "clean_mergeable_pr",
+      stage: "merge_base_state",
+    },
+  };
+  const currentMergeBaseMetadata = {
+    prReview: {
+      baseState: "stale_base",
+      blockedBy: "stale_base",
+      mergeableState: "behind",
+      scenario: "blocked_stale_base",
+      stage: "merge_base_state",
+    },
+  };
+  const previousReviewThreadMetadata = {
+    prReview: {
+      scenario: "clean_mergeable_pr",
+      stage: "review_thread_state",
+      threadState: "resolved",
+    },
+  };
+  const currentReviewThreadMetadata = {
+    prReview: {
+      blockedBy: "unresolved_review_threads",
+      scenario: "blocked_unresolved_threads",
+      stage: "review_thread_state",
+      threadState: "unresolved",
+    },
+  };
+  const requestedChangeDecisionMetadata = {
+    prReview: {
+      decision: "request_changes",
+      mergeAction: "none",
+      scenario: "blocked_pr_requires_changes",
+      stage: "requested_change_decision",
+    },
+  };
+  const finalReviewCommentMetadata = {
+    prReview: {
+      commentMode: "inline_grounded",
+      mergeAction: "none",
+      scenario: "blocked_validator_missing",
+      stage: "final_review_comments",
+    },
+  };
+  const terminalMetadata = {
+    prReview: {
+      mergeAction: "none",
+      mutationPolicy: "observation_only",
+      reviewAdvice: "request_changes",
+      stage: "report_and_handoff",
+    },
+  };
+
+  const previousGraph = graph(previousRunId, familyId, [
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-read-repository-policy`,
+      familyId,
+      "review-context:repository-policy:v1",
+      repositoryPolicyMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-repository-policy`,
+            "repo-policy-v1",
+            "verified",
+            {
+              codex: {
+                sourceIdentity: "repo:CONTRIBUTING.md",
+                sourceLabel: "Repository contribution policy excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-read-style-guide`,
+      familyId,
+      "review-context:style-guide:v1",
+      styleGuideMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-style-guide`,
+            "style-guide-v1",
+            "verified",
+            {
+              codex: {
+                sourceIdentity: "repo:.agents/AGENTS.md",
+                sourceLabel: "Agent style guidance excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-read-review-rubric`,
+      familyId,
+      "review-context:rubric:v1",
+      reviewRubricMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-review-rubric`,
+            "review-rubric-v1",
+            "verified",
+            {
+              codex: {
+                sourceIdentity: "repo:docs/repo-agent-task-ladder-v0.md",
+                sourceLabel: "Repo-agent PR review rubric excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    prReviewModelNode(
+      `${familyId}-model-review-context-summary`,
+      familyId,
+      "review-context-summary:v1",
+      reviewContextSummaryMetadata,
+      ["review-context-freshness"],
+      ["review-context-freshness"],
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-read-changed-files`,
+      familyId,
+      "changed-files:content-v1",
+      previousChangedFilesMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-changed-files`,
+            "changed-files-content-v1",
+            "verified",
+            {
+              codex: {
+                droppable: false,
+                fileContentFingerprint: "changed-files-content-v1",
+                sourceLabel: "Changed-file diff content",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    prReviewModelNode(
+      `${familyId}-model-review-findings`,
+      familyId,
+      "review-findings:clean:v1",
+      previousReviewFindingsMetadata,
+      ["changed-file-grounding", "check-evidence-grounding"],
+      ["changed-file-grounding", "check-evidence-grounding"],
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-check-summary`,
+      familyId,
+      "checks:passing:v1",
+      previousCheckMetadata,
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-merge-base-state`,
+      familyId,
+      "merge-base:fresh:v1",
+      previousMergeBaseMetadata,
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-review-thread-state`,
+      familyId,
+      "review-threads:resolved:v1",
+      previousReviewThreadMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-review-threads`,
+            "review-threads-v1",
+            "verified",
+          ),
+        ],
+      },
+    ),
+    prReviewModelNode(
+      `${familyId}-model-requested-change-decision`,
+      familyId,
+      "requested-change-decision:v1",
+      requestedChangeDecisionMetadata,
+      ["merge-readiness-evidence", "review-thread-grounding"],
+      ["merge-readiness-evidence", "review-thread-grounding"],
+    ),
+    prReviewModelNode(
+      `${familyId}-model-final-review-comments`,
+      familyId,
+      "final-review-comments:v1",
+      finalReviewCommentMetadata,
+      [
+        "inline-comment-grounding",
+        "changed-file-grounding",
+        "check-evidence-grounding",
+      ],
+      [
+        "inline-comment-grounding",
+        "changed-file-grounding",
+        "check-evidence-grounding",
+      ],
+    ),
+    implementationTerminalNode(`${familyId}-final-answer`, familyId, {
+      ...terminalMetadata,
+      prReview: {
+        ...terminalMetadata.prReview,
+        reviewAdvice: "approve",
+      },
+    }),
+  ]);
+  const currentGraph = graph(currentRunId, familyId, [
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-read-repository-policy`,
+      familyId,
+      "review-context:repository-policy:v1",
+      repositoryPolicyMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-repository-policy`,
+            "repo-policy-v1",
+            "verified",
+            {
+              codex: {
+                sourceIdentity: "repo:CONTRIBUTING.md",
+                sourceLabel: "Repository contribution policy excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-read-style-guide`,
+      familyId,
+      "review-context:style-guide:v1",
+      styleGuideMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-style-guide`,
+            "style-guide-v1",
+            "verified",
+            {
+              codex: {
+                sourceIdentity: "repo:.agents/AGENTS.md",
+                sourceLabel: "Agent style guidance excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-read-review-rubric`,
+      familyId,
+      "review-context:rubric:v1",
+      reviewRubricMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-review-rubric`,
+            "review-rubric-v1",
+            "verified",
+            {
+              codex: {
+                sourceIdentity: "repo:docs/repo-agent-task-ladder-v0.md",
+                sourceLabel: "Repo-agent PR review rubric excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    prReviewModelNode(
+      `${familyId}-model-review-context-summary`,
+      familyId,
+      "review-context-summary:v1",
+      reviewContextSummaryMetadata,
+      ["review-context-freshness"],
+      ["review-context-freshness"],
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-read-changed-files`,
+      familyId,
+      "changed-files:content-v2",
+      currentChangedFilesMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-changed-files`,
+            "changed-files-content-v2",
+            "verified",
+            {
+              codex: {
+                droppable: false,
+                fileContentFingerprint: "changed-files-content-v2",
+                sourceLabel: "Changed-file diff content",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    prReviewModelNode(
+      `${familyId}-model-review-findings`,
+      familyId,
+      "review-findings:blocked:v1",
+      currentReviewFindingsMetadata,
+      ["changed-file-grounding", "check-evidence-grounding"],
+      ["changed-file-grounding", "check-evidence-grounding"],
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-check-summary`,
+      familyId,
+      "checks:missing-tests:v1",
+      currentCheckMetadata,
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-merge-base-state`,
+      familyId,
+      "merge-base:stale:v1",
+      currentMergeBaseMetadata,
+    ),
+    prReviewReadOnlyToolNode(
+      `${familyId}-tool-review-thread-state`,
+      familyId,
+      "review-threads:resolved:v1",
+      currentReviewThreadMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-review-threads`,
+            "review-threads-v1",
+            "unknown",
+          ),
+        ],
+      },
+    ),
+    prReviewModelNode(
+      `${familyId}-model-requested-change-decision`,
+      familyId,
+      "requested-change-decision:v1",
+      requestedChangeDecisionMetadata,
+      ["merge-readiness-evidence", "review-thread-grounding"],
+      ["merge-readiness-evidence", "review-thread-grounding"],
+    ),
+    prReviewModelNode(
+      `${familyId}-model-final-review-comments`,
+      familyId,
+      "final-review-comments:v1",
+      finalReviewCommentMetadata,
+      ["inline-comment-grounding"],
+      [
+        "inline-comment-grounding",
+        "changed-file-grounding",
+        "check-evidence-grounding",
+      ],
+    ),
+    implementationTerminalNode(
+      `${familyId}-final-answer`,
+      familyId,
+      terminalMetadata,
+    ),
+  ]);
+
+  return {
+    currentGraph,
+    eventsJsonl: renderFixtureEventsJsonl(familyId, currentGraph),
+    previousGraph,
+  };
+}
+
 function createReadOnlyReconnaissanceFixture(
   familyId: RepoAgentFixtureFamilyId,
 ): {
@@ -2327,6 +2804,51 @@ function issuePlanningDecisionNode(
   });
 }
 
+function prReviewModelNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+  validatorsPassed: readonly string[],
+  validatorsRequired: readonly string[],
+): ExecutionNode {
+  return node(id, "model_call", familyId, fingerprintSeed, {
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        validatorsPassed,
+        validatorsRequired,
+      },
+    },
+    totalTokens: 156,
+  });
+}
+
+function prReviewReadOnlyToolNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+  options: {
+    readonly artifacts?: ExecutionNode["artifacts"];
+  } = {},
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    ...(options.artifacts === undefined
+      ? {}
+      : { artifacts: options.artifacts }),
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        sideEffectClass: "read_only",
+      },
+    },
+    totalTokens: 12,
+  });
+}
+
 function toolNode(
   id: string,
   familyId: RepoAgentFixtureFamilyId,
@@ -2427,6 +2949,9 @@ function renderFixtureEventsJsonl(
       ...(node.metadata.issuePlanning === undefined
         ? {}
         : { issuePlanning: node.metadata.issuePlanning }),
+      ...(node.metadata.prReview === undefined
+        ? {}
+        : { prReview: node.metadata.prReview }),
       privacyMode: "metadata_only",
       source: "repo-agent-task-suite",
     },
@@ -2556,6 +3081,20 @@ function taskSuiteFixtureFamilyReportLines(
       "- Adopt existing PR #159 or active claim #158 before creating new work.",
       "- Draft issue body fields: project purpose, acceptance criteria, labels, validation, and Blocked by: #156.",
       "- Evidence mode: metadata_only; live GitHub payloads and local paths omitted.",
+    ];
+  }
+
+  if (familyId === "pr-review-and-merge-readiness") {
+    return [
+      "",
+      "PR review and merge readiness:",
+      "- Changed-file content: non-droppable; fingerprint drift blocks reuse.",
+      "- Stable review context: repository policy, style guide, and review rubric are reusable only with verified freshness.",
+      "- Review finding generation, inline-comment grounding, merge-readiness checks, and requested-change decisions are validator-bound model nodes.",
+      "- Blocked examples: missing tests, stale base, and unresolved review threads require fresh review evidence.",
+      "- Final review comments remain blocked or needs_review when grounding validators are missing.",
+      "- Review advice is separated from merge action; fixture records no auto-merge or live SCM mutation.",
+      "- Evidence mode: metadata_only; changed-file content, live GitHub payloads, and local paths omitted.",
     ];
   }
 
