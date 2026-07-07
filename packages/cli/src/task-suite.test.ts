@@ -54,6 +54,19 @@ describe("task-suite command", () => {
           ],
         },
         {
+          description: "One CI and toolchain triage repo-agent fixture.",
+          fixtureCount: 1,
+          id: "repo-agent-ci-toolchain-triage",
+          missingRequiredFamilies: [
+            "read-only-reconnaissance",
+            "implementation-and-debug",
+            "docs-and-wiki-alignment",
+            "issue-planning-and-blocker-maintenance",
+            "pr-review-and-merge-readiness",
+            "evidence-promotion-and-handoff",
+          ],
+        },
+        {
           description: "All MVP repo-agent task ladder fixture families.",
           fixtureCount: 7,
           id: "repo-agent-mvp",
@@ -431,6 +444,172 @@ describe("task-suite command", () => {
         "out/repo-agent-implementation-debug/implementation-and-debug/report.md"
       ],
     ).toContain("side_effecting_tool");
+  });
+
+  it("writes CI/toolchain triage artifacts with fresh command and drift blockers", async () => {
+    const io = fakeIo();
+    const result = await runCli(
+      [
+        "task-suite",
+        "run",
+        "--suite",
+        "repo-agent-ci-toolchain-triage",
+        "--output-dir",
+        "out",
+        "--format",
+        "json",
+      ],
+      io,
+    );
+    const report = JSON.parse(result.stdout) as {
+      readonly fixtures: readonly [
+        {
+          readonly comparison: {
+            readonly blockedCandidates: readonly {
+              readonly nodeId: string;
+              readonly reasons: readonly { readonly code: string }[];
+              readonly sideEffectClass?: string;
+            }[];
+            readonly changedNodes: readonly {
+              readonly nodeId: string;
+              readonly reason: string;
+            }[];
+          };
+          readonly familyId: string;
+          readonly metrics: {
+            readonly actualSkippedActions: number;
+            readonly allowed: number;
+            readonly blocked: number;
+            readonly changedNodes: number;
+            readonly needsReview: number;
+          };
+          readonly reuseDecision: {
+            readonly summary: {
+              readonly allowed: number;
+              readonly blocked: number;
+              readonly needsReview: number;
+              readonly totalCandidates: number;
+            };
+          };
+        },
+      ];
+      readonly success: boolean;
+    };
+    const graph = JSON.parse(
+      writtenFile(
+        io.writes,
+        "out/repo-agent-ci-toolchain-triage/ci-and-toolchain-triage/graph.json",
+      ),
+    ) as {
+      readonly nodes: readonly {
+        readonly artifacts: readonly {
+          readonly metadata?: Readonly<Record<string, unknown>>;
+        }[];
+        readonly id: string;
+        readonly metadata: {
+          readonly ciToolchainTriage?: Readonly<Record<string, unknown>>;
+        };
+      }[];
+    };
+    const events = writtenFile(
+      io.writes,
+      "out/repo-agent-ci-toolchain-triage/ci-and-toolchain-triage/events.jsonl",
+    );
+    const fixtureReport = writtenFile(
+      io.writes,
+      "out/repo-agent-ci-toolchain-triage/ci-and-toolchain-triage/report.md",
+    );
+    const logClassification = graph.nodes.find((node) =>
+      node.id.endsWith("model-log-classification"),
+    );
+    const localGate = graph.nodes.find((node) =>
+      node.id.endsWith("tool-local-check"),
+    );
+    const environmentRead = graph.nodes.find((node) =>
+      node.id.endsWith("tool-environment-read"),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(report.success).toBe(false);
+    expect(report.fixtures[0]).toMatchObject({
+      familyId: "ci-and-toolchain-triage",
+      metrics: {
+        actualSkippedActions: 0,
+        allowed: 2,
+        blocked: 2,
+        changedNodes: 4,
+        needsReview: 1,
+      },
+      reuseDecision: {
+        summary: {
+          allowed: 2,
+          blocked: 2,
+          needsReview: 1,
+          totalCandidates: 5,
+        },
+      },
+    });
+    expect(report.fixtures[0].comparison.changedNodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "ci-and-toolchain-triage-tool-local-check",
+          reason: "cache_key_changed",
+        }),
+        expect.objectContaining({
+          nodeId: "ci-and-toolchain-triage-tool-environment-read",
+          reason: "cache_key_changed",
+        }),
+        expect.objectContaining({
+          nodeId: "ci-and-toolchain-triage-model-next-action",
+          reason: "cache_key_changed",
+        }),
+      ]),
+    );
+    expect(report.fixtures[0].comparison.blockedCandidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "ci-and-toolchain-triage-tool-local-rerun-required",
+          reasons: expect.arrayContaining([
+            expect.objectContaining({ code: "side_effect_policy_missing" }),
+          ]),
+          sideEffectClass: "approval_required",
+        }),
+        expect.objectContaining({
+          nodeId: "ci-and-toolchain-triage-tool-install",
+          reasons: expect.arrayContaining([
+            expect.objectContaining({ code: "side_effecting_tool" }),
+          ]),
+          sideEffectClass: "non_idempotent_mutation",
+        }),
+      ]),
+    );
+    expect(logClassification?.metadata.ciToolchainTriage).toMatchObject({
+      checkContract:
+        "github-check:code-quality:. scripts/env && mise run check",
+      evidenceKind: "log_classification",
+      rawLogStorage: "omitted",
+    });
+    expect(localGate?.metadata.ciToolchainTriage).toMatchObject({
+      commandFingerprint: "mise-run-check-v2",
+      evidenceKind: "fresh_local_execution",
+      localExecutionRequired: true,
+      lockfileFingerprint: "pnpm-lock-v2",
+    });
+    expect(environmentRead?.metadata.ciToolchainTriage).toMatchObject({
+      environmentFingerprint: "env:node-24.3.0:pnpm-10.12.1",
+      hostSpecificPaths: "omitted",
+      toolVersionFingerprint: "mise-node-24.3.0-pnpm-10.12.1",
+    });
+    expect(events).toContain("checkContract");
+    expect(events).toContain("fresh_local_execution");
+    expect(events).not.toContain("/Users/");
+    expect(events).not.toContain("sk-live");
+    expect(fixtureReport).toContain(
+      "Next action: rerun `. scripts/env && mise run check` locally because CI evidence is incomplete.",
+    );
+    expect(fixtureReport).toContain("check/gate contract");
+    expect(fixtureReport).not.toContain("/Users/");
+    expect(fixtureReport).not.toMatch(/\binfer(?:red)? success\b/i);
   });
 
   it("runs all repo-agent fixture families through one command", async () => {
