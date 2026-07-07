@@ -41,6 +41,19 @@ describe("task-suite command", () => {
           ],
         },
         {
+          description: "One implementation-and-debug repo-agent fixture.",
+          fixtureCount: 1,
+          id: "repo-agent-implementation-debug",
+          missingRequiredFamilies: [
+            "read-only-reconnaissance",
+            "ci-and-toolchain-triage",
+            "docs-and-wiki-alignment",
+            "issue-planning-and-blocker-maintenance",
+            "pr-review-and-merge-readiness",
+            "evidence-promotion-and-handoff",
+          ],
+        },
+        {
           description: "All MVP repo-agent task ladder fixture families.",
           fixtureCount: 7,
           id: "repo-agent-mvp",
@@ -281,6 +294,143 @@ describe("task-suite command", () => {
     expect(summary?.metadata.reuse?.validatorsRequired).toEqual([
       "cited-source-coverage",
     ]);
+  });
+
+  it("writes implementation-and-debug artifacts with blocked side effects and retry evidence", async () => {
+    const io = fakeIo();
+    const result = await runCli(
+      [
+        "task-suite",
+        "run",
+        "--suite",
+        "repo-agent-implementation-debug",
+        "--output-dir",
+        "out",
+        "--format",
+        "json",
+      ],
+      io,
+    );
+    const report = JSON.parse(result.stdout) as {
+      readonly fixtures: readonly [
+        {
+          readonly comparison: {
+            readonly blockedCandidates: readonly {
+              readonly nodeId: string;
+              readonly reasons: readonly { readonly code: string }[];
+              readonly sideEffectClass?: string;
+            }[];
+            readonly changedNodes: readonly {
+              readonly nodeId: string;
+              readonly reason: string;
+            }[];
+            readonly summary: {
+              readonly totalEstimatedAvoidableCostUsd?: number;
+              readonly totalEstimatedAvoidableLatencyMs?: number;
+              readonly totalEstimatedAvoidableTokens?: number;
+            };
+          };
+          readonly familyId: string;
+          readonly metrics: {
+            readonly actualSkippedActions: number;
+            readonly allowed: number;
+            readonly blocked: number;
+            readonly changedNodes: number;
+            readonly estimatedAvoidableCostUsd?: number;
+            readonly estimatedAvoidableLatencyMs?: number;
+            readonly estimatedAvoidableTokens?: number;
+            readonly needsReview: number;
+          };
+          readonly reuseDecision: {
+            readonly summary: {
+              readonly allowed: number;
+              readonly blocked: number;
+              readonly needsReview: number;
+              readonly totalCandidates: number;
+            };
+          };
+        },
+      ];
+      readonly success: boolean;
+    };
+
+    expect(result.exitCode).toBe(1);
+    expect(report.success).toBe(false);
+    expect(report.fixtures[0]).toMatchObject({
+      familyId: "implementation-and-debug",
+      metrics: {
+        actualSkippedActions: 0,
+        allowed: 2,
+        blocked: 2,
+        changedNodes: 3,
+        estimatedAvoidableCostUsd: 0.002,
+        estimatedAvoidableLatencyMs: 30,
+        estimatedAvoidableTokens: 132,
+        needsReview: 1,
+      },
+      reuseDecision: {
+        summary: {
+          allowed: 2,
+          blocked: 2,
+          needsReview: 1,
+          totalCandidates: 5,
+        },
+      },
+    });
+    expect(report.fixtures[0].comparison.summary).toMatchObject({
+      totalEstimatedAvoidableCostUsd: 0.002,
+      totalEstimatedAvoidableLatencyMs: 30,
+      totalEstimatedAvoidableTokens: 132,
+    });
+    expect(report.fixtures[0].comparison.changedNodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "implementation-and-debug-model-debug-diagnosis",
+          reason: "cache_key_changed",
+        }),
+        expect.objectContaining({
+          nodeId: "implementation-and-debug-tool-apply-patch-retry",
+          reason: "cache_key_changed",
+        }),
+        expect.objectContaining({
+          nodeId: "implementation-and-debug-tool-focused-test-pass",
+          reason: "cache_key_changed",
+        }),
+      ]),
+    );
+    expect(report.fixtures[0].comparison.blockedCandidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "implementation-and-debug-tool-apply-patch-initial",
+          reasons: expect.arrayContaining([
+            expect.objectContaining({ code: "side_effecting_tool" }),
+          ]),
+          sideEffectClass: "non_idempotent_mutation",
+        }),
+        expect.objectContaining({
+          nodeId: "implementation-and-debug-tool-focused-test-fail",
+          reasons: expect.arrayContaining([
+            expect.objectContaining({ code: "side_effect_policy_missing" }),
+          ]),
+          sideEffectClass: "approval_required",
+        }),
+      ]),
+    );
+    expect(
+      io.writes[
+        "out/repo-agent-implementation-debug/implementation-and-debug/events.jsonl"
+      ],
+    ).toContain("retryBoundary");
+    expect(
+      io.writes[
+        "out/repo-agent-implementation-debug/implementation-and-debug/report.md"
+      ],
+    ).toContain("validator_requirements");
+    expect(
+      io.writes[
+        "out/repo-agent-implementation-debug/implementation-and-debug/report.md"
+      ],
+    ).toContain("side_effecting_tool");
   });
 
   it("runs all repo-agent fixture families through one command", async () => {
