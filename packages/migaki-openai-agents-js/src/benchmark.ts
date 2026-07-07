@@ -3,10 +3,12 @@ import { performance } from "node:perf_hooks";
 import {
   compareObservedExecutionGraphs,
   createReuseDecisionArtifact,
+  EVIDENCE_PRIVACY_POLICY_VERSION,
   renderReuseDecisionArtifact,
 } from "@migaki/runtime";
 import type {
   Artifact,
+  EvidencePrivacyPolicyReference,
   ExecutionEdge,
   ExecutionGraph,
   ExecutionNode,
@@ -82,6 +84,100 @@ export interface RepoAgentReuseBenchmarkResult {
 export interface CodeReviewWorkflowBenchmarkOptions {
   readonly runId?: string;
   readonly store?: MigakiStore;
+}
+
+export interface EvidencePromotionHandoffFixtureOptions {
+  readonly runId?: string;
+  readonly store?: MigakiStore;
+}
+
+export interface EvidencePromotionOmissionRecord {
+  readonly field:
+    | "credential"
+    | "customer_data"
+    | "file_path"
+    | "local_machine_path"
+    | "prompt"
+    | "provider_response"
+    | "tool_input"
+    | "tool_output";
+  readonly mode: "omitted" | "redacted";
+  readonly reason: string;
+  readonly sourceArtifact: string;
+}
+
+export interface EvidencePromotionManifest {
+  readonly artifacts: readonly {
+    readonly path: string;
+    readonly role:
+      | "advice"
+      | "graph_summary"
+      | "handoff"
+      | "manifest"
+      | "report";
+  }[];
+  readonly createdAt: string;
+  readonly destination: {
+    readonly knowledgeClass: "preserved_project_knowledge";
+    readonly ref: string;
+  };
+  readonly name: string;
+  readonly privacyPolicy: EvidencePrivacyPolicyReference;
+  readonly redactions: readonly EvidencePromotionOmissionRecord[];
+  readonly source: {
+    readonly localRunPath: string;
+    readonly runId: string;
+    readonly stateClass: "short_lived_local_session_state";
+  };
+  readonly version: "migaki.promoted-artifact.v0";
+}
+
+export interface EvidencePromotionGraphSummary {
+  readonly edgeCount: number;
+  readonly nodeCount: number;
+  readonly nodeKinds: Readonly<Record<MigakiNode["kind"], number>>;
+  readonly redactionStatus: "passed";
+  readonly sourceRunId: string;
+  readonly version: "migaki.promoted-graph-summary.v0";
+}
+
+export interface EvidencePromotionAdviceArtifact {
+  readonly advice: {
+    readonly nextLoopGuidance: string;
+    readonly reuseStatus: "needs_review";
+  };
+  readonly omissionRecords: readonly EvidencePromotionOmissionRecord[];
+  readonly privacyPolicy: EvidencePrivacyPolicyReference;
+  readonly version: "migaki.evidence-promotion-advice.v0";
+}
+
+export interface EvidencePromotionHandoff {
+  readonly checksBlocked: readonly string[];
+  readonly checksRun: readonly string[];
+  readonly completedWork: readonly string[];
+  readonly nextEligibleIssue: string;
+  readonly remainingBlockers: readonly string[];
+  readonly version: "migaki.repo-agent-handoff.v0";
+}
+
+export interface EvidencePromotionHandoffFixtureResult {
+  readonly advice: EvidencePromotionAdviceArtifact;
+  readonly artifacts: {
+    readonly advice: string;
+    readonly graphSummary: string;
+    readonly handoff: string;
+    readonly manifest: string;
+    readonly report: string;
+    readonly sourceEvents: string;
+    readonly sourceGraph: string;
+    readonly sourceReport: string;
+  };
+  readonly graphSummary: EvidencePromotionGraphSummary;
+  readonly handoff: EvidencePromotionHandoff;
+  readonly manifest: EvidencePromotionManifest;
+  readonly report: string;
+  readonly runId: string;
+  readonly sourceRunId: string;
 }
 
 export interface CodeReviewBaselineSummary {
@@ -210,6 +306,7 @@ export interface ParallelMigakiBenchmarkResult {
 const defaultRunId = "repo-agent-benchmark";
 const defaultReuseRunId = "repo-agent-reuse-benchmark";
 const defaultCodeReviewRunId = "code-review-workflow-benchmark";
+const defaultPromotionHandoffRunId = "evidence-promotion-handoff";
 const executionGraphVersion = "migaki.execution-graph.v0";
 
 const defaultTimer: MigakiBenchmarkTimer = {
@@ -562,6 +659,172 @@ export async function runCodeReviewWorkflowBenchmark(
     reuseDecision,
     runId,
     warningList,
+  };
+}
+
+export async function runEvidencePromotionHandoffFixture(
+  options: EvidencePromotionHandoffFixtureOptions = {},
+): Promise<EvidencePromotionHandoffFixtureResult> {
+  const runId = options.runId ?? defaultPromotionHandoffRunId;
+  const sourceRunId = `${runId}-source`;
+  const store = options.store ?? new LocalMigakiStore();
+  const clock = new StepClock("2026-01-01T00:00:00.000Z");
+  const recorder = new MigakiRecorder({
+    clock,
+    metadata: {
+      benchmark: "evidence-promotion-handoff",
+      liveProviders: false,
+    },
+    runId: sourceRunId,
+    store,
+  });
+
+  recorder.recordRunStarted({
+    localMachinePath: "/Users/sasha/private/migaki",
+    task: "raw customer prompt with tool-input-secret and sk-live-promotion-fixture",
+  });
+  recorder.recordAgentStarted({
+    agentName: "repo-agent",
+    input: "Prepare evidence promotion and handoff from a local run.",
+  });
+  recordModelCall(recorder, clock, {
+    input: {
+      prompt: "raw customer prompt",
+      providerResponse: "provider-response-secret",
+      secret: "sk-live-promotion-fixture",
+    },
+    metadata: reusableModelMetadata(["validator-redaction-policy"]),
+    modelName: "gpt-5-mini",
+    output: {
+      handoff: "Summarize completed work and blockers.",
+      providerResponse: "provider-response-secret",
+    },
+    spanId: "promotion-summary",
+    totalTokens: 84,
+  });
+  recordToolCall(recorder, clock, {
+    args: {
+      command:
+        "mise run migaki:promote -- --latest --name evidence-promotion-handoff",
+      input: "tool-input-secret",
+      path: "/Users/sasha/private/migaki/.migaki/runs/source/events.jsonl",
+    },
+    metadata: {
+      estimatedCostUsd: 0,
+      reuse: {
+        policyAllowed: false,
+        reason: "promotion command has filesystem side effects",
+      },
+    },
+    output: {
+      stdout: "tool-output-secret",
+    },
+    toolName: "shellTool",
+  });
+  recorder.recordHandoffStarted({
+    fromAgent: "repo-agent",
+    input: {
+      localMachinePath: "/Users/sasha/private/migaki",
+      prompt: "raw customer prompt",
+    },
+    spanId: "repo-agent-handoff",
+    toAgent: "main-loop",
+  });
+  recorder.completeHandoffBySpan({
+    fromAgent: "repo-agent",
+    output: {
+      completed: true,
+      localMachinePath: "/Users/sasha/private/migaki",
+    },
+    spanId: "repo-agent-handoff",
+    toAgent: "main-loop",
+  });
+
+  const graph = await recorder.finalizeRunCompleted(
+    "Evidence promotion handoff fixture recorded.",
+  );
+  const omissionRecords = evidencePromotionOmissionRecords(sourceRunId);
+  const privacyPolicy: EvidencePrivacyPolicyReference = {
+    exportMatrixVersion: EVIDENCE_PRIVACY_POLICY_VERSION,
+    exportMode: "redacted",
+    fullTraceOptIn: false,
+  };
+  const manifest = createEvidencePromotionManifest({
+    omissionRecords,
+    privacyPolicy,
+    runId,
+    sourceRunId,
+  });
+  const graphSummary = createEvidencePromotionGraphSummary(graph);
+  const advice: EvidencePromotionAdviceArtifact = {
+    advice: {
+      nextLoopGuidance:
+        "Treat promoted metadata as project knowledge, but keep source-run evidence local and require fresh issue state before reuse.",
+      reuseStatus: "needs_review",
+    },
+    omissionRecords,
+    privacyPolicy,
+    version: "migaki.evidence-promotion-advice.v0",
+  };
+  const handoff: EvidencePromotionHandoff = {
+    checksBlocked: ["GitHub code-quality pending until PR opens"],
+    checksRun: [
+      "mise run test -- --run packages/migaki-openai-agents-js/src/benchmark.test.ts",
+      "mise run check",
+    ],
+    completedWork: [
+      "Promoted redacted manifest metadata",
+      "Validated graph summary privacy",
+      "Prepared repository-agent handoff",
+    ],
+    nextEligibleIssue: "#159 after #158 merges",
+    remainingBlockers: ["#159 remains blocked by #158 until merge"],
+    version: "migaki.repo-agent-handoff.v0",
+  };
+  const artifacts = evidencePromotionHandoffArtifacts(runId, sourceRunId);
+  const report = renderEvidencePromotionHandoffReport({
+    artifacts,
+    handoff,
+    manifest,
+    sourceRunId,
+  });
+
+  if (isReportStore(store)) {
+    await store.writeReport(runId, report);
+  }
+
+  if (isArtifactStore(store)) {
+    await store.writeArtifact(
+      runId,
+      "manifest.json",
+      serializeStableJson(manifest, 2),
+    );
+    await store.writeArtifact(
+      runId,
+      "graph-summary.json",
+      serializeStableJson(graphSummary, 2),
+    );
+    await store.writeArtifact(
+      runId,
+      "advice.json",
+      serializeStableJson(advice, 2),
+    );
+    await store.writeArtifact(
+      runId,
+      "handoff.json",
+      serializeStableJson(handoff, 2),
+    );
+  }
+
+  return {
+    advice,
+    artifacts,
+    graphSummary,
+    handoff,
+    manifest,
+    report,
+    runId,
+    sourceRunId,
   };
 }
 
@@ -1164,6 +1427,136 @@ function codeReviewWorkflowArtifacts(
   };
 }
 
+function evidencePromotionHandoffArtifacts(
+  runId: string,
+  sourceRunId: string,
+): EvidencePromotionHandoffFixtureResult["artifacts"] {
+  return {
+    advice: `runs/${runId}/artifacts/advice.json`,
+    graphSummary: `runs/${runId}/artifacts/graph-summary.json`,
+    handoff: `runs/${runId}/artifacts/handoff.json`,
+    manifest: `runs/${runId}/artifacts/manifest.json`,
+    report: `runs/${runId}/report.md`,
+    sourceEvents: `runs/${sourceRunId}/events.jsonl`,
+    sourceGraph: `runs/${sourceRunId}/graph.json`,
+    sourceReport: `runs/${sourceRunId}/report.md`,
+  };
+}
+
+function evidencePromotionOmissionRecords(
+  sourceRunId: string,
+): readonly EvidencePromotionOmissionRecord[] {
+  const sourceArtifact = `.migaki/runs/${sourceRunId}/events.jsonl`;
+
+  return [
+    {
+      field: "prompt",
+      mode: "omitted",
+      reason: "Raw prompts stay in short-lived local session state.",
+      sourceArtifact,
+    },
+    {
+      field: "tool_input",
+      mode: "omitted",
+      reason: "Raw tool inputs are not promoted by default.",
+      sourceArtifact,
+    },
+    {
+      field: "tool_output",
+      mode: "omitted",
+      reason: "Raw tool outputs are not promoted by default.",
+      sourceArtifact,
+    },
+    {
+      field: "provider_response",
+      mode: "omitted",
+      reason: "Provider responses are represented only by fingerprints.",
+      sourceArtifact,
+    },
+    {
+      field: "credential",
+      mode: "redacted",
+      reason: "Credentials must never appear raw in promoted artifacts.",
+      sourceArtifact,
+    },
+    {
+      field: "customer_data",
+      mode: "omitted",
+      reason: "Customer data is omitted from project-versioned artifacts.",
+      sourceArtifact,
+    },
+    {
+      field: "file_path",
+      mode: "omitted",
+      reason:
+        "File paths are replaced by redacted fingerprints or relative refs.",
+      sourceArtifact,
+    },
+    {
+      field: "local_machine_path",
+      mode: "omitted",
+      reason: "Local machine paths stay in the local source run only.",
+      sourceArtifact,
+    },
+  ];
+}
+
+function createEvidencePromotionManifest(input: {
+  readonly omissionRecords: readonly EvidencePromotionOmissionRecord[];
+  readonly privacyPolicy: EvidencePrivacyPolicyReference;
+  readonly runId: string;
+  readonly sourceRunId: string;
+}): EvidencePromotionManifest {
+  return {
+    artifacts: [
+      { path: "manifest.json", role: "manifest" },
+      { path: "graph-summary.json", role: "graph_summary" },
+      { path: "advice.json", role: "advice" },
+      { path: "handoff.json", role: "handoff" },
+      { path: "report.md", role: "report" },
+    ],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    destination: {
+      knowledgeClass: "preserved_project_knowledge",
+      ref: "docs/migaki-artifacts/evidence-promotion-handoff",
+    },
+    name: input.runId,
+    privacyPolicy: input.privacyPolicy,
+    redactions: input.omissionRecords,
+    source: {
+      localRunPath: `.migaki/runs/${input.sourceRunId}`,
+      runId: input.sourceRunId,
+      stateClass: "short_lived_local_session_state",
+    },
+    version: "migaki.promoted-artifact.v0",
+  };
+}
+
+function createEvidencePromotionGraphSummary(
+  graph: MigakiGraph,
+): EvidencePromotionGraphSummary {
+  return {
+    edgeCount: graph.edges.length,
+    nodeCount: graph.nodes.length,
+    nodeKinds: {
+      agent_step: countNodesByKind(graph, "agent_step"),
+      handoff: countNodesByKind(graph, "handoff"),
+      model_call: countNodesByKind(graph, "model_call"),
+      tool_call: countNodesByKind(graph, "tool_call"),
+    },
+    redactionStatus: "passed",
+    sourceRunId: graph.runId,
+    version: "migaki.promoted-graph-summary.v0",
+  };
+}
+
+function countNodesByKind(
+  graph: MigakiGraph,
+  kind: MigakiNode["kind"],
+): number {
+  return graph.nodes.filter((node) => node.kind === kind).length;
+}
+
 function codeReviewWarningList(
   comparison: ObservedTrajectoryComparison,
 ): readonly string[] {
@@ -1249,6 +1642,48 @@ function renderCodeReviewWorkflowBenchmarkReport(input: {
     "",
     "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
     "Delta metrics are deterministic fixture proxies for benchmark reporting; they are not realized savings.",
+    "",
+  ].join("\n");
+}
+
+function renderEvidencePromotionHandoffReport(input: {
+  readonly artifacts: EvidencePromotionHandoffFixtureResult["artifacts"];
+  readonly handoff: EvidencePromotionHandoff;
+  readonly manifest: EvidencePromotionManifest;
+  readonly sourceRunId: string;
+}): string {
+  return [
+    "# Migaki Evidence Promotion Handoff Fixture",
+    "",
+    `Run: ${input.manifest.name}`,
+    "",
+    "## Knowledge Boundary",
+    "",
+    `- Preserved project knowledge: ${input.manifest.destination.ref}`,
+    `- Short-lived local session state: .migaki/runs/${input.sourceRunId}`,
+    "- Raw event streams, prompts, tool inputs, tool outputs, provider responses, credentials, and local machine paths are omitted from promoted artifacts by default.",
+    "",
+    "## Artifacts",
+    "",
+    `- Manifest: ${input.artifacts.manifest}`,
+    `- Graph summary: ${input.artifacts.graphSummary}`,
+    `- Advice: ${input.artifacts.advice}`,
+    `- Handoff: ${input.artifacts.handoff}`,
+    `- Source events: ${input.artifacts.sourceEvents}`,
+    `- Source graph: ${input.artifacts.sourceGraph}`,
+    `- Source report: ${input.artifacts.sourceReport}`,
+    "",
+    "## Handoff",
+    "",
+    ...input.handoff.completedWork.map((item) => `- Completed work: ${item}`),
+    ...input.handoff.checksRun.map((item) => `- Checks run: ${item}`),
+    ...input.handoff.checksBlocked.map((item) => `- Checks blocked: ${item}`),
+    ...input.handoff.remainingBlockers.map(
+      (item) => `- Remaining blocker: ${item}`,
+    ),
+    `- Next eligible issue: ${input.handoff.nextEligibleIssue}`,
+    "",
+    "Reuse and advice artifacts inherit the promoted evidence privacy policy and include explicit omission records.",
     "",
   ].join("\n");
 }
