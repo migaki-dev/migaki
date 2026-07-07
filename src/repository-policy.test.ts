@@ -47,6 +47,17 @@ const requiredProfileSources = [
   "docs/evidence-bundles-v0.md",
   "docs/adaptive-policies-v0.md",
   "docs/cli-v0.md",
+  "docs/repo-agent-task-ladder-v0.md",
+] as const;
+
+const repoAgentTaskFamilies = [
+  "Read-only reconnaissance",
+  "Implementation and debug",
+  "CI and toolchain triage",
+  "Docs and wiki alignment",
+  "Issue planning and blocker maintenance",
+  "PR review and merge readiness",
+  "Evidence promotion and handoff",
 ] as const;
 
 describe("repository source policy", () => {
@@ -83,5 +94,37 @@ describe("repository source policy", () => {
     expect(projectProfile).toContain("status:claimed");
     expect(projectProfile).toContain("status:in-review");
     expect(projectProfile).not.toContain("/Users/");
+  });
+
+  it("publishes the repo-agent task ladder acceptance matrix", async () => {
+    const [matrix, docsIndex, packageReadme] = await Promise.all([
+      readFile(`${repositoryRoot}/docs/repo-agent-task-ladder-v0.md`, "utf8"),
+      readFile(`${repositoryRoot}/docs/README.md`, "utf8"),
+      readFile(
+        `${repositoryRoot}/packages/migaki-openai-agents-js/README.md`,
+        "utf8",
+      ),
+    ]);
+
+    expect(docsIndex).toContain("./repo-agent-task-ladder-v0.md");
+    expect(packageReadme).toContain("repo-agent-task-ladder-v0.md");
+    expect(matrix).toContain("MVP repo-agent task ladder");
+    expect(matrix).toContain(
+      "https://github.com/migaki-dev/migaki/milestone/3",
+    );
+    expect(matrix).toContain(
+      "https://github.com/migaki-dev/migaki/wiki/v0-Roadmap",
+    );
+    expect(matrix).toContain("potential reuse");
+    expect(matrix).toContain("actual avoided work");
+    expect(matrix).toContain("observation-only");
+    expect(matrix).toContain("validator quality");
+    expect(matrix).toContain("changed-input handling");
+    expect(matrix).toContain("reuse decision counts");
+    expect(matrix).toContain("privacy/redaction");
+
+    for (const family of repoAgentTaskFamilies) {
+      expect(matrix).toContain(family);
+    }
   });
 });
