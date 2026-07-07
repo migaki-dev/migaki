@@ -95,6 +95,8 @@ The built-in suites are:
 - `repo-agent-issue-planning-blockers`: one issue planning and blocker
   maintenance fixture; exits non-zero because the full MVP ladder is still
   incomplete.
+- `repo-agent-pr-review-merge-readiness`: one PR review and merge-readiness
+  fixture; exits non-zero because the full MVP ladder is still incomplete.
 - `repo-agent-mvp`: all MVP repo-agent fixture families; exits zero when all
   deterministic fixture artifacts are written.
 
@@ -128,6 +130,13 @@ README claims, wiki roadmap excerpts, and whitepaper-note provenance. The
 report names docs that should change, docs that should not receive
 whitepaper-only claims, freshness/source-identity requirements for reusable
 excerpts, and `needs_review` handling for transformed summaries.
+
+PR review and merge-readiness fixture artifacts compare stable review context,
+changed-file diffs, linked issue/check evidence, merge-base state, review
+threads, finding generation, and final review comments. The report keeps
+changed-file content non-droppable, blocks reuse on fingerprint drift or
+missing grounding validators, covers missing tests, stale base, and unresolved
+review threads, and separates review advice from any merge action.
 
 ## Argument Contract
 
