@@ -27,3 +27,5 @@ Incomplete suites exit non-zero and report missing fixture families explicitly.
 Fixture comparison and reuse-decision artifacts use metadata-only privacy mode
 and preserve the observation-only invariant. Metrics separate estimated
 avoidable work from realized skips; deterministic fixtures do not skip actions.
+The `repo-agent-implementation-debug` suite covers failing-then-passing patch
+and focused-test work with retry boundaries and blocked side-effect decisions.

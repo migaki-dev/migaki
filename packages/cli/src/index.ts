@@ -123,7 +123,11 @@ interface TaskSuiteFixtureArtifacts {
 interface TaskSuiteFixtureReport {
   readonly artifacts: TaskSuiteFixtureArtifacts;
   readonly comparison: {
+    readonly blockedCandidates: ObservedTrajectoryComparison["blockedCandidates"];
+    readonly changedNodes: ObservedTrajectoryComparison["changedNodes"];
     readonly privacyPolicy: ObservedTrajectoryComparison["privacyPolicy"];
+    readonly reusableModelCalls: ObservedTrajectoryComparison["reusableModelCalls"];
+    readonly reusableToolCalls: ObservedTrajectoryComparison["reusableToolCalls"];
     readonly summary: ObservedTrajectoryComparison["summary"];
     readonly warnings: readonly { readonly code: string }[];
   };
@@ -284,6 +288,11 @@ const taskSuites: readonly TaskSuiteDefinition[] = [
     description: "One read-only repo-agent fixture.",
     fixtureFamilies: ["read-only-reconnaissance"],
     id: "repo-agent-readonly",
+  },
+  {
+    description: "One implementation-and-debug repo-agent fixture.",
+    fixtureFamilies: ["implementation-and-debug"],
+    id: "repo-agent-implementation-debug",
   },
   {
     description: "All MVP repo-agent task ladder fixture families.",
@@ -602,7 +611,11 @@ async function runRepoAgentFixture(
   return {
     artifacts,
     comparison: {
+      blockedCandidates: comparison.blockedCandidates,
+      changedNodes: comparison.changedNodes,
       privacyPolicy: comparison.privacyPolicy,
+      reusableModelCalls: comparison.reusableModelCalls,
+      reusableToolCalls: comparison.reusableToolCalls,
       summary: comparison.summary,
       warnings: comparison.warnings.map((warning) => ({
         code: warning.code,
@@ -652,6 +665,10 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
     return createReadOnlyReconnaissanceFixture(familyId);
   }
 
+  if (familyId === "implementation-and-debug") {
+    return createImplementationAndDebugFixture(familyId);
+  }
+
   const previousRunId = `${familyId}-previous`;
   const currentRunId = `${familyId}-current`;
   const previousGraph = graph(previousRunId, familyId, [
@@ -675,6 +692,324 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
       sideEffectClass: "unknown",
     }),
     modelNode(`${familyId}-model-changed`, familyId, "model-changed-v2"),
+  ]);
+
+  return {
+    currentGraph,
+    eventsJsonl: renderFixtureEventsJsonl(familyId, currentGraph),
+    previousGraph,
+  };
+}
+
+function createImplementationAndDebugFixture(
+  familyId: RepoAgentFixtureFamilyId,
+): {
+  readonly currentGraph: ExecutionGraph;
+  readonly eventsJsonl: string;
+  readonly previousGraph: ExecutionGraph;
+} {
+  const previousRunId = `${familyId}-previous`;
+  const currentRunId = `${familyId}-current`;
+
+  const previousGraph = graph(previousRunId, familyId, [
+    implementationToolNode(
+      `${familyId}-tool-context-search`,
+      familyId,
+      "search:implementation-debug:repo-fingerprint-a",
+      {
+        implementationDebug: {
+          repositoryFingerprint: "repo-fingerprint-a",
+          stage: "context_search",
+        },
+      },
+    ),
+    implementationToolNode(
+      `${familyId}-tool-context-read`,
+      familyId,
+      "read:packages/cli/src/index.ts:task-suite:repo-fingerprint-a",
+      {
+        implementationDebug: {
+          pathFingerprint: "packages-cli-index-task-suite",
+          range: "task-suite",
+          repositoryFingerprint: "repo-fingerprint-a",
+          stage: "context_read",
+        },
+      },
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-context-file`,
+            "context-file-a",
+            "verified",
+            {
+              codex: {
+                fileContentFingerprint: "cli-task-suite-fixture-a",
+                sourceEquivalenceKey:
+                  "read:packages/cli/src/index.ts:task-suite",
+                sourceLabel:
+                  "Read packages/cli/src/index.ts task-suite section",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    implementationModelNode(
+      `${familyId}-model-patch-plan`,
+      familyId,
+      "patch-plan:two-step-debug:v1",
+      {
+        implementationDebug: {
+          stage: "patch_planning",
+        },
+      },
+    ),
+    implementationMutationNode(
+      `${familyId}-tool-apply-patch-initial`,
+      familyId,
+      "apply-patch:add-failing-test:v1",
+      "non_idempotent_mutation",
+      {
+        implementationDebug: {
+          patchFingerprint: "patch-add-failing-test",
+          stage: "apply_patch_initial",
+        },
+        retryBoundary: {
+          attempt: 1,
+          boundaryId: "implementation-debug-red-green",
+          outcome: "patch_applied",
+        },
+      },
+    ),
+    implementationMutationNode(
+      `${familyId}-tool-focused-test-fail`,
+      familyId,
+      "focused-test:task-suite:red:v1",
+      "approval_required",
+      {
+        implementationDebug: {
+          commandFingerprint: "test-packages-cli-task-suite",
+          stage: "focused_test",
+          testOutputFingerprint: "vitest-task-suite-failing-output-a",
+          testStatus: "failed",
+        },
+        retryBoundary: {
+          attempt: 1,
+          boundaryId: "implementation-debug-red-green",
+          outcome: "failed",
+        },
+      },
+    ),
+    implementationModelNode(
+      `${familyId}-model-debug-diagnosis`,
+      familyId,
+      "debug-diagnosis:test-output-a:patch-a:fixture-a",
+      {
+        implementationDebug: {
+          fixtureFingerprint: "fixture-shape-a",
+          patchFingerprint: "patch-add-failing-test",
+          stage: "failure_diagnosis",
+          testOutputFingerprint: "vitest-task-suite-failing-output-a",
+        },
+        retryBoundary: {
+          attempt: 2,
+          boundaryId: "implementation-debug-red-green",
+          outcome: "diagnosed",
+        },
+      },
+    ),
+    implementationMutationNode(
+      `${familyId}-tool-apply-patch-retry`,
+      familyId,
+      "apply-patch:fix-fixture:v1",
+      "non_idempotent_mutation",
+      {
+        implementationDebug: {
+          patchFingerprint: "patch-fix-fixture-a",
+          stage: "apply_patch_retry",
+        },
+        retryBoundary: {
+          attempt: 2,
+          boundaryId: "implementation-debug-red-green",
+          outcome: "patch_applied",
+        },
+      },
+    ),
+    implementationMutationNode(
+      `${familyId}-tool-focused-test-pass`,
+      familyId,
+      "focused-test:task-suite:green:v1",
+      "approval_required",
+      {
+        implementationDebug: {
+          commandFingerprint: "test-packages-cli-task-suite",
+          stage: "focused_test",
+          testOutputFingerprint: "vitest-task-suite-passing-output-a",
+          testStatus: "passed",
+        },
+        retryBoundary: {
+          attempt: 2,
+          boundaryId: "implementation-debug-red-green",
+          outcome: "passed",
+        },
+      },
+    ),
+    implementationTerminalNode(`${familyId}-final-answer`, familyId, {
+      implementationDebug: {
+        stage: "final_answer",
+        summaryFingerprint: "handoff-summary-a",
+      },
+    }),
+  ]);
+  const currentGraph = graph(currentRunId, familyId, [
+    implementationToolNode(
+      `${familyId}-tool-context-search`,
+      familyId,
+      "search:implementation-debug:repo-fingerprint-a",
+      {
+        implementationDebug: {
+          repositoryFingerprint: "repo-fingerprint-a",
+          stage: "context_search",
+        },
+      },
+    ),
+    implementationToolNode(
+      `${familyId}-tool-context-read`,
+      familyId,
+      "read:packages/cli/src/index.ts:task-suite:repo-fingerprint-a",
+      {
+        implementationDebug: {
+          pathFingerprint: "packages-cli-index-task-suite",
+          range: "task-suite",
+          repositoryFingerprint: "repo-fingerprint-a",
+          stage: "context_read",
+        },
+      },
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-context-file`,
+            "context-file-a",
+            "verified",
+            {
+              codex: {
+                fileContentFingerprint: "cli-task-suite-fixture-a",
+                sourceEquivalenceKey:
+                  "read:packages/cli/src/index.ts:task-suite",
+                sourceLabel:
+                  "Read packages/cli/src/index.ts task-suite section",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    implementationModelNode(
+      `${familyId}-model-patch-plan`,
+      familyId,
+      "patch-plan:two-step-debug:v1",
+      {
+        implementationDebug: {
+          stage: "patch_planning",
+        },
+      },
+    ),
+    implementationMutationNode(
+      `${familyId}-tool-apply-patch-initial`,
+      familyId,
+      "apply-patch:add-failing-test:v1",
+      "non_idempotent_mutation",
+      {
+        implementationDebug: {
+          patchFingerprint: "patch-add-failing-test",
+          stage: "apply_patch_initial",
+        },
+        retryBoundary: {
+          attempt: 1,
+          boundaryId: "implementation-debug-red-green",
+          outcome: "patch_applied",
+        },
+      },
+    ),
+    implementationMutationNode(
+      `${familyId}-tool-focused-test-fail`,
+      familyId,
+      "focused-test:task-suite:red:v1",
+      "approval_required",
+      {
+        implementationDebug: {
+          commandFingerprint: "test-packages-cli-task-suite",
+          stage: "focused_test",
+          testOutputFingerprint: "vitest-task-suite-failing-output-a",
+          testStatus: "failed",
+        },
+        retryBoundary: {
+          attempt: 1,
+          boundaryId: "implementation-debug-red-green",
+          outcome: "failed",
+        },
+      },
+    ),
+    implementationModelNode(
+      `${familyId}-model-debug-diagnosis`,
+      familyId,
+      "debug-diagnosis:test-output-b:patch-b:fixture-b",
+      {
+        implementationDebug: {
+          fixtureFingerprint: "fixture-shape-b",
+          patchFingerprint: "patch-fix-fixture-b",
+          stage: "failure_diagnosis",
+          testOutputFingerprint: "vitest-task-suite-failing-output-b",
+        },
+        retryBoundary: {
+          attempt: 2,
+          boundaryId: "implementation-debug-red-green",
+          outcome: "diagnosed",
+        },
+      },
+    ),
+    implementationMutationNode(
+      `${familyId}-tool-apply-patch-retry`,
+      familyId,
+      "apply-patch:fix-fixture:v2",
+      "non_idempotent_mutation",
+      {
+        implementationDebug: {
+          patchFingerprint: "patch-fix-fixture-b",
+          stage: "apply_patch_retry",
+        },
+        retryBoundary: {
+          attempt: 2,
+          boundaryId: "implementation-debug-red-green",
+          outcome: "patch_applied",
+        },
+      },
+    ),
+    implementationMutationNode(
+      `${familyId}-tool-focused-test-pass`,
+      familyId,
+      "focused-test:task-suite:green:v2",
+      "approval_required",
+      {
+        implementationDebug: {
+          commandFingerprint: "test-packages-cli-task-suite",
+          stage: "focused_test",
+          testOutputFingerprint: "vitest-task-suite-passing-output-b",
+          testStatus: "passed",
+        },
+        retryBoundary: {
+          attempt: 2,
+          boundaryId: "implementation-debug-red-green",
+          outcome: "passed",
+        },
+      },
+    ),
+    implementationTerminalNode(`${familyId}-final-answer`, familyId, {
+      implementationDebug: {
+        stage: "final_answer",
+        summaryFingerprint: "handoff-summary-b",
+      },
+    }),
   ]);
 
   return {
@@ -947,6 +1282,79 @@ function reconToolNode(
   });
 }
 
+function implementationModelNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  return node(id, "model_call", familyId, fingerprintSeed, {
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        validatorsPassed: ["patch-applies", "focused-tests-pass"],
+        validatorsRequired: ["patch-applies", "focused-tests-pass"],
+      },
+    },
+    totalTokens: 108,
+  });
+}
+
+function implementationToolNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+  options: {
+    readonly artifacts?: ExecutionNode["artifacts"];
+  } = {},
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    ...(options.artifacts === undefined
+      ? {}
+      : { artifacts: options.artifacts }),
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        sideEffectClass: "read_only",
+      },
+    },
+    totalTokens: 12,
+  });
+}
+
+function implementationMutationNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  sideEffectClass: "approval_required" | "non_idempotent_mutation",
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        sideEffectClass,
+      },
+    },
+    totalTokens: 12,
+  });
+}
+
+function implementationTerminalNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  return node(id, "agent_response", familyId, `${id}:terminal`, {
+    metadata,
+    totalTokens: 0,
+  });
+}
+
 function toolNode(
   id: string,
   familyId: RepoAgentFixtureFamilyId,
@@ -972,7 +1380,7 @@ function toolNode(
 
 function node(
   id: string,
-  operationKind: "model_call" | "tool_call",
+  operationKind: "agent_response" | "model_call" | "tool_call",
   familyId: RepoAgentFixtureFamilyId,
   fingerprintSeed: string,
   options: {
@@ -1035,6 +1443,9 @@ function renderFixtureEventsJsonl(
     lifecycle: "finish",
     metadata: {
       fixtureFamily: familyId,
+      ...(node.metadata.retryBoundary === undefined
+        ? {}
+        : { retryBoundary: node.metadata.retryBoundary }),
       privacyMode: "metadata_only",
       source: "repo-agent-task-suite",
     },
@@ -1106,6 +1517,30 @@ function renderTaskSuiteFixtureReport(input: {
           `- Estimated avoidable cost: ${input.comparison.summary.totalEstimatedAvoidableCostUsd} USD`,
         ]),
     "- Actual skipped actions: 0",
+    "",
+    "## Comparison Details",
+    "",
+    "Changed nodes:",
+    ...formatList(
+      input.comparison.changedNodes,
+      (node) => `- ${node.nodeId}: ${node.reason}`,
+    ),
+    "Blocked candidates:",
+    ...formatList(
+      input.comparison.blockedCandidates,
+      (candidate) =>
+        `- ${candidate.nodeId}: ${candidate.reasons
+          .map((reason) => reason.code)
+          .join(
+            ", ",
+          )}; validators ${candidate.requiredValidators.join(", ") || "none"}`,
+    ),
+    "Validator requirements:",
+    ...formatList(
+      input.reuseDecision.decisions,
+      (decision) =>
+        `- ${decision.nodeId}: validator_requirements ${decision.requiredValidators.join(", ") || "none"}`,
+    ),
     "",
     renderReuseDecisionArtifact(input.reuseDecision, "human").trimEnd(),
     "",

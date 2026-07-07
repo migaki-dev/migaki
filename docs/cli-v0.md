@@ -86,6 +86,8 @@ The built-in suites are:
   missing required family.
 - `repo-agent-readonly`: one read-only reconnaissance fixture; exits non-zero
   because the full MVP ladder is still incomplete.
+- `repo-agent-implementation-debug`: one implementation-and-debug fixture;
+  exits non-zero because the full MVP ladder is still incomplete.
 - `repo-agent-mvp`: all MVP repo-agent fixture families; exits zero when all
   deterministic fixture artifacts are written.
 
@@ -102,6 +104,11 @@ Reports explicitly preserve the observation-only invariant: the harness records
 and compares deterministic fixture trajectories, but it never skips model calls,
 tool calls, file reads, provider requests, replay, cache lookup, or user-visible
 actions.
+
+Implementation-and-debug fixture artifacts identify reusable read/search
+context nodes, blocked apply-patch and focused-test side effects, retry
+boundaries, validator requirements, changed debug inputs, and estimated
+avoidable tokens, cost, and latency without replaying or mutating work.
 
 ## Argument Contract
 
