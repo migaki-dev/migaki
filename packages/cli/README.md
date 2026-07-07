@@ -32,3 +32,6 @@ and focused-test work with retry boundaries and blocked side-effect decisions.
 The `repo-agent-docs-wiki-alignment` suite covers repository docs, README,
 wiki roadmap, and whitepaper-note alignment with provenance, freshness labels,
 and conservative change/no-change report decisions.
+The `repo-agent-issue-planning-blockers` suite covers issue metadata, blocker
+parsing, status-label skips, and adoption-first decisions without live GitHub
+mutation.

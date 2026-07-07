@@ -92,6 +92,9 @@ The built-in suites are:
   non-zero because the full MVP ladder is still incomplete.
 - `repo-agent-docs-wiki-alignment`: one docs and wiki alignment fixture; exits
   non-zero because the full MVP ladder is still incomplete.
+- `repo-agent-issue-planning-blockers`: one issue planning and blocker
+  maintenance fixture; exits non-zero because the full MVP ladder is still
+  incomplete.
 - `repo-agent-mvp`: all MVP repo-agent fixture families; exits zero when all
   deterministic fixture artifacts are written.
 

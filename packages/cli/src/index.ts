@@ -305,6 +305,12 @@ const taskSuites: readonly TaskSuiteDefinition[] = [
     id: "repo-agent-docs-wiki-alignment",
   },
   {
+    description:
+      "One issue planning and blocker maintenance repo-agent fixture.",
+    fixtureFamilies: ["issue-planning-and-blocker-maintenance"],
+    id: "repo-agent-issue-planning-blockers",
+  },
+  {
     description: "All MVP repo-agent task ladder fixture families.",
     fixtureFamilies: repoAgentFixtureFamilyIds,
     id: "repo-agent-mvp",
@@ -687,6 +693,10 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
     return createDocsAndWikiAlignmentFixture(familyId);
   }
 
+  if (familyId === "issue-planning-and-blocker-maintenance") {
+    return createIssuePlanningAndBlockerMaintenanceFixture(familyId);
+  }
+
   const previousRunId = `${familyId}-previous`;
   const currentRunId = `${familyId}-current`;
   const previousGraph = graph(previousRunId, familyId, [
@@ -710,6 +720,181 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
       sideEffectClass: "unknown",
     }),
     modelNode(`${familyId}-model-changed`, familyId, "model-changed-v2"),
+  ]);
+
+  return {
+    currentGraph,
+    eventsJsonl: renderFixtureEventsJsonl(familyId, currentGraph),
+    previousGraph,
+  };
+}
+
+function createIssuePlanningAndBlockerMaintenanceFixture(
+  familyId: RepoAgentFixtureFamilyId,
+): {
+  readonly currentGraph: ExecutionGraph;
+  readonly eventsJsonl: string;
+  readonly previousGraph: ExecutionGraph;
+} {
+  const previousRunId = `${familyId}-previous`;
+  const currentRunId = `${familyId}-current`;
+  const skippedStatusLabels = [
+    "status:blocked",
+    "status:claimed",
+    "status:in-review",
+  ] as const;
+  const previousSnapshotMetadata = {
+    issuePlanning: {
+      blockerGraphFingerprint: "blocker-graph-before-155-close",
+      deterministicScmMetadata: true,
+      milestone: "MVP repo-agent task ladder",
+      openBlockers: ["#155"],
+      readyIssues: ["#154", "#156", "#157"],
+      stage: "issue_metadata_snapshot",
+    },
+  };
+  const currentSnapshotMetadata = {
+    issuePlanning: {
+      blockerGraphFingerprint: "blocker-graph-after-155-close",
+      closedBlockers: ["#155"],
+      deterministicScmMetadata: true,
+      milestone: "MVP repo-agent task ladder",
+      readyIssues: ["#154", "#156", "#157"],
+      stage: "issue_metadata_snapshot",
+    },
+  };
+  const previousBlockerSummaryMetadata = {
+    issuePlanning: {
+      beforeBlockerClosureEligibleIssues: ["#154"],
+      blockerReferences: [{ blocker: "#155", issue: "#156" }],
+      openBlockers: ["#155"],
+      skippedOpenBlockers: ["#156", "#157"],
+      stage: "blocker_graph_summary",
+    },
+  };
+  const currentBlockerSummaryMetadata = {
+    issuePlanning: {
+      afterBlockerClosureEligibleIssues: ["#156"],
+      beforeBlockerClosureEligibleIssues: ["#154"],
+      blockerReferences: [{ blocker: "#155", issue: "#156" }],
+      closedBlockers: ["#155"],
+      skippedOpenBlockers: ["#157"],
+      stage: "blocker_graph_summary",
+    },
+  };
+  const statusLabelMetadata = {
+    issuePlanning: {
+      skippedIssues: ["#160", "#158", "#161"],
+      skippedStatusLabels,
+      stage: "status_label_scan",
+    },
+  };
+  const openWorkMetadata = {
+    issuePlanning: {
+      activeClaimIssue: "#158",
+      openPrIssue: "#159",
+      stage: "open_work_scan",
+    },
+  };
+  const adoptionGateMetadata = {
+    issuePlanning: {
+      activeClaimIssue: "#158",
+      adoptionDecision: "adopt_existing_work_before_new_issue",
+      openPrIssue: "#159",
+      stage: "adoption_gate",
+    },
+  };
+  const issueBodyMetadata = {
+    issuePlanning: {
+      blockedByLines: ["Blocked by: #156"],
+      bodyFields: [
+        "project_purpose",
+        "acceptance_criteria",
+        "labels",
+        "validation",
+        "blocked_by",
+      ],
+      labels: ["status:ready", "priority:p0", "stage:v0"],
+      stage: "issue_body_draft",
+      validation: [". scripts/env && mise run check"],
+    },
+  };
+
+  const previousGraph = graph(previousRunId, familyId, [
+    issuePlanningReadOnlyToolNode(
+      `${familyId}-tool-issue-metadata-snapshot`,
+      familyId,
+      "issue-snapshot:blocker-open:v1",
+      previousSnapshotMetadata,
+    ),
+    issuePlanningModelNode(
+      `${familyId}-model-blocker-summary`,
+      familyId,
+      "blocker-summary:#155-open:v1",
+      previousBlockerSummaryMetadata,
+    ),
+    issuePlanningReadOnlyToolNode(
+      `${familyId}-tool-status-label-scan`,
+      familyId,
+      "status-label-scan:v1",
+      statusLabelMetadata,
+    ),
+    issuePlanningReadOnlyToolNode(
+      `${familyId}-tool-open-work-scan`,
+      familyId,
+      "open-work-scan:v1",
+      openWorkMetadata,
+    ),
+    issuePlanningDecisionNode(
+      `${familyId}-tool-adoption-gate`,
+      familyId,
+      "adoption-gate:open-work-first:v1",
+      adoptionGateMetadata,
+    ),
+    issuePlanningModelNode(
+      `${familyId}-model-issue-body-draft`,
+      familyId,
+      "issue-body-template:v1",
+      issueBodyMetadata,
+    ),
+  ]);
+  const currentGraph = graph(currentRunId, familyId, [
+    issuePlanningReadOnlyToolNode(
+      `${familyId}-tool-issue-metadata-snapshot`,
+      familyId,
+      "issue-snapshot:blocker-closed:v1",
+      currentSnapshotMetadata,
+    ),
+    issuePlanningModelNode(
+      `${familyId}-model-blocker-summary`,
+      familyId,
+      "blocker-summary:#155-closed:v1",
+      currentBlockerSummaryMetadata,
+    ),
+    issuePlanningReadOnlyToolNode(
+      `${familyId}-tool-status-label-scan`,
+      familyId,
+      "status-label-scan:v1",
+      statusLabelMetadata,
+    ),
+    issuePlanningReadOnlyToolNode(
+      `${familyId}-tool-open-work-scan`,
+      familyId,
+      "open-work-scan:v1",
+      openWorkMetadata,
+    ),
+    issuePlanningDecisionNode(
+      `${familyId}-tool-adoption-gate`,
+      familyId,
+      "adoption-gate:open-work-first:v1",
+      adoptionGateMetadata,
+    ),
+    issuePlanningModelNode(
+      `${familyId}-model-issue-body-draft`,
+      familyId,
+      "issue-body-template:v1",
+      issueBodyMetadata,
+    ),
   ]);
 
   return {
@@ -2079,6 +2264,69 @@ function docsWikiReadOnlyToolNode(
   });
 }
 
+function issuePlanningModelNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  return node(id, "model_call", familyId, fingerprintSeed, {
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        validatorsPassed: [
+          "blocker-graph-consistency",
+          "issue-body-contract",
+          "adoption-before-new-work",
+        ],
+        validatorsRequired: [
+          "blocker-graph-consistency",
+          "issue-body-contract",
+          "adoption-before-new-work",
+        ],
+      },
+    },
+    totalTokens: 156,
+  });
+}
+
+function issuePlanningReadOnlyToolNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        sideEffectClass: "read_only",
+      },
+    },
+    totalTokens: 12,
+  });
+}
+
+function issuePlanningDecisionNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        sideEffectClass: "approval_required",
+      },
+    },
+    totalTokens: 12,
+  });
+}
+
 function toolNode(
   id: string,
   familyId: RepoAgentFixtureFamilyId,
@@ -2176,6 +2424,9 @@ function renderFixtureEventsJsonl(
       ...(node.metadata.docsWikiAlignment === undefined
         ? {}
         : { docsWikiAlignment: node.metadata.docsWikiAlignment }),
+      ...(node.metadata.issuePlanning === undefined
+        ? {}
+        : { issuePlanning: node.metadata.issuePlanning }),
       privacyMode: "metadata_only",
       source: "repo-agent-task-suite",
     },
@@ -2292,6 +2543,19 @@ function taskSuiteFixtureFamilyReportLines(
       "- Reuse source excerpts only when freshness is verified and source identity matches.",
       "- Transformed alignment summaries remain needs_review until validators pass and a future replay policy exists.",
       "- Evidence mode: metadata_only; raw prose excerpts, local paths, and full whitepaper text omitted.",
+    ];
+  }
+
+  if (familyId === "issue-planning-and-blocker-maintenance") {
+    return [
+      "",
+      "Issue planning and blocker maintenance:",
+      "- Before #155 closes: exactly one next eligible issue is #154.",
+      "- After #155 closes: exactly one next eligible issue is #156.",
+      "- Skip issues labeled status:blocked, status:claimed, or status:in-review.",
+      "- Adopt existing PR #159 or active claim #158 before creating new work.",
+      "- Draft issue body fields: project purpose, acceptance criteria, labels, validation, and Blocked by: #156.",
+      "- Evidence mode: metadata_only; live GitHub payloads and local paths omitted.",
     ];
   }
 
