@@ -67,6 +67,19 @@ describe("task-suite command", () => {
           ],
         },
         {
+          description: "One docs and wiki alignment repo-agent fixture.",
+          fixtureCount: 1,
+          id: "repo-agent-docs-wiki-alignment",
+          missingRequiredFamilies: [
+            "read-only-reconnaissance",
+            "implementation-and-debug",
+            "ci-and-toolchain-triage",
+            "issue-planning-and-blocker-maintenance",
+            "pr-review-and-merge-readiness",
+            "evidence-promotion-and-handoff",
+          ],
+        },
+        {
           description: "All MVP repo-agent task ladder fixture families.",
           fixtureCount: 7,
           id: "repo-agent-mvp",
@@ -610,6 +623,177 @@ describe("task-suite command", () => {
     expect(fixtureReport).toContain("check/gate contract");
     expect(fixtureReport).not.toContain("/Users/");
     expect(fixtureReport).not.toMatch(/\binfer(?:red)? success\b/i);
+  });
+
+  it("writes docs/wiki alignment artifacts with provenance and conservative report decisions", async () => {
+    const io = fakeIo();
+    const result = await runCli(
+      [
+        "task-suite",
+        "run",
+        "--suite",
+        "repo-agent-docs-wiki-alignment",
+        "--output-dir",
+        "out",
+        "--format",
+        "json",
+      ],
+      io,
+    );
+    const report = JSON.parse(result.stdout) as {
+      readonly fixtures: readonly [
+        {
+          readonly comparison: {
+            readonly blockedCandidates: readonly {
+              readonly nodeId: string;
+              readonly reasons: readonly { readonly code: string }[];
+            }[];
+            readonly changedNodes: readonly {
+              readonly nodeId: string;
+              readonly reason: string;
+            }[];
+          };
+          readonly familyId: string;
+          readonly metrics: {
+            readonly actualSkippedActions: number;
+            readonly allowed: number;
+            readonly blocked: number;
+            readonly changedNodes: number;
+            readonly needsReview: number;
+          };
+          readonly reuseDecision: {
+            readonly summary: {
+              readonly allowed: number;
+              readonly blocked: number;
+              readonly needsReview: number;
+              readonly totalCandidates: number;
+            };
+          };
+        },
+      ];
+      readonly success: boolean;
+    };
+    const graph = JSON.parse(
+      writtenFile(
+        io.writes,
+        "out/repo-agent-docs-wiki-alignment/docs-and-wiki-alignment/graph.json",
+      ),
+    ) as {
+      readonly nodes: readonly {
+        readonly artifacts: readonly {
+          readonly metadata?: {
+            readonly codex?: Readonly<Record<string, unknown>>;
+            readonly reuse?: Readonly<Record<string, unknown>>;
+          };
+        }[];
+        readonly id: string;
+        readonly metadata: {
+          readonly docsWikiAlignment?: Readonly<Record<string, unknown>>;
+          readonly reuse?: {
+            readonly validatorsRequired?: readonly string[];
+          };
+        };
+      }[];
+    };
+    const events = writtenFile(
+      io.writes,
+      "out/repo-agent-docs-wiki-alignment/docs-and-wiki-alignment/events.jsonl",
+    );
+    const fixtureReport = writtenFile(
+      io.writes,
+      "out/repo-agent-docs-wiki-alignment/docs-and-wiki-alignment/report.md",
+    );
+    const repoContractRead = graph.nodes.find((node) =>
+      node.id.endsWith("tool-read-repo-contract-claim"),
+    );
+    const wikiRoadmapRead = graph.nodes.find((node) =>
+      node.id.endsWith("tool-read-wiki-roadmap-claim"),
+    );
+    const whitepaperRead = graph.nodes.find((node) =>
+      node.id.endsWith("tool-read-whitepaper-only-claim"),
+    );
+    const summary = graph.nodes.find((node) =>
+      node.id.endsWith("model-claim-alignment-summary"),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(report.success).toBe(false);
+    expect(report.fixtures[0]).toMatchObject({
+      familyId: "docs-and-wiki-alignment",
+      metrics: {
+        actualSkippedActions: 0,
+        allowed: 3,
+        blocked: 1,
+        changedNodes: 1,
+        needsReview: 1,
+      },
+      reuseDecision: {
+        summary: {
+          allowed: 3,
+          blocked: 1,
+          needsReview: 1,
+          totalCandidates: 5,
+        },
+      },
+    });
+    expect(report.fixtures[0].comparison.changedNodes).toEqual([
+      expect.objectContaining({
+        nodeId: "docs-and-wiki-alignment-tool-read-stale-readme-claim",
+        reason: "cache_key_changed",
+      }),
+    ]);
+    expect(report.fixtures[0].comparison.blockedCandidates).toEqual([
+      expect.objectContaining({
+        nodeId: "docs-and-wiki-alignment-tool-read-stale-wiki-claim",
+        reasons: expect.arrayContaining([
+          expect.objectContaining({ code: "freshness_unknown" }),
+        ]),
+      }),
+    ]);
+    expect(repoContractRead?.metadata.docsWikiAlignment).toMatchObject({
+      claimStatus: "aligned",
+      destination: "docs/README.md",
+      sourceKind: "repo_contract_doc",
+    });
+    expect(repoContractRead?.artifacts[0]?.metadata?.codex).toMatchObject({
+      sourceIdentity: "repo:docs/README.md",
+      sourceLabel: "Repository docs README excerpt",
+    });
+    expect(wikiRoadmapRead?.metadata.docsWikiAlignment).toMatchObject({
+      claimStatus: "aligned",
+      sourceKind: "wiki_roadmap",
+    });
+    expect(whitepaperRead?.metadata.docsWikiAlignment).toMatchObject({
+      claimStatus: "whitepaper_only",
+      decision: "do_not_copy_to_repo_contract_docs",
+      sourceKind: "whitepaper_note",
+    });
+    expect(whitepaperRead?.artifacts[0]?.metadata?.codex).toMatchObject({
+      sourceIdentity: "external:whitepaper:v0.4",
+      sourceLabel: "Whitepaper v0.4 notes excerpt",
+    });
+    expect(summary?.metadata.reuse?.validatorsRequired).toEqual([
+      "claim-source-provenance",
+      "no-whitepaper-prose-copy",
+      "docs-change-plan-grounding",
+    ]);
+    expect(events).toContain("docsWikiAlignment");
+    expect(events).toContain("sourceKind");
+    expect(events).not.toContain("/Users/");
+    expect(fixtureReport).toContain(
+      "- Change docs/README.md: refresh stale README claim against repository contract docs.",
+    );
+    expect(fixtureReport).toContain(
+      "- Do not change docs/evidence-bundles-v0.md: keep long-term whitepaper-only claims in wiki/whitepaper sources.",
+    );
+    expect(fixtureReport).toContain(
+      "- Reuse source excerpts only when freshness is verified and source identity matches.",
+    );
+    expect(fixtureReport).toContain(
+      "- Transformed alignment summaries remain needs_review until validators pass and a future replay policy exists.",
+    );
+    expect(fixtureReport).not.toContain("/Users/");
+    expect(fixtureReport).not.toContain("whitepaper copied prose");
   });
 
   it("runs all repo-agent fixture families through one command", async () => {

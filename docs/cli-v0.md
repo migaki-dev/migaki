@@ -90,6 +90,8 @@ The built-in suites are:
   exits non-zero because the full MVP ladder is still incomplete.
 - `repo-agent-ci-toolchain-triage`: one CI and toolchain triage fixture; exits
   non-zero because the full MVP ladder is still incomplete.
+- `repo-agent-docs-wiki-alignment`: one docs and wiki alignment fixture; exits
+  non-zero because the full MVP ladder is still incomplete.
 - `repo-agent-mvp`: all MVP repo-agent fixture families; exits zero when all
   deterministic fixture artifacts are written.
 
@@ -117,6 +119,12 @@ status parsing from fresh local command execution, record the defended
 `code-quality` gate contract, block reuse when command, lockfile, tool version,
 or environment fingerprints drift, and report a local rerun next action when CI
 evidence is insufficient.
+
+Docs and wiki alignment fixture artifacts compare repository contract docs,
+README claims, wiki roadmap excerpts, and whitepaper-note provenance. The
+report names docs that should change, docs that should not receive
+whitepaper-only claims, freshness/source-identity requirements for reusable
+excerpts, and `needs_review` handling for transformed summaries.
 
 ## Argument Contract
 

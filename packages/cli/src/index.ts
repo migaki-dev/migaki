@@ -300,6 +300,11 @@ const taskSuites: readonly TaskSuiteDefinition[] = [
     id: "repo-agent-ci-toolchain-triage",
   },
   {
+    description: "One docs and wiki alignment repo-agent fixture.",
+    fixtureFamilies: ["docs-and-wiki-alignment"],
+    id: "repo-agent-docs-wiki-alignment",
+  },
+  {
     description: "All MVP repo-agent task ladder fixture families.",
     fixtureFamilies: repoAgentFixtureFamilyIds,
     id: "repo-agent-mvp",
@@ -678,6 +683,10 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
     return createCiAndToolchainTriageFixture(familyId);
   }
 
+  if (familyId === "docs-and-wiki-alignment") {
+    return createDocsAndWikiAlignmentFixture(familyId);
+  }
+
   const previousRunId = `${familyId}-previous`;
   const currentRunId = `${familyId}-current`;
   const previousGraph = graph(previousRunId, familyId, [
@@ -701,6 +710,333 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
       sideEffectClass: "unknown",
     }),
     modelNode(`${familyId}-model-changed`, familyId, "model-changed-v2"),
+  ]);
+
+  return {
+    currentGraph,
+    eventsJsonl: renderFixtureEventsJsonl(familyId, currentGraph),
+    previousGraph,
+  };
+}
+
+function createDocsAndWikiAlignmentFixture(
+  familyId: RepoAgentFixtureFamilyId,
+): {
+  readonly currentGraph: ExecutionGraph;
+  readonly eventsJsonl: string;
+  readonly previousGraph: ExecutionGraph;
+} {
+  const previousRunId = `${familyId}-previous`;
+  const currentRunId = `${familyId}-current`;
+  const repoContractMetadata = {
+    docsWikiAlignment: {
+      claimStatus: "aligned",
+      destination: "docs/README.md",
+      evidenceKind: "source_excerpt",
+      freshnessLabel: "verified",
+      sourceIdentity: "repo:docs/README.md",
+      sourceKind: "repo_contract_doc",
+    },
+  };
+  const wikiRoadmapMetadata = {
+    docsWikiAlignment: {
+      claimStatus: "aligned",
+      destination: "wiki:v0-Roadmap",
+      evidenceKind: "wiki_excerpt",
+      freshnessLabel: "verified",
+      sourceIdentity: "wiki:v0-Roadmap",
+      sourceKind: "wiki_roadmap",
+    },
+  };
+  const staleWikiMetadata = {
+    docsWikiAlignment: {
+      claimStatus: "stale",
+      destination: "docs/README.md",
+      evidenceKind: "wiki_excerpt",
+      freshnessLabel: "needs_review",
+      sourceIdentity: "wiki:v0-Roadmap",
+      sourceKind: "wiki_roadmap",
+    },
+  };
+  const previousStaleReadmeMetadata = {
+    docsWikiAlignment: {
+      claimStatus: "stale",
+      destination: "README.md",
+      evidenceKind: "repo_excerpt",
+      freshnessLabel: "verified",
+      sourceIdentity: "repo:README.md",
+      sourceKind: "repo_readme",
+    },
+  };
+  const currentStaleReadmeMetadata = {
+    docsWikiAlignment: {
+      claimStatus: "stale",
+      decision: "change_repo_docs",
+      destination: "README.md",
+      evidenceKind: "repo_excerpt",
+      freshnessLabel: "verified",
+      sourceIdentity: "repo:README.md",
+      sourceKind: "repo_readme",
+    },
+  };
+  const whitepaperMetadata = {
+    docsWikiAlignment: {
+      claimStatus: "whitepaper_only",
+      decision: "do_not_copy_to_repo_contract_docs",
+      destination: "wiki:whitepaper",
+      evidenceKind: "external_excerpt",
+      freshnessLabel: "verified",
+      sourceIdentity: "external:whitepaper:v0.4",
+      sourceKind: "whitepaper_note",
+    },
+  };
+  const summaryMetadata = {
+    docsWikiAlignment: {
+      alignedClaimCount: 2,
+      changeDocs: ["README.md"],
+      doNotChangeDocs: ["docs/evidence-bundles-v0.md"],
+      staleClaimCount: 1,
+      stage: "claim_alignment_summary",
+      transformedSummary: true,
+      whitepaperOnlyClaimCount: 1,
+    },
+  };
+
+  const previousGraph = graph(previousRunId, familyId, [
+    docsWikiReadOnlyToolNode(
+      `${familyId}-tool-read-repo-contract-claim`,
+      familyId,
+      "read:repo-contract-docs:docs-readme:v1",
+      repoContractMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-repo-contract-claim`,
+            "repo-contract-docs-readme-v1",
+            "verified",
+            {
+              codex: {
+                excerptFingerprint: "repo-docs-readme-claim-v1",
+                sourceIdentity: "repo:docs/README.md",
+                sourceLabel: "Repository docs README excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    docsWikiReadOnlyToolNode(
+      `${familyId}-tool-read-wiki-roadmap-claim`,
+      familyId,
+      "read:wiki-roadmap:v0:v1",
+      wikiRoadmapMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-wiki-roadmap-claim`,
+            "wiki-roadmap-v0-claim-v1",
+            "verified",
+            {
+              codex: {
+                excerptFingerprint: "wiki-roadmap-v0-claim-v1",
+                sourceIdentity: "wiki:v0-Roadmap",
+                sourceLabel: "Wiki v0 Roadmap excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    docsWikiReadOnlyToolNode(
+      `${familyId}-tool-read-stale-wiki-claim`,
+      familyId,
+      "read:wiki-roadmap:stale-docs-claim:v1",
+      staleWikiMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-stale-wiki-claim`,
+            "wiki-stale-docs-claim-v1",
+            "verified",
+            {
+              codex: {
+                excerptFingerprint: "wiki-stale-docs-claim-v1",
+                sourceIdentity: "wiki:v0-Roadmap",
+                sourceLabel: "Wiki stale docs claim excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    docsWikiReadOnlyToolNode(
+      `${familyId}-tool-read-stale-readme-claim`,
+      familyId,
+      "read:repo-readme:stale-claim:v1",
+      previousStaleReadmeMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-stale-readme-claim`,
+            "repo-readme-stale-claim-v1",
+            "verified",
+            {
+              codex: {
+                excerptFingerprint: "repo-readme-stale-claim-v1",
+                sourceIdentity: "repo:README.md",
+                sourceLabel: "Repository README stale claim excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    docsWikiReadOnlyToolNode(
+      `${familyId}-tool-read-whitepaper-only-claim`,
+      familyId,
+      "read:whitepaper:v0.4:long-term-note:v1",
+      whitepaperMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-whitepaper-only-claim`,
+            "whitepaper-v0.4-note-v1",
+            "verified",
+            {
+              codex: {
+                excerptFingerprint: "whitepaper-v0.4-note-v1",
+                sourceIdentity: "external:whitepaper:v0.4",
+                sourceLabel: "Whitepaper v0.4 notes excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    docsWikiModelNode(
+      `${familyId}-model-claim-alignment-summary`,
+      familyId,
+      "claim-alignment-summary:v1",
+      summaryMetadata,
+    ),
+  ]);
+  const currentGraph = graph(currentRunId, familyId, [
+    docsWikiReadOnlyToolNode(
+      `${familyId}-tool-read-repo-contract-claim`,
+      familyId,
+      "read:repo-contract-docs:docs-readme:v1",
+      repoContractMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-repo-contract-claim`,
+            "repo-contract-docs-readme-v1",
+            "verified",
+            {
+              codex: {
+                excerptFingerprint: "repo-docs-readme-claim-v1",
+                sourceIdentity: "repo:docs/README.md",
+                sourceLabel: "Repository docs README excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    docsWikiReadOnlyToolNode(
+      `${familyId}-tool-read-wiki-roadmap-claim`,
+      familyId,
+      "read:wiki-roadmap:v0:v1",
+      wikiRoadmapMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-wiki-roadmap-claim`,
+            "wiki-roadmap-v0-claim-v1",
+            "verified",
+            {
+              codex: {
+                excerptFingerprint: "wiki-roadmap-v0-claim-v1",
+                sourceIdentity: "wiki:v0-Roadmap",
+                sourceLabel: "Wiki v0 Roadmap excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    docsWikiReadOnlyToolNode(
+      `${familyId}-tool-read-stale-wiki-claim`,
+      familyId,
+      "read:wiki-roadmap:stale-docs-claim:v1",
+      staleWikiMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-stale-wiki-claim`,
+            "wiki-stale-docs-claim-v1",
+            "unknown",
+            {
+              codex: {
+                excerptFingerprint: "wiki-stale-docs-claim-v1",
+                sourceIdentity: "wiki:v0-Roadmap",
+                sourceLabel: "Wiki stale docs claim excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    docsWikiReadOnlyToolNode(
+      `${familyId}-tool-read-stale-readme-claim`,
+      familyId,
+      "read:repo-readme:stale-claim:v2",
+      currentStaleReadmeMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-stale-readme-claim`,
+            "repo-readme-stale-claim-v2",
+            "verified",
+            {
+              codex: {
+                excerptFingerprint: "repo-readme-stale-claim-v2",
+                sourceIdentity: "repo:README.md",
+                sourceLabel: "Repository README stale claim excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    docsWikiReadOnlyToolNode(
+      `${familyId}-tool-read-whitepaper-only-claim`,
+      familyId,
+      "read:whitepaper:v0.4:long-term-note:v1",
+      whitepaperMetadata,
+      {
+        artifacts: [
+          fileArtifact(
+            `${familyId}-whitepaper-only-claim`,
+            "whitepaper-v0.4-note-v1",
+            "verified",
+            {
+              codex: {
+                excerptFingerprint: "whitepaper-v0.4-note-v1",
+                sourceIdentity: "external:whitepaper:v0.4",
+                sourceLabel: "Whitepaper v0.4 notes excerpt",
+              },
+            },
+          ),
+        ],
+      },
+    ),
+    docsWikiModelNode(
+      `${familyId}-model-claim-alignment-summary`,
+      familyId,
+      "claim-alignment-summary:v1",
+      summaryMetadata,
+    ),
   ]);
 
   return {
@@ -1692,6 +2028,57 @@ function ciMutationNode(
   });
 }
 
+function docsWikiModelNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  return node(id, "model_call", familyId, fingerprintSeed, {
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        validatorsPassed: [
+          "claim-source-provenance",
+          "no-whitepaper-prose-copy",
+          "docs-change-plan-grounding",
+        ],
+        validatorsRequired: [
+          "claim-source-provenance",
+          "no-whitepaper-prose-copy",
+          "docs-change-plan-grounding",
+        ],
+      },
+    },
+    totalTokens: 156,
+  });
+}
+
+function docsWikiReadOnlyToolNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+  options: {
+    readonly artifacts?: ExecutionNode["artifacts"];
+  } = {},
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    ...(options.artifacts === undefined
+      ? {}
+      : { artifacts: options.artifacts }),
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        sideEffectClass: "read_only",
+      },
+    },
+    totalTokens: 12,
+  });
+}
+
 function toolNode(
   id: string,
   familyId: RepoAgentFixtureFamilyId,
@@ -1786,6 +2173,9 @@ function renderFixtureEventsJsonl(
       ...(node.metadata.ciToolchainTriage === undefined
         ? {}
         : { ciToolchainTriage: node.metadata.ciToolchainTriage }),
+      ...(node.metadata.docsWikiAlignment === undefined
+        ? {}
+        : { docsWikiAlignment: node.metadata.docsWikiAlignment }),
       privacyMode: "metadata_only",
       source: "repo-agent-task-suite",
     },
@@ -1893,6 +2283,18 @@ function renderTaskSuiteFixtureReport(input: {
 function taskSuiteFixtureFamilyReportLines(
   familyId: RepoAgentFixtureFamilyId,
 ): readonly string[] {
+  if (familyId === "docs-and-wiki-alignment") {
+    return [
+      "",
+      "Docs/wiki alignment:",
+      "- Change docs/README.md: refresh stale README claim against repository contract docs.",
+      "- Do not change docs/evidence-bundles-v0.md: keep long-term whitepaper-only claims in wiki/whitepaper sources.",
+      "- Reuse source excerpts only when freshness is verified and source identity matches.",
+      "- Transformed alignment summaries remain needs_review until validators pass and a future replay policy exists.",
+      "- Evidence mode: metadata_only; raw prose excerpts, local paths, and full whitepaper text omitted.",
+    ];
+  }
+
   if (familyId !== "ci-and-toolchain-triage") {
     return [];
   }
