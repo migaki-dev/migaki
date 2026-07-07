@@ -4,17 +4,20 @@
 
 - Report output contract: `migaki.cli-report.v0`
 - Replay output contract: `migaki.cli-replay.v0`
+- Task-suite output contract: `migaki.cli-task-suite.v0`
 - Owning package: `@migaki/cli`
 - Source of truth: `packages/cli/src/index.ts`
 
 The v0 CLI surface is the exported `runCli(argv, io)` entrypoint. A packaged
 shell binary is not part of the implemented contract yet.
 
-The CLI supports two command surfaces:
+The CLI supports three command surfaces:
 
 ```sh
 migaki report --input artifact.json [--format human|json]
 migaki replay --input trace.json [--format human|json]
+migaki task-suite list [--format human|json]
+migaki task-suite run --suite suite-id [--output-dir dir] [--format human|json]
 ```
 
 ## Report
@@ -62,14 +65,51 @@ input errors exit non-zero. Replay output includes backend, plan id, trace id,
 replay status, result status, mismatch count and details, output count, and
 validator results.
 
+## Task Suite
+
+`task-suite` provides deterministic repo-agent fixture harnesses for the MVP
+task ladder. It is hermetic by default: built-in fixtures do not call live
+providers, registries, Docker, private services, or mutable external
+repositories.
+
+`task-suite list --format json` returns available suite ids, fixture counts, and
+missing required repo-agent fixture families. `task-suite run --format json`
+returns automation-safe `migaki.cli-task-suite.v0` output with coverage status,
+missing family warnings, fixture metrics, privacy mode, redaction mode, and
+local artifact links.
+
+The built-in suites are:
+
+- `repo-agent-empty`: no fixtures; exits non-zero when run and reports every
+  missing required family.
+- `repo-agent-readonly`: one read-only reconnaissance fixture; exits non-zero
+  because the full MVP ladder is still incomplete.
+- `repo-agent-mvp`: all MVP repo-agent fixture families; exits zero when all
+  deterministic fixture artifacts are written.
+
+Each fixture writes these local artifacts under
+`<output-dir>/<suite-id>/<family-id>/`:
+
+- `events.jsonl`
+- `graph.json`
+- `report.md`
+- `comparison.json`
+- `reuse-decision.json`
+
+Reports explicitly preserve the observation-only invariant: the harness records
+and compares deterministic fixture trajectories, but it never skips model calls,
+tool calls, file reads, provider requests, replay, cache lookup, or user-visible
+actions.
+
 ## Argument Contract
 
-Both commands require `--input`. `--format` must be `human` or `json`. Unknown
-arguments, missing values, invalid JSON, unsupported versions, and unreadable
-inputs are command errors.
+`report` and `replay` require `--input`. `task-suite run` requires `--suite`.
+`--format` must be `human` or `json`. Unknown arguments, missing values, invalid
+JSON, unsupported versions, unreadable inputs, and unknown suite ids are command
+errors.
 
 The `io` argument can inject a fake filesystem in tests. Production callers may
-use the default `readFile` implementation.
+use the default filesystem implementation.
 
 ## Compatibility
 

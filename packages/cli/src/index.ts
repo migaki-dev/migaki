@@ -1,17 +1,31 @@
-import { readFile as readTextFile } from "node:fs/promises";
+import {
+  mkdir as makeDirectory,
+  readFile as readTextFile,
+  writeFile as writeTextFile,
+} from "node:fs/promises";
+import { join } from "node:path";
 
 import {
+  EXECUTION_EVENT_VERSION,
+  EXECUTION_GRAPH_VERSION,
   EVIDENCE_BUNDLE_VERSION,
   MOCK_TRACE_ARTIFACT_VERSION,
   REUSE_DECISION_ARTIFACT_VERSION,
+  compareObservedExecutionGraphs,
+  createReuseDecisionArtifact,
   parseEvidenceBundle,
   parseMockExecutionTraceArtifact,
+  renderExecutionReport,
   renderReuseDecisionArtifact,
   replayMockExecutionTrace,
+  stableExecutionHash,
   type EvidenceBundle,
+  type ExecutionGraph,
+  type ExecutionNode,
   type EstimateEvidenceEvent,
   type MockExecutionTraceArtifact,
   type MockExecutionTraceReplayResult,
+  type ObservedTrajectoryComparison,
   type PassWarning,
   type ReuseDecisionArtifact,
   type RoutingDecisionEvidenceEvent,
@@ -24,14 +38,18 @@ export const cliPackageResponsibility =
 
 export const CLI_REPORT_VERSION = "migaki.cli-report.v0";
 export const CLI_REPLAY_VERSION = "migaki.cli-replay.v0";
+export const CLI_TASK_SUITE_VERSION = "migaki.cli-task-suite.v0";
 
 export type CliReportVersion = typeof CLI_REPORT_VERSION;
 export type CliReplayVersion = typeof CLI_REPLAY_VERSION;
+export type CliTaskSuiteVersion = typeof CLI_TASK_SUITE_VERSION;
 
 export type CliReportFormat = "human" | "json";
 
 export interface CliIo {
+  readonly mkdir?: (path: string) => Promise<void> | void;
   readonly readFile: (path: string) => Promise<string> | string;
+  readonly writeFile?: (path: string, contents: string) => Promise<void> | void;
 }
 
 export interface CliResult {
@@ -43,6 +61,88 @@ export interface CliResult {
 interface ReportArgs {
   readonly format: CliReportFormat;
   readonly input: string;
+}
+
+interface TaskSuiteListArgs {
+  readonly command: "list";
+  readonly format: CliReportFormat;
+}
+
+interface TaskSuiteRunArgs {
+  readonly command: "run";
+  readonly format: CliReportFormat;
+  readonly outputDir: string;
+  readonly suite: string;
+}
+
+type TaskSuiteArgs = TaskSuiteListArgs | TaskSuiteRunArgs;
+
+interface TaskSuiteDefinition {
+  readonly description: string;
+  readonly fixtureFamilies: readonly RepoAgentFixtureFamilyId[];
+  readonly id: string;
+}
+
+interface TaskSuiteListReport {
+  readonly artifactKind: "task_suite_list";
+  readonly suites: readonly TaskSuiteListEntry[];
+  readonly version: CliTaskSuiteVersion;
+}
+
+interface TaskSuiteListEntry {
+  readonly description: string;
+  readonly fixtureCount: number;
+  readonly id: string;
+  readonly missingRequiredFamilies: readonly RepoAgentFixtureFamilyId[];
+}
+
+interface TaskSuiteRunReport {
+  readonly artifactKind: "task_suite_run";
+  readonly coverage: TaskSuiteCoverageReport;
+  readonly fixtures: readonly TaskSuiteFixtureReport[];
+  readonly success: boolean;
+  readonly suiteId: string;
+  readonly version: CliTaskSuiteVersion;
+  readonly warnings: readonly string[];
+}
+
+interface TaskSuiteCoverageReport {
+  readonly fixtureCount: number;
+  readonly missingRequiredFamilies: readonly RepoAgentFixtureFamilyId[];
+  readonly status: "complete" | "missing";
+}
+
+interface TaskSuiteFixtureArtifacts {
+  readonly comparisonJson: string;
+  readonly eventsJsonl: string;
+  readonly graphJson: string;
+  readonly reportMd: string;
+  readonly reuseDecisionJson: string;
+}
+
+interface TaskSuiteFixtureReport {
+  readonly artifacts: TaskSuiteFixtureArtifacts;
+  readonly comparison: {
+    readonly privacyPolicy: ObservedTrajectoryComparison["privacyPolicy"];
+    readonly summary: ObservedTrajectoryComparison["summary"];
+    readonly warnings: readonly { readonly code: string }[];
+  };
+  readonly familyId: RepoAgentFixtureFamilyId;
+  readonly metrics: TaskSuiteMetricsReport;
+  readonly reuseDecision: {
+    readonly privacyPolicy: ReuseDecisionArtifact["privacyPolicy"];
+    readonly redaction: ReuseDecisionArtifact["redaction"];
+    readonly summary: ReuseDecisionArtifact["summary"];
+  };
+}
+
+interface TaskSuiteMetricsReport {
+  readonly actualSkippedActions: 0;
+  readonly allowed: number;
+  readonly blocked: number;
+  readonly changedNodes: number;
+  readonly needsReview: number;
+  readonly totalCandidates: number;
 }
 
 interface EstimateReport {
@@ -148,10 +248,46 @@ interface WarningReport {
 }
 
 const defaultIo: CliIo = {
+  mkdir(path) {
+    return makeDirectory(path, { recursive: true }).then(() => undefined);
+  },
   readFile(path) {
     return readTextFile(path, "utf8");
   },
+  writeFile(path, contents) {
+    return writeTextFile(path, contents, "utf8");
+  },
 };
+
+const repoAgentFixtureFamilyIds = [
+  "read-only-reconnaissance",
+  "implementation-and-debug",
+  "ci-and-toolchain-triage",
+  "docs-and-wiki-alignment",
+  "issue-planning-and-blocker-maintenance",
+  "pr-review-and-merge-readiness",
+  "evidence-promotion-and-handoff",
+] as const;
+
+type RepoAgentFixtureFamilyId = (typeof repoAgentFixtureFamilyIds)[number];
+
+const taskSuites: readonly TaskSuiteDefinition[] = [
+  {
+    description: "No repo-agent fixtures; useful for coverage gates.",
+    fixtureFamilies: [],
+    id: "repo-agent-empty",
+  },
+  {
+    description: "One read-only repo-agent fixture.",
+    fixtureFamilies: ["read-only-reconnaissance"],
+    id: "repo-agent-readonly",
+  },
+  {
+    description: "All MVP repo-agent task ladder fixture families.",
+    fixtureFamilies: repoAgentFixtureFamilyIds,
+    id: "repo-agent-mvp",
+  },
+];
 
 export async function runCli(
   argv: readonly string[],
@@ -167,9 +303,50 @@ export async function runCli(
     return runReplayCommand(argv.slice(1), io);
   }
 
+  if (command === "task-suite") {
+    return runTaskSuiteCommand(argv.slice(1), io);
+  }
+
   return fail(
-    "Usage: migaki <report|replay> --input <artifact.json> [--format human|json]",
+    "Usage: migaki <report|replay|task-suite> --input <artifact.json> [--format human|json]",
   );
+}
+
+async function runTaskSuiteCommand(
+  argv: readonly string[],
+  io: CliIo,
+): Promise<CliResult> {
+  const args = parseTaskSuiteArgs(argv);
+
+  if (typeof args === "string") {
+    return fail(args);
+  }
+
+  if (args.command === "list") {
+    return succeed(
+      renderTaskSuiteListReport(createTaskSuiteListReport(), args.format),
+    );
+  }
+
+  const suite = taskSuites.find((candidate) => candidate.id === args.suite);
+
+  if (suite === undefined) {
+    return fail(`Unknown task suite: ${args.suite}.`);
+  }
+
+  let report: TaskSuiteRunReport;
+
+  try {
+    report = await createTaskSuiteRunReport(suite, args.outputDir, io);
+  } catch (error) {
+    return fail(`Could not run task suite: ${errorMessage(error)}`);
+  }
+
+  return {
+    exitCode: report.success ? 0 : 1,
+    stderr: "",
+    stdout: renderTaskSuiteRunReport(report, args.format),
+  };
 }
 
 async function runReportCommand(
@@ -261,6 +438,486 @@ async function runReplayCommand(
     stderr: "",
     stdout: renderReplayReport(report, args.format),
   };
+}
+
+function parseTaskSuiteArgs(argv: readonly string[]): TaskSuiteArgs | string {
+  const subcommand = argv[0];
+
+  if (subcommand !== "list" && subcommand !== "run") {
+    return "Usage: migaki task-suite <list|run> [--suite suite-id] [--output-dir dir] [--format human|json]";
+  }
+
+  let format: CliReportFormat = "human";
+  let outputDir = ".migaki/task-suites";
+  let suite: string | undefined;
+
+  for (let index = 1; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    if (arg === "--format") {
+      const value = argv[index + 1];
+
+      if (value !== "human" && value !== "json") {
+        return "Expected --format to be human or json.";
+      }
+
+      format = value;
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--suite" && subcommand === "run") {
+      const value = argv[index + 1];
+
+      if (value === undefined || value.startsWith("--")) {
+        return "Missing value for --suite.";
+      }
+
+      suite = value;
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--output-dir" && subcommand === "run") {
+      const value = argv[index + 1];
+
+      if (value === undefined || value.startsWith("--")) {
+        return "Missing value for --output-dir.";
+      }
+
+      outputDir = value;
+      index += 1;
+      continue;
+    }
+
+    return `Unknown task-suite argument: ${String(arg)}.`;
+  }
+
+  if (subcommand === "list") {
+    return { command: "list", format };
+  }
+
+  if (suite === undefined) {
+    return "Missing required --suite argument.";
+  }
+
+  return {
+    command: "run",
+    format,
+    outputDir,
+    suite,
+  };
+}
+
+function createTaskSuiteListReport(): TaskSuiteListReport {
+  return {
+    artifactKind: "task_suite_list",
+    suites: taskSuites.map((suite) => ({
+      description: suite.description,
+      fixtureCount: suite.fixtureFamilies.length,
+      id: suite.id,
+      missingRequiredFamilies: missingRequiredFamilies(suite.fixtureFamilies),
+    })),
+    version: CLI_TASK_SUITE_VERSION,
+  };
+}
+
+async function createTaskSuiteRunReport(
+  suite: TaskSuiteDefinition,
+  outputDir: string,
+  io: CliIo,
+): Promise<TaskSuiteRunReport> {
+  const fixtures: TaskSuiteFixtureReport[] = [];
+
+  for (const familyId of suite.fixtureFamilies) {
+    fixtures.push(await runRepoAgentFixture(suite.id, familyId, outputDir, io));
+  }
+
+  const missing = missingRequiredFamilies(suite.fixtureFamilies);
+  const coverage: TaskSuiteCoverageReport = {
+    fixtureCount: fixtures.length,
+    missingRequiredFamilies: missing,
+    status: missing.length === 0 ? "complete" : "missing",
+  };
+  const warnings =
+    missing.length === 0
+      ? []
+      : [`Missing fixture coverage for ${missing.join(", ")}.`];
+
+  return {
+    artifactKind: "task_suite_run",
+    coverage,
+    fixtures,
+    success: warnings.length === 0,
+    suiteId: suite.id,
+    version: CLI_TASK_SUITE_VERSION,
+    warnings,
+  };
+}
+
+async function runRepoAgentFixture(
+  suiteId: string,
+  familyId: RepoAgentFixtureFamilyId,
+  outputDir: string,
+  io: CliIo,
+): Promise<TaskSuiteFixtureReport> {
+  const fixture = createRepoAgentFixture(familyId);
+  const comparison = compareObservedExecutionGraphs(
+    fixture.previousGraph,
+    fixture.currentGraph,
+  );
+  const reuseDecision = createReuseDecisionArtifact(comparison, {
+    createdAt: "2026-01-01T00:00:02.000Z",
+  });
+  const artifacts = fixtureArtifactPaths(outputDir, suiteId, familyId);
+  const report = renderTaskSuiteFixtureReport({
+    artifacts,
+    comparison,
+    familyId,
+    graph: fixture.currentGraph,
+    reuseDecision,
+  });
+
+  await writeTaskSuiteArtifact(io, artifacts.eventsJsonl, fixture.eventsJsonl);
+  await writeTaskSuiteArtifact(
+    io,
+    artifacts.graphJson,
+    `${stableStringify(fixture.currentGraph)}\n`,
+  );
+  await writeTaskSuiteArtifact(
+    io,
+    artifacts.comparisonJson,
+    `${stableStringify(comparison)}\n`,
+  );
+  await writeTaskSuiteArtifact(
+    io,
+    artifacts.reuseDecisionJson,
+    renderReuseDecisionArtifact(reuseDecision, "json"),
+  );
+  await writeTaskSuiteArtifact(io, artifacts.reportMd, report);
+
+  return {
+    artifacts,
+    comparison: {
+      privacyPolicy: comparison.privacyPolicy,
+      summary: comparison.summary,
+      warnings: comparison.warnings.map((warning) => ({
+        code: warning.code,
+      })),
+    },
+    familyId,
+    metrics: {
+      actualSkippedActions: 0,
+      allowed: reuseDecision.summary.allowed,
+      blocked: reuseDecision.summary.blocked,
+      changedNodes: comparison.summary.changedNodes,
+      needsReview: reuseDecision.summary.needsReview,
+      totalCandidates: reuseDecision.summary.totalCandidates,
+    },
+    reuseDecision: {
+      privacyPolicy: reuseDecision.privacyPolicy,
+      redaction: reuseDecision.redaction,
+      summary: reuseDecision.summary,
+    },
+  };
+}
+
+function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
+  readonly currentGraph: ExecutionGraph;
+  readonly eventsJsonl: string;
+  readonly previousGraph: ExecutionGraph;
+} {
+  const previousRunId = `${familyId}-previous`;
+  const currentRunId = `${familyId}-current`;
+  const previousGraph = graph(previousRunId, familyId, [
+    modelNode(`${familyId}-model-summary`, familyId, "model-summary"),
+    toolNode(`${familyId}-tool-read`, familyId, "tool-read", {
+      artifacts: [fileArtifact(`${familyId}-file`, "file-v1", "verified")],
+      sideEffectClass: "read_only",
+    }),
+    toolNode(`${familyId}-tool-unknown`, familyId, "tool-unknown", {
+      sideEffectClass: "unknown",
+    }),
+    modelNode(`${familyId}-model-changed`, familyId, "model-changed-v1"),
+  ]);
+  const currentGraph = graph(currentRunId, familyId, [
+    modelNode(`${familyId}-model-summary`, familyId, "model-summary"),
+    toolNode(`${familyId}-tool-read`, familyId, "tool-read", {
+      artifacts: [fileArtifact(`${familyId}-file`, "file-v1", "verified")],
+      sideEffectClass: "read_only",
+    }),
+    toolNode(`${familyId}-tool-unknown`, familyId, "tool-unknown", {
+      sideEffectClass: "unknown",
+    }),
+    modelNode(`${familyId}-model-changed`, familyId, "model-changed-v2"),
+  ]);
+
+  return {
+    currentGraph,
+    eventsJsonl: renderFixtureEventsJsonl(familyId, currentGraph),
+    previousGraph,
+  };
+}
+
+function graph(
+  runId: string,
+  familyId: RepoAgentFixtureFamilyId,
+  nodes: readonly ExecutionNode[],
+): ExecutionGraph {
+  return {
+    createdAt: "2026-01-01T00:00:00.000Z",
+    edges: [],
+    endedAt: "2026-01-01T00:00:02.000Z",
+    metadata: {
+      fixtureFamily: familyId,
+      reuse: {
+        runtimeCompatibilityKey: "repo-agent-task-suite:v0",
+      },
+    },
+    nodes,
+    runId,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    status: "ok",
+    version: EXECUTION_GRAPH_VERSION,
+  };
+}
+
+function modelNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+): ExecutionNode {
+  return node(id, "model_call", familyId, fingerprintSeed, {
+    metadata: {
+      reuse: {
+        policyAllowed: true,
+        validatorsPassed: ["fixture-acceptance"],
+        validatorsRequired: ["fixture-acceptance"],
+      },
+    },
+    totalTokens: 120,
+  });
+}
+
+function toolNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  options: {
+    readonly artifacts?: ExecutionNode["artifacts"];
+    readonly sideEffectClass: "read_only" | "unknown";
+  },
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    ...(options.artifacts === undefined
+      ? {}
+      : { artifacts: options.artifacts }),
+    metadata: {
+      reuse: {
+        policyAllowed: true,
+        sideEffectClass: options.sideEffectClass,
+      },
+    },
+    totalTokens: 12,
+  });
+}
+
+function node(
+  id: string,
+  operationKind: "model_call" | "tool_call",
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  options: {
+    readonly artifacts?: ExecutionNode["artifacts"];
+    readonly metadata: ExecutionNode["metadata"];
+    readonly totalTokens: number;
+  },
+): ExecutionNode {
+  return {
+    artifacts: options.artifacts ?? [],
+    dependencies: [],
+    durationMs: 10,
+    endedAt: "2026-01-01T00:00:01.000Z",
+    id,
+    metadata: options.metadata,
+    metrics: {
+      costUsd: operationKind === "model_call" ? 0.002 : 0,
+      latencyMs: 10,
+      totalTokens: options.totalTokens,
+    },
+    operation: {
+      fingerprint: stableExecutionHash({ familyId, fingerprintSeed }),
+      id,
+      kind: operationKind,
+      name: id,
+    },
+    startedAt: "2026-01-01T00:00:00.000Z",
+    status: "ok",
+  };
+}
+
+function fileArtifact(
+  id: string,
+  fingerprintSeed: string,
+  freshnessStatus: "verified",
+): ExecutionNode["artifacts"][number] {
+  return {
+    fingerprint: stableExecutionHash({ fingerprintSeed }),
+    id,
+    kind: "file",
+    metadata: {
+      redaction: "raw file path omitted",
+      reuse: {
+        freshnessStatus,
+      },
+    },
+  };
+}
+
+function renderFixtureEventsJsonl(
+  familyId: RepoAgentFixtureFamilyId,
+  graph: ExecutionGraph,
+): string {
+  const events = graph.nodes.map((node) => ({
+    id: `${node.id}-event`,
+    lifecycle: "finish",
+    metadata: {
+      fixtureFamily: familyId,
+      privacyMode: "metadata_only",
+      source: "repo-agent-task-suite",
+    },
+    occurredAt: node.endedAt,
+    operation: node.operation,
+    runId: graph.runId,
+    status: node.status === "ok" ? "ok" : "error",
+    version: EXECUTION_EVENT_VERSION,
+  }));
+
+  return `${events.map((event) => stableStringify(event)).join("\n")}\n`;
+}
+
+function fixtureArtifactPaths(
+  outputDir: string,
+  suiteId: string,
+  familyId: RepoAgentFixtureFamilyId,
+): TaskSuiteFixtureArtifacts {
+  const fixtureDir = join(outputDir, suiteId, familyId);
+
+  return {
+    comparisonJson: join(fixtureDir, "comparison.json"),
+    eventsJsonl: join(fixtureDir, "events.jsonl"),
+    graphJson: join(fixtureDir, "graph.json"),
+    reportMd: join(fixtureDir, "report.md"),
+    reuseDecisionJson: join(fixtureDir, "reuse-decision.json"),
+  };
+}
+
+function renderTaskSuiteFixtureReport(input: {
+  readonly artifacts: TaskSuiteFixtureArtifacts;
+  readonly comparison: ObservedTrajectoryComparison;
+  readonly familyId: RepoAgentFixtureFamilyId;
+  readonly graph: ExecutionGraph;
+  readonly reuseDecision: ReuseDecisionArtifact;
+}): string {
+  return [
+    "# Migaki Repo-Agent Fixture Report",
+    "",
+    `Family: ${input.familyId}`,
+    "",
+    "## Artifacts",
+    "",
+    `- events.jsonl: ${input.artifacts.eventsJsonl}`,
+    `- graph.json: ${input.artifacts.graphJson}`,
+    `- report.md: ${input.artifacts.reportMd}`,
+    `- comparison.json: ${input.artifacts.comparisonJson}`,
+    `- reuse-decision.json: ${input.artifacts.reuseDecisionJson}`,
+    "",
+    "## Metrics",
+    "",
+    `- Allowed reuse decisions: ${input.reuseDecision.summary.allowed}`,
+    `- Needs-review reuse decisions: ${input.reuseDecision.summary.needsReview}`,
+    `- Blocked reuse decisions: ${input.reuseDecision.summary.blocked}`,
+    `- Changed nodes: ${input.comparison.summary.changedNodes}`,
+    "- Actual skipped actions: 0",
+    "",
+    renderReuseDecisionArtifact(input.reuseDecision, "human").trimEnd(),
+    "",
+    renderExecutionReport(input.graph).trimEnd(),
+    "",
+  ].join("\n");
+}
+
+async function writeTaskSuiteArtifact(
+  io: CliIo,
+  path: string,
+  contents: string,
+): Promise<void> {
+  if (io.writeFile === undefined) {
+    throw new Error("Task-suite run requires a writeFile-capable CLI IO.");
+  }
+
+  const directory = path.slice(0, path.lastIndexOf("/"));
+
+  if (directory !== "" && io.mkdir !== undefined) {
+    await io.mkdir(directory);
+  }
+
+  await io.writeFile(path, contents);
+}
+
+function missingRequiredFamilies(
+  fixtureFamilies: readonly RepoAgentFixtureFamilyId[],
+): readonly RepoAgentFixtureFamilyId[] {
+  const present = new Set(fixtureFamilies);
+
+  return repoAgentFixtureFamilyIds.filter((familyId) => !present.has(familyId));
+}
+
+function renderTaskSuiteListReport(
+  report: TaskSuiteListReport,
+  format: CliReportFormat,
+): string {
+  if (format === "json") {
+    return `${stableStringify(report)}\n`;
+  }
+
+  return [
+    "Migaki Task Suites",
+    ...report.suites.map(
+      (suite) =>
+        `- ${suite.id}: ${suite.fixtureCount} ${plural(
+          suite.fixtureCount,
+          "fixture",
+        )}; missing ${suite.missingRequiredFamilies.join(", ") || "none"}`,
+    ),
+    "",
+  ].join("\n");
+}
+
+function renderTaskSuiteRunReport(
+  report: TaskSuiteRunReport,
+  format: CliReportFormat,
+): string {
+  if (format === "json") {
+    return `${stableStringify(report)}\n`;
+  }
+
+  return [
+    "Migaki Task Suite",
+    `Suite: ${report.suiteId}`,
+    `Status: ${report.success ? "complete" : "missing coverage"}`,
+    `Fixtures: ${report.coverage.fixtureCount}`,
+    `Missing: ${report.coverage.missingRequiredFamilies.join(", ") || "none"}`,
+    "Warnings:",
+    ...formatList(report.warnings, (warning) => `- ${warning}`),
+    "Artifacts:",
+    ...formatList(
+      report.fixtures,
+      (fixture) =>
+        `- ${fixture.familyId}: ${fixture.artifacts.eventsJsonl}, ${fixture.artifacts.graphJson}, ${fixture.artifacts.reportMd}, ${fixture.artifacts.comparisonJson}, ${fixture.artifacts.reuseDecisionJson}`,
+    ),
+    "",
+  ].join("\n");
 }
 
 function parseReportArgs(argv: readonly string[]): ReportArgs | string {
