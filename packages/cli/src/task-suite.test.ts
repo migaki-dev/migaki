@@ -80,6 +80,20 @@ describe("task-suite command", () => {
           ],
         },
         {
+          description:
+            "One issue planning and blocker maintenance repo-agent fixture.",
+          fixtureCount: 1,
+          id: "repo-agent-issue-planning-blockers",
+          missingRequiredFamilies: [
+            "read-only-reconnaissance",
+            "implementation-and-debug",
+            "ci-and-toolchain-triage",
+            "docs-and-wiki-alignment",
+            "pr-review-and-merge-readiness",
+            "evidence-promotion-and-handoff",
+          ],
+        },
+        {
           description: "All MVP repo-agent task ladder fixture families.",
           fixtureCount: 7,
           id: "repo-agent-mvp",
@@ -794,6 +808,188 @@ describe("task-suite command", () => {
     );
     expect(fixtureReport).not.toContain("/Users/");
     expect(fixtureReport).not.toContain("whitepaper copied prose");
+  });
+
+  it("writes issue planning artifacts with blocker parsing and adoption-first decisions", async () => {
+    const io = fakeIo();
+    const result = await runCli(
+      [
+        "task-suite",
+        "run",
+        "--suite",
+        "repo-agent-issue-planning-blockers",
+        "--output-dir",
+        "out",
+        "--format",
+        "json",
+      ],
+      io,
+    );
+    const report = JSON.parse(result.stdout) as {
+      readonly fixtures: readonly [
+        {
+          readonly comparison: {
+            readonly blockedCandidates: readonly {
+              readonly nodeId: string;
+              readonly reasons: readonly { readonly code: string }[];
+              readonly sideEffectClass?: string;
+            }[];
+            readonly changedNodes: readonly {
+              readonly nodeId: string;
+              readonly reason: string;
+            }[];
+          };
+          readonly familyId: string;
+          readonly metrics: {
+            readonly actualSkippedActions: number;
+            readonly allowed: number;
+            readonly blocked: number;
+            readonly changedNodes: number;
+            readonly needsReview: number;
+          };
+          readonly reuseDecision: {
+            readonly summary: {
+              readonly allowed: number;
+              readonly blocked: number;
+              readonly needsReview: number;
+              readonly totalCandidates: number;
+            };
+          };
+        },
+      ];
+      readonly success: boolean;
+    };
+    const graph = JSON.parse(
+      writtenFile(
+        io.writes,
+        "out/repo-agent-issue-planning-blockers/issue-planning-and-blocker-maintenance/graph.json",
+      ),
+    ) as {
+      readonly nodes: readonly {
+        readonly id: string;
+        readonly metadata: {
+          readonly issuePlanning?: Readonly<Record<string, unknown>>;
+          readonly reuse?: {
+            readonly validatorsRequired?: readonly string[];
+          };
+        };
+      }[];
+    };
+    const events = writtenFile(
+      io.writes,
+      "out/repo-agent-issue-planning-blockers/issue-planning-and-blocker-maintenance/events.jsonl",
+    );
+    const fixtureReport = writtenFile(
+      io.writes,
+      "out/repo-agent-issue-planning-blockers/issue-planning-and-blocker-maintenance/report.md",
+    );
+    const blockerSummary = graph.nodes.find((node) =>
+      node.id.endsWith("model-blocker-summary"),
+    );
+    const statusSkips = graph.nodes.find((node) =>
+      node.id.endsWith("tool-status-label-scan"),
+    );
+    const adoptionGate = graph.nodes.find((node) =>
+      node.id.endsWith("tool-adoption-gate"),
+    );
+    const issueBody = graph.nodes.find((node) =>
+      node.id.endsWith("model-issue-body-draft"),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(report.success).toBe(false);
+    expect(report.fixtures[0]).toMatchObject({
+      familyId: "issue-planning-and-blocker-maintenance",
+      metrics: {
+        actualSkippedActions: 0,
+        allowed: 2,
+        blocked: 1,
+        changedNodes: 2,
+        needsReview: 1,
+      },
+      reuseDecision: {
+        summary: {
+          allowed: 2,
+          blocked: 1,
+          needsReview: 1,
+          totalCandidates: 4,
+        },
+      },
+    });
+    expect(report.fixtures[0].comparison.changedNodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId:
+            "issue-planning-and-blocker-maintenance-tool-issue-metadata-snapshot",
+          reason: "cache_key_changed",
+        }),
+        expect.objectContaining({
+          nodeId:
+            "issue-planning-and-blocker-maintenance-model-blocker-summary",
+          reason: "cache_key_changed",
+        }),
+      ]),
+    );
+    expect(report.fixtures[0].comparison.blockedCandidates).toEqual([
+      expect.objectContaining({
+        nodeId: "issue-planning-and-blocker-maintenance-tool-adoption-gate",
+        reasons: expect.arrayContaining([
+          expect.objectContaining({ code: "side_effect_policy_missing" }),
+        ]),
+        sideEffectClass: "approval_required",
+      }),
+    ]);
+    expect(blockerSummary?.metadata.issuePlanning).toMatchObject({
+      afterBlockerClosureEligibleIssues: ["#156"],
+      blockerReferences: [{ blocker: "#155", issue: "#156" }],
+      beforeBlockerClosureEligibleIssues: ["#154"],
+      skippedOpenBlockers: ["#157"],
+    });
+    expect(statusSkips?.metadata.issuePlanning).toMatchObject({
+      skippedStatusLabels: [
+        "status:blocked",
+        "status:claimed",
+        "status:in-review",
+      ],
+    });
+    expect(adoptionGate?.metadata.issuePlanning).toMatchObject({
+      activeClaimIssue: "#158",
+      adoptionDecision: "adopt_existing_work_before_new_issue",
+      openPrIssue: "#159",
+    });
+    expect(issueBody?.metadata.issuePlanning).toMatchObject({
+      bodyFields: [
+        "project_purpose",
+        "acceptance_criteria",
+        "labels",
+        "validation",
+        "blocked_by",
+      ],
+      blockedByLines: ["Blocked by: #156"],
+      labels: ["status:ready", "priority:p0", "stage:v0"],
+    });
+    expect(issueBody?.metadata.reuse?.validatorsRequired).toEqual([
+      "blocker-graph-consistency",
+      "issue-body-contract",
+      "adoption-before-new-work",
+    ]);
+    expect(events).toContain("issuePlanning");
+    expect(events).toContain("status:blocked");
+    expect(events).not.toContain("/Users/");
+    expect(fixtureReport).toContain(
+      "- Before #155 closes: exactly one next eligible issue is #154.",
+    );
+    expect(fixtureReport).toContain(
+      "- After #155 closes: exactly one next eligible issue is #156.",
+    );
+    expect(fixtureReport).toContain(
+      "- Skip issues labeled status:blocked, status:claimed, or status:in-review.",
+    );
+    expect(fixtureReport).toContain(
+      "- Adopt existing PR #159 or active claim #158 before creating new work.",
+    );
+    expect(fixtureReport).toContain("Blocked by: #156");
+    expect(fixtureReport).not.toContain("/Users/");
   });
 
   it("runs all repo-agent fixture families through one command", async () => {
