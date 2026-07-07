@@ -29,7 +29,8 @@ downstream integrators.
   bundles for auditable advice-only adaptation.
 - [Repo-Agent Task Ladder v0](./repo-agent-task-ladder-v0.md) defines the MVP
   repo-agent task-family matrix, benchmark acceptance metrics, and
-  observation-only reuse policy.
+  observation-only reuse policy, including the
+  `. scripts/env && mise run migaki:mvp-repo-agent-gate` completion gate.
 - [Promoted Migaki Artifacts](./migaki-artifacts/README.md) describes the
   tracked location for curated project-level artifacts promoted from local
   `.migaki/runs` evidence.

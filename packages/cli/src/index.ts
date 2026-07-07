@@ -75,7 +75,19 @@ interface TaskSuiteRunArgs {
   readonly suite: string;
 }
 
-type TaskSuiteArgs = TaskSuiteListArgs | TaskSuiteRunArgs;
+type StrictDogfoodStatus = "failed" | "not_checked" | "passed";
+
+interface TaskSuiteMvpGateArgs {
+  readonly command: "mvp-gate";
+  readonly format: CliReportFormat;
+  readonly outputDir: string;
+  readonly strictDogfoodStatus: StrictDogfoodStatus;
+}
+
+type TaskSuiteArgs =
+  | TaskSuiteListArgs
+  | TaskSuiteMvpGateArgs
+  | TaskSuiteRunArgs;
 
 interface TaskSuiteDefinition {
   readonly description: string;
@@ -104,6 +116,59 @@ interface TaskSuiteRunReport {
   readonly suiteId: string;
   readonly version: CliTaskSuiteVersion;
   readonly warnings: readonly string[];
+}
+
+interface MvpRepoAgentGateReport {
+  readonly artifactKind: "mvp_repo_agent_gate";
+  readonly deterministicTaskSuiteSuccess: boolean;
+  readonly fixtureArtifacts: readonly MvpGateFixtureArtifactSummary[];
+  readonly strictDogfood: {
+    readonly command: "mise run migaki:dogfood";
+    readonly gatesDeterministicTaskSuite: false;
+    readonly status: StrictDogfoodStatus;
+  };
+  readonly success: boolean;
+  readonly suiteId: string;
+  readonly summary: MvpRepoAgentGateSummary;
+  readonly version: CliTaskSuiteVersion;
+  readonly warnings: readonly string[];
+}
+
+interface MvpGateFixtureArtifactSummary {
+  readonly artifacts: TaskSuiteFixtureArtifacts;
+  readonly familyId: RepoAgentFixtureFamilyId;
+}
+
+interface MvpRepoAgentGateSummary {
+  readonly blockedReasons: readonly MvpBlockedReasonSummary[];
+  readonly coverage: TaskSuiteCoverageReport;
+  readonly privacy: MvpPrivacySummary;
+  readonly realizedSavings: {
+    readonly actualSkippedActions: number;
+    readonly status: "failed" | "passed";
+  };
+  readonly reuseDecisions: ReuseDecisionArtifact["summary"];
+  readonly validators: {
+    readonly required: readonly string[];
+  };
+}
+
+interface MvpBlockedReasonSummary {
+  readonly code: string;
+  readonly count: number;
+}
+
+interface MvpPrivacyLeak {
+  readonly artifact: string;
+  readonly markers: readonly string[];
+}
+
+interface MvpPrivacySummary {
+  readonly checkedArtifactCount: number;
+  readonly leakedArtifacts: readonly MvpPrivacyLeak[];
+  readonly metadataOnlyArtifactCount: number;
+  readonly prohibitedMarkers: readonly string[];
+  readonly status: "failed" | "passed";
 }
 
 interface TaskSuiteCoverageReport {
@@ -278,6 +343,17 @@ const repoAgentFixtureFamilyIds = [
 
 type RepoAgentFixtureFamilyId = (typeof repoAgentFixtureFamilyIds)[number];
 
+const mvpRepoAgentSuiteId = "repo-agent-mvp";
+
+const prohibitedDefaultArtifactMarkers = [
+  { id: "raw_prompt", marker: "raw customer prompt" },
+  { id: "tool_input", marker: "tool-input-secret" },
+  { id: "tool_output", marker: "tool-output-secret" },
+  { id: "provider_response", marker: "provider-response-secret" },
+  { id: "credential", marker: "sk-live-promotion-fixture" },
+  { id: "local_machine_path", marker: "/Users/" },
+] as const;
+
 const taskSuites: readonly TaskSuiteDefinition[] = [
   {
     description: "No repo-agent fixtures; useful for coverage gates.",
@@ -323,7 +399,7 @@ const taskSuites: readonly TaskSuiteDefinition[] = [
   {
     description: "All MVP repo-agent task ladder fixture families.",
     fixtureFamilies: repoAgentFixtureFamilyIds,
-    id: "repo-agent-mvp",
+    id: mvpRepoAgentSuiteId,
   },
 ];
 
@@ -364,6 +440,31 @@ async function runTaskSuiteCommand(
     return succeed(
       renderTaskSuiteListReport(createTaskSuiteListReport(), args.format),
     );
+  }
+
+  if (args.command === "mvp-gate") {
+    const suite = requireTaskSuite(mvpRepoAgentSuiteId);
+    const privacyIo = createPrivacyCheckingIo(io);
+
+    let report: TaskSuiteRunReport;
+
+    try {
+      report = await createTaskSuiteRunReport(suite, args.outputDir, privacyIo);
+    } catch (error) {
+      return fail(`Could not run MVP repo-agent gate: ${errorMessage(error)}`);
+    }
+
+    const gate = createMvpRepoAgentGateReport(
+      report,
+      privacyIo.leakedArtifacts,
+      args.strictDogfoodStatus,
+    );
+
+    return {
+      exitCode: gate.success ? 0 : 1,
+      stderr: "",
+      stdout: renderMvpRepoAgentGateReport(gate, args.format),
+    };
   }
 
   const suite = taskSuites.find((candidate) => candidate.id === args.suite);
@@ -481,13 +582,18 @@ async function runReplayCommand(
 function parseTaskSuiteArgs(argv: readonly string[]): TaskSuiteArgs | string {
   const subcommand = argv[0];
 
-  if (subcommand !== "list" && subcommand !== "run") {
-    return "Usage: migaki task-suite <list|run> [--suite suite-id] [--output-dir dir] [--format human|json]";
+  if (
+    subcommand !== "list" &&
+    subcommand !== "run" &&
+    subcommand !== "mvp-gate"
+  ) {
+    return "Usage: migaki task-suite <list|run|mvp-gate> [--suite suite-id] [--output-dir dir] [--format human|json] [--strict-dogfood-status passed|failed|not_checked]";
   }
 
   let format: CliReportFormat = "human";
   let outputDir = ".migaki/task-suites";
   let suite: string | undefined;
+  let strictDogfoodStatus: StrictDogfoodStatus = "not_checked";
 
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -528,11 +634,44 @@ function parseTaskSuiteArgs(argv: readonly string[]): TaskSuiteArgs | string {
       continue;
     }
 
+    if (arg === "--output-dir" && subcommand === "mvp-gate") {
+      const value = argv[index + 1];
+
+      if (value === undefined || value.startsWith("--")) {
+        return "Missing value for --output-dir.";
+      }
+
+      outputDir = value;
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--strict-dogfood-status" && subcommand === "mvp-gate") {
+      const value = argv[index + 1];
+
+      if (value !== "failed" && value !== "not_checked" && value !== "passed") {
+        return "Expected --strict-dogfood-status to be passed, failed, or not_checked.";
+      }
+
+      strictDogfoodStatus = value;
+      index += 1;
+      continue;
+    }
+
     return `Unknown task-suite argument: ${String(arg)}.`;
   }
 
   if (subcommand === "list") {
     return { command: "list", format };
+  }
+
+  if (subcommand === "mvp-gate") {
+    return {
+      command: "mvp-gate",
+      format,
+      outputDir,
+      strictDogfoodStatus,
+    };
   }
 
   if (suite === undefined) {
@@ -544,6 +683,44 @@ function parseTaskSuiteArgs(argv: readonly string[]): TaskSuiteArgs | string {
     format,
     outputDir,
     suite,
+  };
+}
+
+function requireTaskSuite(id: string): TaskSuiteDefinition {
+  const suite = taskSuites.find((candidate) => candidate.id === id);
+
+  if (suite === undefined) {
+    throw new Error(`Missing task suite: ${id}.`);
+  }
+
+  return suite;
+}
+
+function createPrivacyCheckingIo(io: CliIo): CliIo & {
+  readonly leakedArtifacts: readonly MvpPrivacyLeak[];
+} {
+  const leakedArtifacts: MvpPrivacyLeak[] = [];
+  const mkdir = io.mkdir;
+
+  return {
+    ...(mkdir === undefined ? {} : { mkdir }),
+    leakedArtifacts,
+    readFile: io.readFile,
+    async writeFile(path, contents): Promise<void> {
+      const markers = prohibitedDefaultArtifactMarkers
+        .filter(({ marker }) => contents.includes(marker))
+        .map(({ id }) => id);
+
+      if (markers.length > 0) {
+        leakedArtifacts.push({ artifact: path, markers });
+      }
+
+      if (io.writeFile === undefined) {
+        throw new Error("Task-suite run requires a writeFile-capable CLI IO.");
+      }
+
+      await io.writeFile(path, contents);
+    },
   };
 }
 
@@ -3527,6 +3704,187 @@ function renderTaskSuiteRunReport(
       (fixture) =>
         `- ${fixture.familyId}: ${fixture.artifacts.eventsJsonl}, ${fixture.artifacts.graphJson}, ${fixture.artifacts.reportMd}, ${fixture.artifacts.comparisonJson}, ${fixture.artifacts.reuseDecisionJson}`,
     ),
+    "",
+  ].join("\n");
+}
+
+function createMvpRepoAgentGateReport(
+  suite: TaskSuiteRunReport,
+  leakedArtifacts: readonly MvpPrivacyLeak[],
+  strictDogfoodStatus: StrictDogfoodStatus,
+): MvpRepoAgentGateReport {
+  const reuseDecisions = suite.fixtures.reduce(
+    (summary, fixture) => ({
+      allowed: summary.allowed + fixture.reuseDecision.summary.allowed,
+      blocked: summary.blocked + fixture.reuseDecision.summary.blocked,
+      needsReview:
+        summary.needsReview + fixture.reuseDecision.summary.needsReview,
+      totalCandidates:
+        summary.totalCandidates + fixture.reuseDecision.summary.totalCandidates,
+    }),
+    {
+      allowed: 0,
+      blocked: 0,
+      needsReview: 0,
+      totalCandidates: 0,
+    },
+  );
+  const blockedReasons = summarizeBlockedReasons(suite.fixtures);
+  const requiredValidators = summarizeRequiredValidators(suite.fixtures);
+  const actualSkippedActions = suite.fixtures.reduce(
+    (count, fixture) => count + fixture.metrics.actualSkippedActions,
+    0,
+  );
+  const metadataOnlyArtifactCount = suite.fixtures.filter(
+    (fixture) =>
+      fixture.comparison.privacyPolicy.exportMode === "metadata_only" &&
+      fixture.reuseDecision.privacyPolicy.exportMode === "metadata_only" &&
+      fixture.reuseDecision.redaction.mode === "metadata_only",
+  ).length;
+  const privacy: MvpPrivacySummary = {
+    checkedArtifactCount: suite.fixtures.length * 5,
+    leakedArtifacts,
+    metadataOnlyArtifactCount,
+    prohibitedMarkers: prohibitedDefaultArtifactMarkers.map(({ id }) => id),
+    status:
+      leakedArtifacts.length === 0 &&
+      metadataOnlyArtifactCount === suite.fixtures.length
+        ? "passed"
+        : "failed",
+  };
+  const realizedSavings = {
+    actualSkippedActions,
+    status: actualSkippedActions === 0 ? "passed" : "failed",
+  } as const;
+  const warnings = [
+    ...suite.warnings,
+    ...(realizedSavings.status === "passed"
+      ? []
+      : [
+          `MVP gate forbids realized skips before controlled replay; saw ${actualSkippedActions}.`,
+        ]),
+    ...(privacy.status === "passed"
+      ? []
+      : ["MVP gate detected prohibited raw data in default artifacts."]),
+  ];
+
+  return {
+    artifactKind: "mvp_repo_agent_gate",
+    deterministicTaskSuiteSuccess: suite.success,
+    fixtureArtifacts: suite.fixtures.map((fixture) => ({
+      artifacts: fixture.artifacts,
+      familyId: fixture.familyId,
+    })),
+    strictDogfood: {
+      command: "mise run migaki:dogfood",
+      gatesDeterministicTaskSuite: false,
+      status: strictDogfoodStatus,
+    },
+    success:
+      suite.success &&
+      realizedSavings.status === "passed" &&
+      privacy.status === "passed",
+    suiteId: suite.suiteId,
+    summary: {
+      blockedReasons,
+      coverage: suite.coverage,
+      privacy,
+      realizedSavings,
+      reuseDecisions,
+      validators: {
+        required: requiredValidators,
+      },
+    },
+    version: CLI_TASK_SUITE_VERSION,
+    warnings,
+  };
+}
+
+function summarizeBlockedReasons(
+  fixtures: readonly TaskSuiteFixtureReport[],
+): readonly MvpBlockedReasonSummary[] {
+  const counts = new Map<string, number>();
+
+  for (const fixture of fixtures) {
+    for (const candidate of fixture.comparison.blockedCandidates) {
+      for (const reason of candidate.reasons) {
+        counts.set(reason.code, (counts.get(reason.code) ?? 0) + 1);
+      }
+    }
+  }
+
+  return [...counts]
+    .map(([code, count]) => ({ code, count }))
+    .sort((left, right) => left.code.localeCompare(right.code));
+}
+
+function summarizeRequiredValidators(
+  fixtures: readonly TaskSuiteFixtureReport[],
+): readonly string[] {
+  const validators = new Set<string>();
+
+  for (const fixture of fixtures) {
+    for (const candidate of fixture.comparison.blockedCandidates) {
+      for (const validator of candidate.requiredValidators) {
+        validators.add(validator);
+      }
+    }
+
+    for (const candidate of fixture.comparison.reusableModelCalls) {
+      for (const validator of candidate.requiredValidators) {
+        validators.add(validator);
+      }
+    }
+
+    for (const candidate of fixture.comparison.reusableToolCalls) {
+      for (const validator of candidate.requiredValidators) {
+        validators.add(validator);
+      }
+    }
+  }
+
+  return [...validators].sort();
+}
+
+function renderMvpRepoAgentGateReport(
+  report: MvpRepoAgentGateReport,
+  format: CliReportFormat,
+): string {
+  if (format === "json") {
+    return `${stableStringify(report)}\n`;
+  }
+
+  return [
+    "Migaki MVP Repo-Agent Gate",
+    `Status: ${report.success ? "passed" : "failed"}`,
+    `Deterministic task suite: ${report.deterministicTaskSuiteSuccess ? "passed" : "failed"}`,
+    `Strict dogfood: ${report.strictDogfood.status} (${report.strictDogfood.command})`,
+    "Coverage:",
+    `- Fixture families: ${report.summary.coverage.fixtureCount}`,
+    `- Missing: ${report.summary.coverage.missingRequiredFamilies.join(", ") || "none"}`,
+    "Reuse decisions:",
+    `- Allowed: ${report.summary.reuseDecisions.allowed}`,
+    `- Needs review: ${report.summary.reuseDecisions.needsReview}`,
+    `- Blocked: ${report.summary.reuseDecisions.blocked}`,
+    "Blocked reasons:",
+    ...formatList(
+      report.summary.blockedReasons,
+      (reason) => `- ${reason.code}: ${reason.count}`,
+    ),
+    "Validators:",
+    ...formatList(
+      report.summary.validators.required,
+      (validator) => `- ${validator}`,
+    ),
+    "Privacy:",
+    `- Status: ${report.summary.privacy.status}`,
+    `- Checked artifacts: ${report.summary.privacy.checkedArtifactCount}`,
+    `- Leaked artifacts: ${report.summary.privacy.leakedArtifacts.length}`,
+    "Realized savings:",
+    `- Status: ${report.summary.realizedSavings.status}`,
+    `- Actual skipped actions: ${report.summary.realizedSavings.actualSkippedActions}`,
+    "Warnings:",
+    ...formatList(report.warnings, (warning) => `- ${warning}`),
     "",
   ].join("\n");
 }

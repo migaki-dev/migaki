@@ -91,6 +91,17 @@ describe("mise tasks", () => {
     expect(task).toContain('run = "scripts/migaki-dogfood"');
   });
 
+  it("wires the MVP repo-agent gate behind a build", async () => {
+    const config = await readFile(`${repositoryRoot}/mise.toml`, "utf8");
+    const task = readTask(config, "migaki:mvp-repo-agent-gate");
+
+    expect(task).toContain(
+      'description = "Run the MVP repo-agent completion gate"',
+    );
+    expect(task).toContain('depends = ["build"]');
+    expect(task).toContain('run = "scripts/migaki-mvp-repo-agent-gate"');
+  });
+
   it("wires the practical Migaki readiness gate without forcing a rebuild", async () => {
     const config = await readFile(`${repositoryRoot}/mise.toml`, "utf8");
     const task = readTask(config, "migaki:ready");

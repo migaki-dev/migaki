@@ -1429,6 +1429,99 @@ describe("task-suite command", () => {
     });
     expect(report.fixtures).toHaveLength(7);
   });
+
+  it("runs the MVP repo-agent gate with strict dogfood status reported separately", async () => {
+    const io = fakeIo();
+    const result = await runCli(
+      [
+        "task-suite",
+        "mvp-gate",
+        "--output-dir",
+        "out",
+        "--format",
+        "json",
+        "--strict-dogfood-status",
+        "failed",
+      ],
+      io,
+    );
+    const report = JSON.parse(result.stdout) as {
+      readonly artifactKind: string;
+      readonly deterministicTaskSuiteSuccess: boolean;
+      readonly fixtureArtifacts: readonly unknown[];
+      readonly strictDogfood: {
+        readonly gatesDeterministicTaskSuite: boolean;
+        readonly status: string;
+      };
+      readonly summary: {
+        readonly blockedReasons: readonly { readonly code: string }[];
+        readonly coverage: {
+          readonly fixtureCount: number;
+          readonly missingRequiredFamilies: readonly string[];
+          readonly status: string;
+        };
+        readonly privacy: {
+          readonly status: string;
+          readonly leakedArtifacts: readonly unknown[];
+        };
+        readonly realizedSavings: { readonly status: string };
+        readonly reuseDecisions: {
+          readonly allowed: number;
+          readonly blocked: number;
+          readonly needsReview: number;
+          readonly totalCandidates: number;
+        };
+        readonly validators: {
+          readonly required: readonly string[];
+        };
+      };
+      readonly success: boolean;
+      readonly suiteId: string;
+    };
+
+    expect(result.exitCode).toBe(0);
+    expect(report.artifactKind).toBe("mvp_repo_agent_gate");
+    expect(report.success).toBe(true);
+    expect(report.deterministicTaskSuiteSuccess).toBe(true);
+    expect(report.suiteId).toBe("repo-agent-mvp");
+    expect(report.fixtureArtifacts).toHaveLength(7);
+    expect(report.strictDogfood).toEqual({
+      command: "mise run migaki:dogfood",
+      gatesDeterministicTaskSuite: false,
+      status: "failed",
+    });
+    expect(report.summary.coverage).toEqual({
+      fixtureCount: 7,
+      missingRequiredFamilies: [],
+      status: "complete",
+    });
+    expect(report.summary.reuseDecisions.totalCandidates).toBeGreaterThan(0);
+    expect(report.summary.reuseDecisions.blocked).toBeGreaterThan(0);
+    expect(
+      report.summary.blockedReasons.map((reason) => reason.code),
+    ).toContain("side_effecting_tool");
+    expect(report.summary.validators.required).toContain(
+      "handoff-completeness-check",
+    );
+    expect(report.summary.privacy).toEqual({
+      checkedArtifactCount: 35,
+      leakedArtifacts: [],
+      metadataOnlyArtifactCount: 7,
+      prohibitedMarkers: [
+        "raw_prompt",
+        "tool_input",
+        "tool_output",
+        "provider_response",
+        "credential",
+        "local_machine_path",
+      ],
+      status: "passed",
+    });
+    expect(report.summary.realizedSavings).toEqual({
+      actualSkippedActions: 0,
+      status: "passed",
+    });
+  });
 });
 
 function writtenFile(writes: Record<string, string>, path: string): string {

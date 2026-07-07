@@ -18,6 +18,7 @@ migaki report --input artifact.json [--format human|json]
 migaki replay --input trace.json [--format human|json]
 migaki task-suite list [--format human|json]
 migaki task-suite run --suite suite-id [--output-dir dir] [--format human|json]
+migaki task-suite mvp-gate [--output-dir dir] [--format human|json] [--strict-dogfood-status passed|failed|not_checked]
 ```
 
 ## Report
@@ -79,6 +80,18 @@ missing family warnings, fixture metrics, privacy mode, redaction mode, and
 local artifact links. Fixture metrics report potential avoided-work estimates
 separately from realized behavior; `actualSkippedActions` remains `0` unless a
 future controlled-replay policy explicitly allows skipping work.
+
+`task-suite mvp-gate` always runs the `repo-agent-mvp` suite and returns a
+single MVP completion gate report. The gate summarizes task-family coverage,
+aggregate reuse decisions, blocked-reuse reason codes, required validators,
+privacy checks over generated default artifacts, and the realized-savings
+invariant. It exits non-zero when a required family is missing, a fixture
+reports realized skipped actions before controlled replay exists, or a default
+artifact leaks prohibited raw prompt, tool payload, provider response,
+credential, or local path markers. `--strict-dogfood-status` is reported
+separately from `deterministicTaskSuiteSuccess`; strict app-surface dogfood
+gaps must stay visible without being conflated with deterministic fixture
+success.
 
 The built-in suites are:
 
@@ -150,9 +163,10 @@ run, blocked checks, remaining blockers, and the next eligible issue.
 ## Argument Contract
 
 `report` and `replay` require `--input`. `task-suite run` requires `--suite`.
-`--format` must be `human` or `json`. Unknown arguments, missing values, invalid
-JSON, unsupported versions, unreadable inputs, and unknown suite ids are command
-errors.
+`task-suite mvp-gate` rejects `--suite` because it is fixed to
+`repo-agent-mvp`. `--format` must be `human` or `json`. Unknown arguments,
+missing values, invalid JSON, unsupported versions, unreadable inputs, and
+unknown suite ids are command errors.
 
 The `io` argument can inject a fake filesystem in tests. Production callers may
 use the default filesystem implementation.

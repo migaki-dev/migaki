@@ -120,6 +120,7 @@ completion_criteria:
   - The v0 RAG workflow can be represented as mIR, optimized by deterministic passes, lowered, validated, replayed, and reported with evidence.
   - mIR, pass, runtime, provider, evidence, adaptive policy, and CLI contract docs match the implemented TypeScript exports and fixtures.
   - Local . scripts/env && mise run check and required GitHub code-quality checks pass for merged work.
+  - Local . scripts/env && mise run migaki:mvp-repo-agent-gate passes for the MVP repo-agent phase.
   - Open priority:p0 stage:v0 issues are complete, blocked with specific next steps, or intentionally deferred.
   - Wiki and repository docs are concise, current, and free of unsupported optimization claims.
 ```

@@ -44,9 +44,27 @@ issue explicitly changes the policy.
 
 ## Gate Policy
 
+Run the repository gate with:
+
+```sh
+. scripts/env && mise run migaki:mvp-repo-agent-gate
+```
+
+The gate runs the full `repo-agent-mvp` task suite, writes default artifacts
+under `.migaki/mvp-repo-agent-gate/task-suite`, and summarizes task-family
+coverage, aggregate reuse decisions, blocked-reuse reasons, validator
+requirements, privacy checks, and realized skipped actions.
+
 The MVP gate must fail when a required family is missing, when a fixture claims
 actual savings from potential reuse, when replay/cache/skip behavior occurs
 without an explicit controlled-replay policy, or when a default artifact leaks
-prohibited raw data. Advice stays observation-only until a later issue adds
+prohibited raw data. Strict Codex dogfood status is reported separately from
+deterministic task-suite success so app-surface hook gaps are visible without
+hiding fixture results. Advice stays observation-only until a later issue adds
 controlled replay with declared validators, freshness checks, dependency
 evidence, and privacy policy.
+
+MVP repo-agent completion requires all roadmap issues to be closed or
+intentionally deferred, `. scripts/env && mise run migaki:mvp-repo-agent-gate`
+to pass, `. scripts/env && mise run check` to pass, and repository docs, wiki
+links, and whitepaper claims to remain aligned with the implemented contracts.
