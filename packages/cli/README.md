@@ -25,4 +25,5 @@ output directory.
 
 Incomplete suites exit non-zero and report missing fixture families explicitly.
 Fixture comparison and reuse-decision artifacts use metadata-only privacy mode
-and preserve the observation-only invariant.
+and preserve the observation-only invariant. Metrics separate estimated
+avoidable work from realized skips; deterministic fixtures do not skip actions.

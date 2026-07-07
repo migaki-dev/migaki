@@ -114,6 +114,10 @@ describe("task-suite command", () => {
           readonly artifacts: Readonly<Record<string, string>>;
           readonly comparison: {
             readonly privacyPolicy: { readonly exportMode: string };
+            readonly summary: {
+              readonly totalEstimatedAvoidableLatencyMs?: number;
+              readonly totalEstimatedAvoidableTokens?: number;
+            };
             readonly warnings: readonly { readonly code: string }[];
           };
           readonly familyId: string;
@@ -122,11 +126,19 @@ describe("task-suite command", () => {
             readonly allowed: number;
             readonly blocked: number;
             readonly changedNodes: number;
+            readonly estimatedAvoidableLatencyMs?: number;
+            readonly estimatedAvoidableTokens?: number;
             readonly needsReview: number;
           };
           readonly reuseDecision: {
             readonly privacyPolicy: { readonly exportMode: string };
             readonly redaction: { readonly mode: string };
+            readonly summary: {
+              readonly allowed: number;
+              readonly blocked: number;
+              readonly needsReview: number;
+              readonly totalCandidates: number;
+            };
           };
         },
       ];
@@ -150,11 +162,23 @@ describe("task-suite command", () => {
       familyId: "read-only-reconnaissance",
       metrics: {
         actualSkippedActions: 0,
-        allowed: 1,
+        allowed: 2,
         blocked: 1,
         changedNodes: 1,
+        estimatedAvoidableLatencyMs: 30,
+        estimatedAvoidableTokens: 144,
         needsReview: 1,
       },
+    });
+    expect(report.fixtures[0].comparison.summary).toMatchObject({
+      totalEstimatedAvoidableLatencyMs: 30,
+      totalEstimatedAvoidableTokens: 144,
+    });
+    expect(report.fixtures[0].reuseDecision.summary).toEqual({
+      allowed: 2,
+      blocked: 1,
+      needsReview: 1,
+      totalCandidates: 4,
     });
     expect(report.fixtures[0].comparison.privacyPolicy.exportMode).toBe(
       "metadata_only",
@@ -184,10 +208,79 @@ describe("task-suite command", () => {
       "Observation only: no model calls, tool calls, file reads, provider requests, replay, cache lookup, or user-visible action was skipped.",
     );
     expect(
+      io.writes["out/repo-agent-readonly/read-only-reconnaissance/report.md"],
+    ).toContain("- Estimated avoidable latency: 30 ms");
+    expect(
+      io.writes["out/repo-agent-readonly/read-only-reconnaissance/report.md"],
+    ).toContain("- Actual skipped actions: 0");
+    expect(
       io.writes[
         "out/repo-agent-readonly/read-only-reconnaissance/events.jsonl"
       ],
     ).not.toContain("/Users/");
+    const graph = JSON.parse(
+      writtenFile(
+        io.writes,
+        "out/repo-agent-readonly/read-only-reconnaissance/graph.json",
+      ),
+    ) as {
+      readonly nodes: readonly {
+        readonly artifacts: readonly {
+          readonly metadata?: {
+            readonly codex?: Readonly<Record<string, unknown>>;
+            readonly reuse?: Readonly<Record<string, unknown>>;
+          };
+        }[];
+        readonly id: string;
+        readonly metadata: {
+          readonly reconnaissance?: Readonly<Record<string, unknown>>;
+          readonly reuse?: {
+            readonly validatorsRequired?: readonly string[];
+          };
+        };
+        readonly operation: { readonly name: string };
+      }[];
+    };
+    const stableSearch = graph.nodes.find((node) =>
+      node.id.endsWith("tool-search-stable"),
+    );
+    const changedSearch = graph.nodes.find((node) =>
+      node.id.endsWith("tool-search-changed-fingerprint"),
+    );
+    const stableRead = graph.nodes.find((node) =>
+      node.id.endsWith("tool-read-unchanged-range"),
+    );
+    const staleRead = graph.nodes.find((node) =>
+      node.id.endsWith("tool-read-stale-range"),
+    );
+    const summary = graph.nodes.find((node) =>
+      node.id.endsWith("model-source-summary"),
+    );
+
+    expect(stableSearch?.metadata.reconnaissance).toMatchObject({
+      commit: "repo-fingerprint-a",
+      query: "repo-agent task-suite fixture",
+      resultSetFingerprint: "search-results-a",
+    });
+    expect(changedSearch?.metadata.reconnaissance).toMatchObject({
+      commit: "repo-fingerprint-b",
+      query: "repo-agent task-suite fixture",
+      resultSetFingerprint: "search-results-b",
+    });
+    expect(stableRead?.metadata.reconnaissance).toMatchObject({
+      commit: "repo-fingerprint-a",
+      pathFingerprint: "docs-repo-agent-task-ladder",
+      range: "1-40",
+    });
+    expect(staleRead?.artifacts[0]?.metadata?.reuse).toMatchObject({
+      freshnessStatus: "unknown",
+    });
+    expect(staleRead?.artifacts[0]?.metadata?.codex).toMatchObject({
+      sourceEquivalenceKey: "read:docs/repo-agent-task-ladder-v0.md:41-80",
+    });
+    expect(summary?.metadata.reuse?.validatorsRequired).toEqual([
+      "cited-source-coverage",
+    ]);
   });
 
   it("runs all repo-agent fixture families through one command", async () => {
@@ -223,6 +316,16 @@ describe("task-suite command", () => {
     expect(report.fixtures).toHaveLength(7);
   });
 });
+
+function writtenFile(writes: Record<string, string>, path: string): string {
+  const contents = writes[path];
+
+  if (contents === undefined) {
+    throw new Error(`Expected write for ${path}.`);
+  }
+
+  return contents;
+}
 
 function fakeIo(): {
   readonly mkdir: (path: string) => Promise<void>;

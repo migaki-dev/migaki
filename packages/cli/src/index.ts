@@ -141,6 +141,9 @@ interface TaskSuiteMetricsReport {
   readonly allowed: number;
   readonly blocked: number;
   readonly changedNodes: number;
+  readonly estimatedAvoidableCostUsd?: number;
+  readonly estimatedAvoidableLatencyMs?: number;
+  readonly estimatedAvoidableTokens?: number;
   readonly needsReview: number;
   readonly totalCandidates: number;
 }
@@ -611,6 +614,24 @@ async function runRepoAgentFixture(
       allowed: reuseDecision.summary.allowed,
       blocked: reuseDecision.summary.blocked,
       changedNodes: comparison.summary.changedNodes,
+      ...(comparison.summary.totalEstimatedAvoidableCostUsd === undefined
+        ? {}
+        : {
+            estimatedAvoidableCostUsd:
+              comparison.summary.totalEstimatedAvoidableCostUsd,
+          }),
+      ...(comparison.summary.totalEstimatedAvoidableLatencyMs === undefined
+        ? {}
+        : {
+            estimatedAvoidableLatencyMs:
+              comparison.summary.totalEstimatedAvoidableLatencyMs,
+          }),
+      ...(comparison.summary.totalEstimatedAvoidableTokens === undefined
+        ? {}
+        : {
+            estimatedAvoidableTokens:
+              comparison.summary.totalEstimatedAvoidableTokens,
+          }),
       needsReview: reuseDecision.summary.needsReview,
       totalCandidates: reuseDecision.summary.totalCandidates,
     },
@@ -627,6 +648,10 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
   readonly eventsJsonl: string;
   readonly previousGraph: ExecutionGraph;
 } {
+  if (familyId === "read-only-reconnaissance") {
+    return createReadOnlyReconnaissanceFixture(familyId);
+  }
+
   const previousRunId = `${familyId}-previous`;
   const currentRunId = `${familyId}-current`;
   const previousGraph = graph(previousRunId, familyId, [
@@ -659,6 +684,186 @@ function createRepoAgentFixture(familyId: RepoAgentFixtureFamilyId): {
   };
 }
 
+function createReadOnlyReconnaissanceFixture(
+  familyId: RepoAgentFixtureFamilyId,
+): {
+  readonly currentGraph: ExecutionGraph;
+  readonly eventsJsonl: string;
+  readonly previousGraph: ExecutionGraph;
+} {
+  const previousRunId = `${familyId}-previous`;
+  const currentRunId = `${familyId}-current`;
+  const stableSearchMetadata = {
+    reconnaissance: {
+      commit: "repo-fingerprint-a",
+      query: "repo-agent task-suite fixture",
+      resultSetFingerprint: "search-results-a",
+      stage: "symbol_search",
+    },
+  };
+  const changedSearchPreviousMetadata = {
+    reconnaissance: {
+      commit: "repo-fingerprint-a",
+      query: "repo-agent task-suite fixture",
+      resultSetFingerprint: "search-results-a",
+      stage: "symbol_search",
+    },
+  };
+  const changedSearchCurrentMetadata = {
+    reconnaissance: {
+      commit: "repo-fingerprint-b",
+      query: "repo-agent task-suite fixture",
+      resultSetFingerprint: "search-results-b",
+      stage: "symbol_search",
+    },
+  };
+  const stableReadMetadata = {
+    reconnaissance: {
+      commit: "repo-fingerprint-a",
+      pathFingerprint: "docs-repo-agent-task-ladder",
+      range: "1-40",
+      stage: "targeted_file_read",
+    },
+  };
+  const staleReadMetadata = {
+    reconnaissance: {
+      commit: "repo-fingerprint-b",
+      pathFingerprint: "docs-repo-agent-task-ladder",
+      range: "41-80",
+      stage: "targeted_file_read",
+    },
+  };
+
+  const previousGraph = graph(previousRunId, familyId, [
+    reconToolNode(
+      `${familyId}-tool-search-stable`,
+      familyId,
+      "search:repo-agent task-suite fixture:repo-fingerprint-a:search-results-a",
+      stableSearchMetadata,
+    ),
+    reconToolNode(
+      `${familyId}-tool-read-unchanged-range`,
+      familyId,
+      "read:docs/repo-agent-task-ladder-v0.md:1-40:repo-fingerprint-a",
+      stableReadMetadata,
+      {
+        artifacts: [
+          fileArtifact(`${familyId}-file-unchanged`, "file-v1", "verified", {
+            codex: {
+              fileContentFingerprint: "docs-task-ladder-content-a",
+              sourceEquivalenceKey:
+                "read:docs/repo-agent-task-ladder-v0.md:1-40",
+              sourceLabel: "Read docs/repo-agent-task-ladder-v0.md:1-40",
+            },
+          }),
+        ],
+      },
+    ),
+    reconModelNode(
+      `${familyId}-model-source-summary`,
+      familyId,
+      "summary:cited-sources:v1",
+      {
+        reconnaissance: {
+          citedSourceCount: 2,
+          stage: "summary_and_patch_orientation",
+        },
+      },
+    ),
+    reconToolNode(
+      `${familyId}-tool-read-stale-range`,
+      familyId,
+      "read:docs/repo-agent-task-ladder-v0.md:41-80:repo-fingerprint-b",
+      staleReadMetadata,
+      {
+        artifacts: [
+          fileArtifact(`${familyId}-file-stale`, "file-v2", "verified", {
+            codex: {
+              fileContentFingerprint: "docs-task-ladder-content-b",
+              sourceEquivalenceKey:
+                "read:docs/repo-agent-task-ladder-v0.md:41-80",
+              sourceLabel: "Read docs/repo-agent-task-ladder-v0.md:41-80",
+            },
+          }),
+        ],
+      },
+    ),
+    reconToolNode(
+      `${familyId}-tool-search-changed-fingerprint`,
+      familyId,
+      "search:repo-agent task-suite fixture:repo-fingerprint-a:search-results-a",
+      changedSearchPreviousMetadata,
+    ),
+  ]);
+  const currentGraph = graph(currentRunId, familyId, [
+    reconToolNode(
+      `${familyId}-tool-search-stable`,
+      familyId,
+      "search:repo-agent task-suite fixture:repo-fingerprint-a:search-results-a",
+      stableSearchMetadata,
+    ),
+    reconToolNode(
+      `${familyId}-tool-read-unchanged-range`,
+      familyId,
+      "read:docs/repo-agent-task-ladder-v0.md:1-40:repo-fingerprint-a",
+      stableReadMetadata,
+      {
+        artifacts: [
+          fileArtifact(`${familyId}-file-unchanged`, "file-v1", "verified", {
+            codex: {
+              fileContentFingerprint: "docs-task-ladder-content-a",
+              sourceEquivalenceKey:
+                "read:docs/repo-agent-task-ladder-v0.md:1-40",
+              sourceLabel: "Read docs/repo-agent-task-ladder-v0.md:1-40",
+            },
+          }),
+        ],
+      },
+    ),
+    reconModelNode(
+      `${familyId}-model-source-summary`,
+      familyId,
+      "summary:cited-sources:v1",
+      {
+        reconnaissance: {
+          citedSourceCount: 2,
+          stage: "summary_and_patch_orientation",
+        },
+      },
+    ),
+    reconToolNode(
+      `${familyId}-tool-read-stale-range`,
+      familyId,
+      "read:docs/repo-agent-task-ladder-v0.md:41-80:repo-fingerprint-b",
+      staleReadMetadata,
+      {
+        artifacts: [
+          fileArtifact(`${familyId}-file-stale`, "file-v2", "unknown", {
+            codex: {
+              fileContentFingerprint: "docs-task-ladder-content-b",
+              sourceEquivalenceKey:
+                "read:docs/repo-agent-task-ladder-v0.md:41-80",
+              sourceLabel: "Read docs/repo-agent-task-ladder-v0.md:41-80",
+            },
+          }),
+        ],
+      },
+    ),
+    reconToolNode(
+      `${familyId}-tool-search-changed-fingerprint`,
+      familyId,
+      "search:repo-agent task-suite fixture:repo-fingerprint-b:search-results-b",
+      changedSearchCurrentMetadata,
+    ),
+  ]);
+
+  return {
+    currentGraph,
+    eventsJsonl: renderFixtureEventsJsonl(familyId, currentGraph),
+    previousGraph,
+  };
+}
+
 function graph(
   runId: string,
   familyId: RepoAgentFixtureFamilyId,
@@ -682,6 +887,25 @@ function graph(
   };
 }
 
+function reconModelNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+): ExecutionNode {
+  return node(id, "model_call", familyId, fingerprintSeed, {
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        validatorsPassed: ["cited-source-coverage"],
+        validatorsRequired: ["cited-source-coverage"],
+      },
+    },
+    totalTokens: 120,
+  });
+}
+
 function modelNode(
   id: string,
   familyId: RepoAgentFixtureFamilyId,
@@ -696,6 +920,30 @@ function modelNode(
       },
     },
     totalTokens: 120,
+  });
+}
+
+function reconToolNode(
+  id: string,
+  familyId: RepoAgentFixtureFamilyId,
+  fingerprintSeed: string,
+  metadata: ExecutionNode["metadata"],
+  options: {
+    readonly artifacts?: ExecutionNode["artifacts"];
+  } = {},
+): ExecutionNode {
+  return node(id, "tool_call", familyId, fingerprintSeed, {
+    ...(options.artifacts === undefined
+      ? {}
+      : { artifacts: options.artifacts }),
+    metadata: {
+      ...metadata,
+      reuse: {
+        policyAllowed: true,
+        sideEffectClass: "read_only",
+      },
+    },
+    totalTokens: 12,
   });
 }
 
@@ -759,7 +1007,10 @@ function node(
 function fileArtifact(
   id: string,
   fingerprintSeed: string,
-  freshnessStatus: "verified",
+  freshnessStatus: "unknown" | "verified",
+  metadata: {
+    readonly codex?: Readonly<Record<string, unknown>>;
+  } = {},
 ): ExecutionNode["artifacts"][number] {
   return {
     fingerprint: stableExecutionHash({ fingerprintSeed }),
@@ -770,6 +1021,7 @@ function fileArtifact(
       reuse: {
         freshnessStatus,
       },
+      ...metadata,
     },
   };
 }
@@ -838,6 +1090,21 @@ function renderTaskSuiteFixtureReport(input: {
     `- Needs-review reuse decisions: ${input.reuseDecision.summary.needsReview}`,
     `- Blocked reuse decisions: ${input.reuseDecision.summary.blocked}`,
     `- Changed nodes: ${input.comparison.summary.changedNodes}`,
+    ...(input.comparison.summary.totalEstimatedAvoidableLatencyMs === undefined
+      ? []
+      : [
+          `- Estimated avoidable latency: ${input.comparison.summary.totalEstimatedAvoidableLatencyMs} ms`,
+        ]),
+    ...(input.comparison.summary.totalEstimatedAvoidableTokens === undefined
+      ? []
+      : [
+          `- Estimated avoidable tokens: ${input.comparison.summary.totalEstimatedAvoidableTokens}`,
+        ]),
+    ...(input.comparison.summary.totalEstimatedAvoidableCostUsd === undefined
+      ? []
+      : [
+          `- Estimated avoidable cost: ${input.comparison.summary.totalEstimatedAvoidableCostUsd} USD`,
+        ]),
     "- Actual skipped actions: 0",
     "",
     renderReuseDecisionArtifact(input.reuseDecision, "human").trimEnd(),

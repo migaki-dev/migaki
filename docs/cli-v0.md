@@ -76,7 +76,9 @@ repositories.
 missing required repo-agent fixture families. `task-suite run --format json`
 returns automation-safe `migaki.cli-task-suite.v0` output with coverage status,
 missing family warnings, fixture metrics, privacy mode, redaction mode, and
-local artifact links.
+local artifact links. Fixture metrics report potential avoided-work estimates
+separately from realized behavior; `actualSkippedActions` remains `0` unless a
+future controlled-replay policy explicitly allows skipping work.
 
 The built-in suites are:
 
