@@ -82,6 +82,7 @@ interface HookConfigInspection {
   readonly expectedCommandCount: number;
   readonly fingerprint?: string;
   readonly hookCommandCount: number;
+  readonly missingRequiredCommandEvents: readonly string[];
   readonly missingRequiredEvents: readonly string[];
   readonly registeredEvents: readonly string[];
   readonly status: "missing" | "ok" | "unreadable";
@@ -621,6 +622,7 @@ function createDogfoodRootCauseDiagnostic(
     !inspection.hookConfigExists ||
     inspection.hookConfigInspection.status !== "ok" ||
     inspection.hookConfigInspection.missingRequiredEvents.length > 0 ||
+    inspection.hookConfigInspection.missingRequiredCommandEvents.length > 0 ||
     inspection.hookConfigInspection.unexpectedCommandCount > 0 ||
     inspection.hookConfigInspection.hookCommandCount === 0
   ) {
@@ -805,6 +807,11 @@ function hookConfigDiagnosticDetails(
   return [
     ...(inspection.missingRequiredEvents.length > 0
       ? [`missingEvents=${inspection.missingRequiredEvents.join(", ")}`]
+      : []),
+    ...(inspection.missingRequiredCommandEvents.length > 0
+      ? [
+          `missingRequiredCommandEvents=${inspection.missingRequiredCommandEvents.join(", ")}`,
+        ]
       : []),
     ...(inspection.hookCommandCount === 0 ? ["hookCommands=0"] : []),
     ...(inspection.unexpectedCommandCount > 0
@@ -1273,6 +1280,7 @@ function inspectHookConfig(hookConfigPath: string): HookConfigInspection {
     return {
       expectedCommandCount: 0,
       hookCommandCount: 0,
+      missingRequiredCommandEvents: [],
       missingRequiredEvents: [...requiredDogfoodHookEvents],
       registeredEvents: [],
       status: "missing",
@@ -1288,6 +1296,7 @@ function inspectHookConfig(hookConfigPath: string): HookConfigInspection {
     return {
       expectedCommandCount: 0,
       hookCommandCount: 0,
+      missingRequiredCommandEvents: [],
       missingRequiredEvents: [...requiredDogfoodHookEvents],
       registeredEvents: [],
       status: "unreadable",
@@ -1310,11 +1319,19 @@ function inspectHookConfig(hookConfigPath: string): HookConfigInspection {
   const expectedCommandCount = hookCommands.filter((command) =>
     expectedHookCommands.has(command),
   ).length;
+  const missingRequiredCommandEvents = requiredDogfoodHookEvents.filter(
+    (eventName) =>
+      registeredEvents.includes(eventName) &&
+      !collectHookCommands(hooks[eventName]).some((command) =>
+        expectedHookCommands.has(command),
+      ),
+  );
 
   return {
     expectedCommandCount,
     fingerprint: hookConfigFingerprint(hookCommandEntries),
     hookCommandCount: hookCommands.length,
+    missingRequiredCommandEvents,
     missingRequiredEvents,
     registeredEvents,
     status: "ok",
@@ -1691,6 +1708,15 @@ function evaluateStrictDogfoodDoctor(
     failures.push("Hook config has no command hooks.");
   }
 
+  if (
+    inspection.hookConfigInspection.status === "ok" &&
+    inspection.hookConfigInspection.missingRequiredCommandEvents.length > 0
+  ) {
+    failures.push(
+      `Hook config required events lack expected hook commands: ${inspection.hookConfigInspection.missingRequiredCommandEvents.join(", ")}.`,
+    );
+  }
+
   if (inspection.hookConfigInspection.unexpectedCommandCount > 0) {
     failures.push("Hook config contains unexpected hook commands.");
   }
@@ -1783,6 +1809,7 @@ function formatDesktopVerificationLines(input: {
     !input.hookConfigExists ||
     input.hookConfigInspection.status !== "ok" ||
     input.hookConfigInspection.missingRequiredEvents.length > 0 ||
+    input.hookConfigInspection.missingRequiredCommandEvents.length > 0 ||
     input.hookConfigInspection.unexpectedCommandCount > 0 ||
     !input.hookEntrypointExists ||
     input.latestTurn === undefined
@@ -2238,6 +2265,7 @@ function nextPracticalMove(input: {
   if (
     input.hookConfigInspection.status !== "ok" ||
     input.hookConfigInspection.missingRequiredEvents.length > 0 ||
+    input.hookConfigInspection.missingRequiredCommandEvents.length > 0 ||
     input.hookConfigInspection.unexpectedCommandCount > 0
   ) {
     return "- Fix .codex/hooks.json so prompt, tool, and stop hooks point at the built Migaki hook entrypoint.";
