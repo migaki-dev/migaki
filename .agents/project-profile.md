@@ -114,6 +114,7 @@ domain_focus:
     - Use pnpm only through mise tasks or mise exec; do not run npm, yarn, bun, or bare workspace tools.
     - Do not introduce live model provider, gateway, registry, Docker network, or cloud dependencies in unit tests.
     - Treat Migaki Codex dogfooding as observation and advice only; hooks must not mutate prompts, cache work, replay tool calls, skip reads, or parallelize actions.
+    - Treat strict native Desktop dogfood as the next milestone: `mise run migaki:dogfood` must pass from a fresh normal Codex Desktop turn with organic native hook evidence; bridge, manual attach, smoke, hook-probe, and CLI-probe evidence are fallback diagnostics only.
     - Do not claim optimization from token reduction alone; require validator, benchmark, or evidence-bundle support.
 
 completion_criteria:
@@ -121,6 +122,7 @@ completion_criteria:
   - mIR, pass, runtime, provider, evidence, adaptive policy, and CLI contract docs match the implemented TypeScript exports and fixtures.
   - Local . scripts/env && mise run check and required GitHub code-quality checks pass for merged work.
   - Local . scripts/env && mise run migaki:mvp-repo-agent-gate passes for the MVP repo-agent phase.
+  - Strict native Desktop dogfood is achieved when . scripts/env && mise run migaki:dogfood passes after a fresh normal Codex Desktop turn without bridge, manual, smoke, hook-probe, or CLI-probe evidence satisfying the strict gate.
   - Open priority:p0 stage:v0 issues are complete, blocked with specific next steps, or intentionally deferred.
   - Wiki and repository docs are concise, current, and free of unsupported optimization claims.
 ```

@@ -89,9 +89,12 @@ invariant. It exits non-zero when a required family is missing, a fixture
 reports realized skipped actions before controlled replay exists, or a default
 artifact leaks prohibited raw prompt, tool payload, provider response,
 credential, or local path markers. `--strict-dogfood-status` is reported
-separately from `deterministicTaskSuiteSuccess`; strict app-surface dogfood
-gaps must stay visible without being conflated with deterministic fixture
-success.
+separately from `deterministicTaskSuiteSuccess`; strict native Desktop dogfood
+means `mise run migaki:dogfood` passes after a fresh normal Codex Desktop turn
+records organic native hook evidence in this repository. Bridge evidence from
+`MIGAKI_BRIDGE_RUN_ID`, `migaki:bridge`, manual attach, smoke harness, hook
+probe, or CLI probe runs remains an explicit fallback for app-surface work, but
+does not satisfy the strict gate.
 
 The built-in suites are:
 

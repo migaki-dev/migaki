@@ -271,6 +271,8 @@ export function createDogfoodDoctorReport(
   if (strictEvaluation !== undefined) {
     lines.push("", "Strict Verification:");
     lines.push(...formatStrictEvaluationLines(strictEvaluation));
+    lines.push("", "Strict Acceptance Contract:");
+    lines.push(...formatStrictAcceptanceContractLines());
   }
 
   const desktopVerificationLines = formatDesktopVerificationLines({
@@ -1438,6 +1440,15 @@ function formatStrictEvaluationLines(
   return [
     "- Result: failed",
     ...evaluation.failures.map((failure) => `- Failure: ${failure}`),
+  ];
+}
+
+function formatStrictAcceptanceContractLines(): readonly string[] {
+  return [
+    "- Terminal gate: `mise run migaki:dogfood` passes only after a fresh normal Codex Desktop turn in this repository records completed organic native hook evidence.",
+    "- Required evidence: one completed non-smoke `codex-turn` inside the freshness window with native UserPromptSubmit, PreToolUse, PostToolUse, and Stop hooks; manual-exec must be absent.",
+    "- Not accepted: MIGAKI_BRIDGE_RUN_ID, migaki:bridge, manual attach/manual-exec, smoke harness, hook probe, CLI probe, or --include-smoke evidence.",
+    "- Fallback boundary: migaki:ready may pass with fresh active bridge evidence for app-surface work, but strict migaki:dogfood still fails until organic native evidence is fresh.",
   ];
 }
 

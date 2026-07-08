@@ -191,8 +191,12 @@ Use `mise run migaki:dogfood` as the one-command Codex dogfooding gate: it runs
 the native hook probe first, then runs the strict doctor with a 15-minute
 organic-turn freshness window. A passing hook probe or smoke harness is not
 enough; the gate only passes when the newest organic Codex turn is also
-native-complete and fresh. When the gate fails on stale organic-turn evidence,
-the report prints an exact fresh-turn command to ask Codex Desktop to run.
+native-complete and fresh. This is the strict native Desktop dogfood milestone:
+`mise run migaki:dogfood` must pass from a fresh normal Codex Desktop turn in
+this repository without `MIGAKI_BRIDGE_RUN_ID`, `migaki:bridge`, manual attach,
+smoke harness, hook probe, or CLI probe evidence satisfying the strict gate.
+When the gate fails on stale organic-turn evidence, the report prints an exact
+fresh-turn command to ask Codex Desktop to run.
 Use `mise run migaki:mvp-repo-agent-gate` as the MVP repo-agent completion
 gate. It builds the workspace, runs the full deterministic `repo-agent-mvp`
 task-suite fixtures, summarizes task-family coverage, reuse decisions, blocked
@@ -205,7 +209,8 @@ Use `mise run migaki:ready` as the practical working-mode gate. It still reports
 strict dogfood failures, but exits successfully when either fresh organic native
 dogfooding is available or the default bridge run has fresh active command
 evidence. This is the gate to use during app-surface work while native project
-hooks are not emitted.
+hooks are not emitted. Bridge evidence is an explicit fallback for app-surface
+work; it keeps the session usable but does not satisfy `migaki:dogfood`.
 Use `mise run migaki:hook-probe` when you need a fast deterministic check that
 the built hook entrypoint can still record native prompt, tool, and stop events.
 The probe uses a `migaki-smoke` run id, so default advice, latest-report, and
