@@ -399,6 +399,285 @@ describe("dogfood doctor report", () => {
     );
   });
 
+  it("defines the strict native Desktop dogfood acceptance matrix", async () => {
+    const nowMs = new Date("2026-01-01T00:02:05.000Z").getTime();
+    const maxRealAgeMs = 60_000;
+    const scenarios: readonly {
+      readonly adviceMode?: "bridge-active" | "bridge-required";
+      readonly name: string;
+      readonly readinessMode:
+        | "bridge-active"
+        | "bridge-required"
+        | "organic-native";
+      readonly readinessOk: boolean;
+      readonly setup: (input: {
+        readonly runsDirectory: string;
+      }) => Promise<void>;
+      readonly strictFailure?: string;
+      readonly strictOk: boolean;
+      readonly strictReportLine: string;
+    }[] = [
+      {
+        name: "organic-native",
+        readinessMode: "organic-native",
+        readinessOk: true,
+        setup: async ({ runsDirectory }) => {
+          await writeRun({
+            events: nativeEvents("codex-turn-organic-native"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-organic-native",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-turn-organic-native",
+            runsDirectory,
+          });
+        },
+        strictOk: true,
+        strictReportLine: "- Strict dogfood: ok",
+      },
+      {
+        adviceMode: "bridge-active",
+        name: "bridge-active",
+        readinessMode: "bridge-active",
+        readinessOk: true,
+        setup: async ({ runsDirectory }) => {
+          await writeRun({
+            events: nativeEvents("codex-turn-migaki-smoke-hook-probe-fresh"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-migaki-smoke-hook-probe-fresh",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:03.000Z"),
+            runId: "codex-turn-migaki-smoke-hook-probe-fresh",
+            runsDirectory,
+          });
+          await writeRun({
+            events: manualExecEvents("codex-app-bridge"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-app-bridge",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-app-bridge",
+            runsDirectory,
+          });
+        },
+        strictFailure: "No completed organic Codex turn was found.",
+        strictOk: false,
+        strictReportLine: "- Strict dogfood: failed",
+      },
+      {
+        adviceMode: "bridge-required",
+        name: "bridge-required",
+        readinessMode: "bridge-required",
+        readinessOk: false,
+        setup: async ({ runsDirectory }) => {
+          await writeRun({
+            events: nativeEvents("codex-turn-migaki-smoke-hook-probe-only"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-migaki-smoke-hook-probe-only",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-turn-migaki-smoke-hook-probe-only",
+            runsDirectory,
+          });
+        },
+        strictFailure: "No completed organic Codex turn was found.",
+        strictOk: false,
+        strictReportLine: "- Strict dogfood: failed",
+      },
+      {
+        adviceMode: "bridge-required",
+        name: "stale organic turns",
+        readinessMode: "bridge-required",
+        readinessOk: false,
+        setup: async ({ runsDirectory }) => {
+          await writeRun({
+            events: nativeEvents("codex-turn-organic-stale"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-organic-stale",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:00:00.000Z"),
+            runId: "codex-turn-organic-stale",
+            runsDirectory,
+          });
+          await writeRun({
+            events: nativeEvents("codex-turn-migaki-smoke-hook-probe-stale"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-migaki-smoke-hook-probe-stale",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-turn-migaki-smoke-hook-probe-stale",
+            runsDirectory,
+          });
+        },
+        strictFailure:
+          "Latest organic Codex turn is stale: 2m 5s old exceeds 1m.",
+        strictOk: false,
+        strictReportLine: "- Strict dogfood: failed",
+      },
+      {
+        adviceMode: "bridge-required",
+        name: "mixed/manual turns",
+        readinessMode: "bridge-required",
+        readinessOk: false,
+        setup: async ({ runsDirectory }) => {
+          await writeRun({
+            events: [
+              event({
+                hookEventName: "UserPromptSubmit",
+                id: "mixed-prompt",
+                lifecycle: "point",
+                operationId: "prompt",
+                operationKind: "user_prompt",
+                runId: "codex-turn-mixed-manual",
+              }),
+              ...manualExecEvents("codex-turn-mixed-manual"),
+            ],
+            graph: graph({
+              nodeHookEventName: "UserPromptSubmit",
+              runId: "codex-turn-mixed-manual",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-turn-mixed-manual",
+            runsDirectory,
+          });
+          await writeRun({
+            events: nativeEvents("codex-turn-migaki-smoke-hook-probe-mixed"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-migaki-smoke-hook-probe-mixed",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:03.000Z"),
+            runId: "codex-turn-migaki-smoke-hook-probe-mixed",
+            runsDirectory,
+          });
+        },
+        strictFailure: "Latest organic Codex turn is not fully native.",
+        strictOk: false,
+        strictReportLine: "- Strict dogfood: failed",
+      },
+      {
+        adviceMode: "bridge-required",
+        name: "smoke/probe-only evidence",
+        readinessMode: "bridge-required",
+        readinessOk: false,
+        setup: async ({ runsDirectory }) => {
+          await writeRun({
+            events: nativeEvents("codex-turn-smoke-created-cli-proof"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-smoke-created-cli-proof",
+              toolCalls: 1,
+            }),
+            markerFiles: [MIGAKI_SMOKE_REAL_TURN_MARKER],
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-turn-smoke-created-cli-proof",
+            runsDirectory,
+          });
+          await writeRun({
+            events: nativeEvents("codex-turn-migaki-smoke-hook-probe-only"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-migaki-smoke-hook-probe-only",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:03.000Z"),
+            runId: "codex-turn-migaki-smoke-hook-probe-only",
+            runsDirectory,
+          });
+        },
+        strictFailure: "No completed organic Codex turn was found.",
+        strictOk: false,
+        strictReportLine: "- Strict dogfood: failed",
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      const root = await tempRoot();
+      const runsDirectory = join(root, ".migaki", "runs");
+      const hookConfigPath = join(root, ".codex", "hooks.json");
+      const hookEntrypointPath = join(
+        root,
+        "packages",
+        "codex",
+        "dist",
+        "hook.js",
+      );
+
+      await writeHookFiles(root);
+      await scenario.setup({ runsDirectory });
+
+      const report = createDogfoodDoctorReport({
+        hookConfigPath,
+        hookEntrypointPath,
+        maxRealAgeMs,
+        nowMs,
+        runsDirectory,
+        strict: true,
+      });
+      const readiness = evaluateDogfoodReadiness({
+        hookConfigPath,
+        hookEntrypointPath,
+        maxRealAgeMs,
+        nowMs,
+        runsDirectory,
+      });
+      const adviceStatus = createDogfoodAdviceStatus({
+        hookConfigPath,
+        hookEntrypointPath,
+        maxRealAgeMs,
+        nowMs,
+        runsDirectory,
+      });
+
+      expect(report, scenario.name).toContain("Strict Acceptance Contract:");
+      expect(report, scenario.name).toContain(
+        "- Terminal gate: `mise run migaki:dogfood` passes only after a fresh normal Codex Desktop turn in this repository records completed organic native hook evidence.",
+      );
+      expect(report, scenario.name).toContain(
+        "- Not accepted: MIGAKI_BRIDGE_RUN_ID, migaki:bridge, manual attach/manual-exec, smoke harness, hook probe, CLI probe, or --include-smoke evidence.",
+      );
+      expect(report, scenario.name).toContain(
+        scenario.strictOk ? "- Result: ok" : "- Result: failed",
+      );
+
+      if (scenario.strictFailure !== undefined) {
+        expect(report, scenario.name).toContain(
+          `- Failure: ${scenario.strictFailure}`,
+        );
+      }
+
+      expect(readiness, scenario.name).toMatchObject({
+        mode: scenario.readinessMode,
+        ok: scenario.readinessOk,
+      });
+      expect(readiness.report, scenario.name).toContain(
+        scenario.strictReportLine,
+      );
+
+      if (scenario.adviceMode === undefined) {
+        expect(adviceStatus, scenario.name).toBeUndefined();
+      } else {
+        expect(adviceStatus, scenario.name).toContain(
+          `- Mode: ${scenario.adviceMode}.`,
+        );
+      }
+    }
+  });
+
   it("points at missing local Codex hook trust records before fresh-turn diagnosis", async () => {
     const root = await tempRoot();
     const runsDirectory = join(root, ".migaki", "runs");
@@ -1243,6 +1522,38 @@ function nativeEvents(runId: string): readonly unknown[] {
     event({
       hookEventName: "Stop",
       id: `${runId}-stop`,
+      lifecycle: "point",
+      operationId: "turn",
+      operationKind: "turn",
+      runId,
+      runStatus: "ok",
+      status: "ok",
+    }),
+  ];
+}
+
+function manualExecEvents(runId: string): readonly unknown[] {
+  return [
+    event({
+      adapter: "manual-exec",
+      id: `${runId}-manual-tool-start`,
+      lifecycle: "start",
+      operationId: "manual-tool",
+      operationKind: "tool_call",
+      runId,
+    }),
+    event({
+      adapter: "manual-exec",
+      id: `${runId}-manual-tool-finish`,
+      lifecycle: "finish",
+      operationId: "manual-tool",
+      operationKind: "tool_call",
+      runId,
+      status: "ok",
+    }),
+    event({
+      adapter: "manual-exec",
+      id: `${runId}-manual-turn-finish`,
       lifecycle: "point",
       operationId: "turn",
       operationKind: "turn",

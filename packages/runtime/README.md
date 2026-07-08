@@ -12,6 +12,15 @@ When an event marks the run complete, it also writes a Markdown
 `ExecutionEvent`, `ExecutionNode`, `ExecutionGraph`, `Operation`,
 `Dependency`, `Artifact`, `Metrics`, and `Metadata`.
 
+The strict native Desktop dogfood acceptance contract is intentionally narrower
+than general readiness: `mise run migaki:dogfood` passes only when a fresh
+normal Codex Desktop turn in this repository produces a completed organic
+`codex-turn` with native prompt, tool, and stop hook coverage. Bridge evidence
+from `MIGAKI_BRIDGE_RUN_ID`, `migaki:bridge`, manual attach/manual-exec, smoke
+harness, hook probe, or CLI probe runs is diagnostic fallback evidence for
+app-surface work; it can make `migaki:ready` pass but never satisfies the strict
+dogfood gate.
+
 `LocalStore(".migaki")` persists stateless hook invocations under
 `.migaki/runs/<runId>/`, rejects unsafe run IDs, and intentionally has no cache
 API. Reports are observation-only: they identify repeated fingerprints,
