@@ -169,6 +169,32 @@ describe("dogfood doctor report", () => {
     );
   });
 
+  it("rejects required hook events that lack the expected Migaki entrypoint command", async () => {
+    const root = await tempRoot();
+    const hookConfigPath = join(root, ".codex", "hooks.json");
+
+    await writeHookFiles(root, {
+      command:
+        'MIGAKI_CODEX_LOCAL_CONTEXT=1 node "$(git rev-parse --show-toplevel)/packages/codex/dist/hook.js"',
+      commandsByEvent: {
+        PreToolUse: null,
+      },
+    });
+
+    expect(
+      evaluateDogfoodRootCause({
+        hookConfigPath,
+        hookEntrypointPath: join(root, "packages", "codex", "dist", "hook.js"),
+        runsDirectory: join(root, ".migaki", "runs"),
+      }),
+    ).toMatchObject({
+      code: "hook_config_mismatch",
+      details: ["missingRequiredCommandEvents=PreToolUse"],
+      nextAction:
+        "Fix .codex/hooks.json so required events use the built Migaki hook command.",
+    });
+  });
+
   it("warns when the latest turn relies on manual exec supplementation", async () => {
     const root = await tempRoot();
     const runsDirectory = join(root, ".migaki", "runs");
@@ -1616,6 +1642,7 @@ async function writeHookFiles(
   root: string,
   options: {
     readonly command?: string;
+    readonly commandsByEvent?: Readonly<Record<string, string | null>>;
     readonly eventNames?: readonly string[];
   } = {},
 ): Promise<void> {
@@ -1642,12 +1669,16 @@ async function writeHookFiles(
             eventName,
             [
               {
-                hooks: [
-                  {
-                    command,
-                    type: "command",
-                  },
-                ],
+                hooks:
+                  options.commandsByEvent?.[eventName] === null
+                    ? []
+                    : [
+                        {
+                          command:
+                            options.commandsByEvent?.[eventName] ?? command,
+                          type: "command",
+                        },
+                      ],
               },
             ],
           ]),
