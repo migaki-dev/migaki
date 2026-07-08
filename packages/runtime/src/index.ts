@@ -7,6 +7,7 @@ export * from "./cost-estimation.js";
 export * from "./context-ledger.js";
 export * from "./constraints.js";
 export * from "./diff.js";
+export * from "./dogfood-doctor.js";
 export * from "./evidence-bundle.js";
 export * from "./evidence.js";
 export * from "./execution-advice.js";

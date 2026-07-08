@@ -35,6 +35,28 @@ export interface DogfoodReadinessEvaluation {
   readonly report: string;
 }
 
+export type DogfoodRootCauseCode =
+  | "app_surface_non_emission"
+  | "bridge_only_readiness"
+  | "hook_config_mismatch"
+  | "hook_entrypoint_missing"
+  | "missing_hook_trust"
+  | "missing_stop_hook"
+  | "missing_tool_hooks"
+  | "mixed_manual_evidence"
+  | "native_complete"
+  | "no_organic_turn"
+  | "stale_organic_turn"
+  | "unknown_native_gap";
+
+export interface DogfoodRootCauseDiagnostic {
+  readonly code: DogfoodRootCauseCode;
+  readonly details: readonly string[];
+  readonly nextAction: string;
+  readonly status: "action_required" | "fallback_active" | "ok";
+  readonly summary: string;
+}
+
 interface ReadCandidatesResult {
   readonly candidates: readonly ExecutionAdviceGraphCandidate[];
   readonly unreadableGraphs: number;
@@ -177,6 +199,11 @@ export function createDogfoodDoctorReport(
       ? evaluateStrictDogfoodDoctor(inspection, strictOptions)
       : undefined;
   const bridgeEvidence = inspectBridgeEvidence(inspection, options);
+  const rootCauseDiagnostic = createDogfoodRootCauseDiagnostic(
+    inspection,
+    bridgeEvidence,
+    strictOptions,
+  );
   const selectedAdviceCandidate = selectDoctorAdviceCandidate(
     selection,
     options,
@@ -199,7 +226,9 @@ export function createDogfoodDoctorReport(
     lines.push(
       `- Selected updated: ${formatCandidateRecency(selectedAdviceCandidate, nowMs)}`,
     );
-    lines.push(`- Graph: ${selectedAdviceCandidate.graphPath}`);
+    lines.push(
+      `- Graph artifact: ${formatCandidateGraphArtifact(selectedAdviceCandidate)}`,
+    );
 
     const selectionNote = formatDoctorAdviceSelectionNote({
       selected: selectedAdviceCandidate,
@@ -252,6 +281,8 @@ export function createDogfoodDoctorReport(
 
   lines.push("", "Hook Coverage:");
   lines.push(...formatHookCoverageLines(latestTurn, latestTurnHookCoverage));
+  lines.push("", "Root Cause:");
+  lines.push(...formatRootCauseDiagnosticLines(rootCauseDiagnostic));
   lines.push("", "Hook Config:");
   lines.push(...formatHookConfigLines(hookConfigInspection));
   if (hookTrustInspection !== undefined) {
@@ -565,6 +596,285 @@ export function evaluateDogfoodReadiness(
     mode: "bridge-required",
     ok: false,
   });
+}
+
+export function evaluateDogfoodRootCause(
+  options: DogfoodDoctorReportOptions,
+): DogfoodRootCauseDiagnostic {
+  const inspection = inspectDogfoodDoctor(options);
+
+  return createDogfoodRootCauseDiagnostic(
+    inspection,
+    inspectBridgeEvidence(inspection, options),
+    strictEvaluationOptions(options.maxRealAgeMs),
+  );
+}
+
+function createDogfoodRootCauseDiagnostic(
+  inspection: DogfoodDoctorInspection,
+  bridgeEvidence: BridgeEvidence,
+  options: {
+    readonly maxRealAgeMs?: number;
+  },
+): DogfoodRootCauseDiagnostic {
+  if (
+    !inspection.hookConfigExists ||
+    inspection.hookConfigInspection.status !== "ok" ||
+    inspection.hookConfigInspection.missingRequiredEvents.length > 0 ||
+    inspection.hookConfigInspection.unexpectedCommandCount > 0 ||
+    inspection.hookConfigInspection.hookCommandCount === 0
+  ) {
+    return {
+      code: "hook_config_mismatch",
+      details: hookConfigDiagnosticDetails(inspection.hookConfigInspection),
+      nextAction:
+        "Fix .codex/hooks.json so required events use the built Migaki hook command.",
+      status: "action_required",
+      summary:
+        "Hook config does not match the expected Migaki Desktop hook command.",
+    };
+  }
+
+  if (!inspection.hookEntrypointExists) {
+    return {
+      code: "hook_entrypoint_missing",
+      details: [],
+      nextAction:
+        "Run mise run build, then review and trust the project hooks in Codex Desktop.",
+      status: "action_required",
+      summary: "Built Migaki hook entrypoint is missing.",
+    };
+  }
+
+  const latestTurnIsNativeComplete =
+    inspection.latestTurn !== undefined &&
+    inspection.latestTurnHookCoverage !== undefined &&
+    isNativeHookCoverageComplete(
+      inspection.latestTurn,
+      inspection.latestTurnHookCoverage,
+    );
+  const latestTurnAgeMs =
+    inspection.latestTurn === undefined
+      ? undefined
+      : inspection.nowMs - inspection.latestTurn.modifiedAtMs;
+  const latestTurnIsStale =
+    latestTurnAgeMs !== undefined &&
+    options.maxRealAgeMs !== undefined &&
+    latestTurnAgeMs > options.maxRealAgeMs;
+
+  if (latestTurnIsNativeComplete && !latestTurnIsStale) {
+    return {
+      code: "native_complete",
+      details: [],
+      nextAction:
+        "Continue normal Desktop dogfooding; strict native evidence is fresh.",
+      status: "ok",
+      summary: "Latest organic Desktop turn is native-complete and fresh.",
+    };
+  }
+
+  const hookTrustInspection = inspection.hookTrustInspection;
+
+  if (
+    hookTrustInspection?.status === "missing" ||
+    hookTrustInspection?.status === "unreadable" ||
+    (hookTrustInspection?.status === "ok" &&
+      hookTrustInspection.missingRequiredEvents.length > 0)
+  ) {
+    return {
+      code: "missing_hook_trust",
+      details: hookTrustDiagnosticDetails(hookTrustInspection),
+      nextAction:
+        "Open /hooks in Codex Desktop and trust the missing Migaki hook events.",
+      status: "action_required",
+      summary: "Codex Desktop has not trusted all required Migaki hook events.",
+    };
+  }
+
+  if (inspection.latestTurn === undefined) {
+    if (bridgeEvidence.isActive) {
+      return bridgeOnlyReadinessDiagnostic();
+    }
+
+    if (latestHookProbeIsNativeComplete(inspection)) {
+      return appSurfaceNonEmissionDiagnostic();
+    }
+
+    return {
+      code: "no_organic_turn",
+      details: [],
+      nextAction:
+        "Run one normal Codex Desktop turn in this repository, then rerun migaki:doctor.",
+      status: "action_required",
+      summary: "No completed organic Desktop turn was found.",
+    };
+  }
+
+  if (latestTurnIsNativeComplete && latestTurnIsStale) {
+    return {
+      code: "stale_organic_turn",
+      details:
+        latestTurnAgeMs === undefined
+          ? []
+          : [`age=${formatDurationMs(latestTurnAgeMs)}`],
+      nextAction:
+        "Run one fresh normal Desktop turn in this repository, then rerun migaki:dogfood.",
+      status: "action_required",
+      summary: "Latest organic Desktop turn is native-complete but stale.",
+    };
+  }
+
+  const latestTurnHookCoverage = inspection.latestTurnHookCoverage;
+
+  if (
+    latestTurnHookCoverage !== undefined &&
+    hasSourceAdapter(latestTurnHookCoverage, "manual-exec")
+  ) {
+    return {
+      code: "mixed_manual_evidence",
+      details: [],
+      nextAction:
+        "Keep bridge/manual evidence separate and run a fresh normal Desktop turn with native tool hooks.",
+      status: "action_required",
+      summary: "Latest organic Desktop turn includes manual-exec evidence.",
+    };
+  }
+
+  const missingHooks =
+    latestTurnHookCoverage === undefined
+      ? []
+      : missingNativeHooks(inspection.latestTurn, latestTurnHookCoverage);
+  const missingToolHooks = missingHooks.filter(
+    (hookName) => hookName === "PreToolUse" || hookName === "PostToolUse",
+  );
+
+  if (missingToolHooks.length > 0) {
+    return {
+      code: "missing_tool_hooks",
+      details: [`missingHooks=${missingToolHooks.join(", ")}`],
+      nextAction:
+        "Run a fresh normal Desktop turn with a tool call and verify PreToolUse/PostToolUse emission.",
+      status: "action_required",
+      summary: "Latest organic Desktop turn is missing native tool hooks.",
+    };
+  }
+
+  if (missingHooks.includes("Stop")) {
+    return {
+      code: "missing_stop_hook",
+      details: ["missingHooks=Stop"],
+      nextAction:
+        "Let the Desktop turn finish and verify Stop hook emission before rerunning migaki:dogfood.",
+      status: "action_required",
+      summary: "Latest organic Desktop turn is missing the Stop hook.",
+    };
+  }
+
+  if (bridgeEvidence.isActive) {
+    return bridgeOnlyReadinessDiagnostic();
+  }
+
+  if (latestHookProbeIsNativeComplete(inspection)) {
+    return appSurfaceNonEmissionDiagnostic();
+  }
+
+  return {
+    code: "unknown_native_gap",
+    details:
+      missingHooks.length === 0
+        ? []
+        : [`missingHooks=${missingHooks.join(", ")}`],
+    nextAction:
+      "Run migaki:hook-probe, then run one fresh normal Desktop turn and rerun migaki:doctor.",
+    status: "action_required",
+    summary: "Migaki could not isolate one known Desktop native hook gap.",
+  };
+}
+
+function hookConfigDiagnosticDetails(
+  inspection: HookConfigInspection,
+): readonly string[] {
+  if (inspection.status === "missing") {
+    return ["config=missing"];
+  }
+
+  if (inspection.status === "unreadable") {
+    return ["config=unreadable"];
+  }
+
+  return [
+    ...(inspection.missingRequiredEvents.length > 0
+      ? [`missingEvents=${inspection.missingRequiredEvents.join(", ")}`]
+      : []),
+    ...(inspection.hookCommandCount === 0 ? ["hookCommands=0"] : []),
+    ...(inspection.unexpectedCommandCount > 0
+      ? [`unexpectedCommands=${inspection.unexpectedCommandCount}`]
+      : []),
+  ];
+}
+
+function hookTrustDiagnosticDetails(
+  inspection: HookTrustInspection,
+): readonly string[] {
+  if (inspection.status === "missing") {
+    return ["trust=config-missing"];
+  }
+
+  if (inspection.status === "unreadable") {
+    return ["trust=config-unreadable"];
+  }
+
+  return inspection.missingRequiredEvents.length === 0
+    ? []
+    : [`missingTrust=${inspection.missingRequiredEvents.join(", ")}`];
+}
+
+function bridgeOnlyReadinessDiagnostic(): DogfoodRootCauseDiagnostic {
+  return {
+    code: "bridge_only_readiness",
+    details: [],
+    nextAction:
+      "Use the bridge for app-surface work, but run a fresh normal Desktop turn before claiming strict dogfood.",
+    status: "fallback_active",
+    summary:
+      "Only bridge evidence is ready; strict Desktop dogfood still needs organic native hooks.",
+  };
+}
+
+function appSurfaceNonEmissionDiagnostic(): DogfoodRootCauseDiagnostic {
+  return {
+    code: "app_surface_non_emission",
+    details: [],
+    nextAction:
+      "Use migaki:bridge for this app surface while verifying why normal Desktop turns are not emitting project hooks.",
+    status: "action_required",
+    summary:
+      "Hook probe is native-complete, but no organic Desktop turn is reaching the dogfood gate.",
+  };
+}
+
+function latestHookProbeIsNativeComplete(
+  inspection: DogfoodDoctorInspection,
+): boolean {
+  return (
+    inspection.latestHookProbeTurn !== undefined &&
+    isNativeHookCoverageComplete(
+      inspection.latestHookProbeTurn.candidate,
+      inspection.latestHookProbeTurn.coverage,
+    )
+  );
+}
+
+function formatRootCauseDiagnosticLines(
+  diagnostic: DogfoodRootCauseDiagnostic,
+): readonly string[] {
+  return [
+    `- Code: ${diagnostic.code}`,
+    `- Status: ${diagnostic.status}`,
+    `- Summary: ${diagnostic.summary}`,
+    `- Next action: ${diagnostic.nextAction}`,
+    ...diagnostic.details.map((detail) => `- Detail: ${detail}`),
+  ];
 }
 
 function createReadinessEvaluation(input: {
@@ -1178,6 +1488,12 @@ function formatCandidate(candidate: ExecutionAdviceGraphCandidate): string {
     `tools=${candidate.toolCalls ?? "unknown"}`,
     `opportunities=${candidate.opportunityCount ?? "unknown"}`,
   ].join(" ");
+}
+
+function formatCandidateGraphArtifact(
+  candidate: ExecutionAdviceGraphCandidate,
+): string {
+  return `${candidate.runId}/graph.json`;
 }
 
 function formatAdviceSelectionNote(

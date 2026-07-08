@@ -21,6 +21,12 @@ harness, hook probe, or CLI probe runs is diagnostic fallback evidence for
 app-surface work; it can make `migaki:ready` pass but never satisfies the strict
 dogfood gate.
 
+`evaluateDogfoodRootCause` returns the JSON-friendly root-cause diagnostic used
+by `migaki:doctor`, including a stable code, status, summary, next action, and
+redacted details. The human doctor report renders the same diagnosis before the
+raw hook/config/trust sections so Desktop verification starts from one concrete
+fix.
+
 `LocalStore(".migaki")` persists stateless hook invocations under
 `.migaki/runs/<runId>/`, rejects unsafe run IDs, and intentionally has no cache
 API. Reports are observation-only: they identify repeated fingerprints,
