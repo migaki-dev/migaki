@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createDogfoodAdviceStatus,
   createDogfoodDoctorReport,
+  evaluateDogfoodRootCause,
   evaluateDogfoodReadiness,
 } from "./dogfood-doctor.js";
 import { MIGAKI_SMOKE_REAL_TURN_MARKER } from "./execution-advice.js";
@@ -673,6 +674,340 @@ describe("dogfood doctor report", () => {
       } else {
         expect(adviceStatus, scenario.name).toContain(
           `- Mode: ${scenario.adviceMode}.`,
+        );
+      }
+    }
+  });
+
+  it("reports stable root-cause diagnostics for Desktop native hook emission gaps", async () => {
+    const nowMs = new Date("2026-01-01T00:02:05.000Z").getTime();
+    const maxRealAgeMs = 60_000;
+    const scenarios: readonly {
+      readonly code: string;
+      readonly expectedDetail?: string;
+      readonly expectedNextAction: string;
+      readonly name: string;
+      readonly skipDefaultTrust?: boolean;
+      readonly setup: (input: {
+        readonly codexConfigPath: string;
+        readonly hookConfigPath: string;
+        readonly root: string;
+        readonly runsDirectory: string;
+      }) => Promise<void>;
+      readonly summary: string;
+    }[] = [
+      {
+        code: "native_complete",
+        expectedNextAction:
+          "Continue normal Desktop dogfooding; strict native evidence is fresh.",
+        name: "fresh native success",
+        setup: async ({ root, runsDirectory }) => {
+          await writeHookFiles(root);
+          await writeRun({
+            events: nativeEvents("codex-turn-native"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-native",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-turn-native",
+            runsDirectory,
+          });
+        },
+        summary: "Latest organic Desktop turn is native-complete and fresh.",
+      },
+      {
+        code: "stale_organic_turn",
+        expectedNextAction:
+          "Run one fresh normal Desktop turn in this repository, then rerun migaki:dogfood.",
+        name: "stale native evidence",
+        setup: async ({ root, runsDirectory }) => {
+          await writeHookFiles(root);
+          await writeRun({
+            events: nativeEvents("codex-turn-stale-native"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-stale-native",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:00:00.000Z"),
+            runId: "codex-turn-stale-native",
+            runsDirectory,
+          });
+        },
+        summary: "Latest organic Desktop turn is native-complete but stale.",
+      },
+      {
+        code: "mixed_manual_evidence",
+        expectedNextAction:
+          "Keep bridge/manual evidence separate and run a fresh normal Desktop turn with native tool hooks.",
+        name: "mixed/manual turns",
+        setup: async ({ root, runsDirectory }) => {
+          await writeHookFiles(root);
+          await writeRun({
+            events: [
+              event({
+                hookEventName: "UserPromptSubmit",
+                id: "mixed-prompt",
+                lifecycle: "point",
+                operationId: "prompt",
+                operationKind: "user_prompt",
+                runId: "codex-turn-mixed",
+              }),
+              ...manualExecEvents("codex-turn-mixed"),
+            ],
+            graph: graph({
+              nodeHookEventName: "UserPromptSubmit",
+              runId: "codex-turn-mixed",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-turn-mixed",
+            runsDirectory,
+          });
+        },
+        summary: "Latest organic Desktop turn includes manual-exec evidence.",
+      },
+      {
+        code: "bridge_only_readiness",
+        expectedNextAction:
+          "Use the bridge for app-surface work, but run a fresh normal Desktop turn before claiming strict dogfood.",
+        name: "bridge-active fallback",
+        setup: async ({ root, runsDirectory }) => {
+          await writeHookFiles(root);
+          await writeRun({
+            events: manualExecEvents("codex-app-bridge"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-app-bridge",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-app-bridge",
+            runsDirectory,
+          });
+        },
+        summary:
+          "Only bridge evidence is ready; strict Desktop dogfood still needs organic native hooks.",
+      },
+      {
+        code: "hook_config_mismatch",
+        expectedDetail: "unexpectedCommands=4",
+        expectedNextAction:
+          "Fix .codex/hooks.json so required events use the built Migaki hook command.",
+        name: "hook-command mismatch",
+        setup: async ({ root }) => {
+          await writeHookFiles(root, {
+            command: "node wrong-hook.js",
+          });
+        },
+        summary:
+          "Hook config does not match the expected Migaki Desktop hook command.",
+      },
+      {
+        code: "missing_hook_trust",
+        expectedDetail: "missingTrust=PreToolUse, PostToolUse",
+        expectedNextAction:
+          "Open /hooks in Codex Desktop and trust the missing Migaki hook events.",
+        name: "missing trust records",
+        setup: async ({ codexConfigPath, hookConfigPath, root }) => {
+          await writeHookFiles(root);
+          await writeCodexConfig({
+            codexConfigPath,
+            eventNames: ["UserPromptSubmit", "Stop"],
+            hookConfigPath,
+          });
+        },
+        skipDefaultTrust: true,
+        summary:
+          "Codex Desktop has not trusted all required Migaki hook events.",
+      },
+      {
+        code: "no_organic_turn",
+        expectedNextAction:
+          "Run one normal Codex Desktop turn in this repository, then rerun migaki:doctor.",
+        name: "no organic turn",
+        setup: async ({ root }) => {
+          await writeHookFiles(root);
+        },
+        summary: "No completed organic Desktop turn was found.",
+      },
+      {
+        code: "missing_tool_hooks",
+        expectedDetail: "missingHooks=PreToolUse, PostToolUse",
+        expectedNextAction:
+          "Run a fresh normal Desktop turn with a tool call and verify PreToolUse/PostToolUse emission.",
+        name: "missing PreToolUse/PostToolUse",
+        setup: async ({ root, runsDirectory }) => {
+          await writeHookFiles(root);
+          await writeRun({
+            events: [
+              event({
+                hookEventName: "UserPromptSubmit",
+                id: "prompt",
+                lifecycle: "point",
+                operationId: "prompt",
+                operationKind: "user_prompt",
+                runId: "codex-turn-no-tool-hooks",
+              }),
+              event({
+                hookEventName: "Stop",
+                id: "stop",
+                lifecycle: "point",
+                operationId: "turn",
+                operationKind: "turn",
+                runId: "codex-turn-no-tool-hooks",
+                runStatus: "ok",
+                status: "ok",
+              }),
+            ],
+            graph: graph({
+              nodeHookEventName: "Stop",
+              runId: "codex-turn-no-tool-hooks",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-turn-no-tool-hooks",
+            runsDirectory,
+          });
+        },
+        summary: "Latest organic Desktop turn is missing native tool hooks.",
+      },
+      {
+        code: "missing_stop_hook",
+        expectedDetail: "missingHooks=Stop",
+        expectedNextAction:
+          "Let the Desktop turn finish and verify Stop hook emission before rerunning migaki:dogfood.",
+        name: "missing Stop",
+        setup: async ({ root, runsDirectory }) => {
+          await writeHookFiles(root);
+          await writeRun({
+            events: [
+              event({
+                hookEventName: "UserPromptSubmit",
+                id: "prompt",
+                lifecycle: "point",
+                operationId: "prompt",
+                operationKind: "user_prompt",
+                runId: "codex-turn-no-stop",
+              }),
+              event({
+                hookEventName: "PreToolUse",
+                id: "tool-start",
+                lifecycle: "start",
+                operationId: "tool-1",
+                operationKind: "tool_call",
+                runId: "codex-turn-no-stop",
+              }),
+              event({
+                hookEventName: "PostToolUse",
+                id: "tool-finish",
+                lifecycle: "finish",
+                operationId: "tool-1",
+                operationKind: "tool_call",
+                runId: "codex-turn-no-stop",
+                status: "ok",
+              }),
+            ],
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-no-stop",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-turn-no-stop",
+            runsDirectory,
+          });
+        },
+        summary: "Latest organic Desktop turn is missing the Stop hook.",
+      },
+      {
+        code: "app_surface_non_emission",
+        expectedNextAction:
+          "Use migaki:bridge for this app surface while verifying why normal Desktop turns are not emitting project hooks.",
+        name: "app-surface non-emission",
+        setup: async ({ root, runsDirectory }) => {
+          await writeHookFiles(root);
+          await writeRun({
+            events: nativeEvents("codex-turn-migaki-smoke-hook-probe-ok"),
+            graph: graph({
+              nodeHookEventName: "PostToolUse",
+              runId: "codex-turn-migaki-smoke-hook-probe-ok",
+              toolCalls: 1,
+            }),
+            modifiedAt: new Date("2026-01-01T00:02:04.000Z"),
+            runId: "codex-turn-migaki-smoke-hook-probe-ok",
+            runsDirectory,
+          });
+        },
+        summary:
+          "Hook probe is native-complete, but no organic Desktop turn is reaching the dogfood gate.",
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      const root = await tempRoot();
+      const runsDirectory = join(root, ".migaki", "runs");
+      const hookConfigPath = join(root, ".codex", "hooks.json");
+      const codexConfigPath = join(root, "codex-home", "config.toml");
+      const hookEntrypointPath = join(
+        root,
+        "packages",
+        "codex",
+        "dist",
+        "hook.js",
+      );
+
+      await scenario.setup({
+        codexConfigPath,
+        hookConfigPath,
+        root,
+        runsDirectory,
+      });
+      if (scenario.skipDefaultTrust !== true) {
+        await writeCodexConfig({
+          codexConfigPath,
+          eventNames: ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"],
+          hookConfigPath,
+        });
+      }
+
+      const diagnostic = evaluateDogfoodRootCause({
+        bridgeRunId: "codex-app-bridge",
+        codexConfigPath,
+        hookConfigPath,
+        hookEntrypointPath,
+        maxRealAgeMs,
+        nowMs,
+        runsDirectory,
+      });
+      const report = createDogfoodDoctorReport({
+        bridgeRunId: "codex-app-bridge",
+        codexConfigPath,
+        hookConfigPath,
+        hookEntrypointPath,
+        maxRealAgeMs,
+        nowMs,
+        runsDirectory,
+      });
+
+      expect(diagnostic, scenario.name).toMatchObject({
+        code: scenario.code,
+        nextAction: scenario.expectedNextAction,
+        summary: scenario.summary,
+      });
+      expect(report, scenario.name).toContain("Root Cause:");
+      expect(report, scenario.name).toContain(`- Code: ${scenario.code}`);
+      expect(report, scenario.name).toContain(`- Summary: ${scenario.summary}`);
+      expect(report, scenario.name).toContain(
+        `- Next action: ${scenario.expectedNextAction}`,
+      );
+      expect(report, scenario.name).not.toContain(root);
+
+      if (scenario.expectedDetail !== undefined) {
+        expect(report, scenario.name).toContain(
+          `- Detail: ${scenario.expectedDetail}`,
         );
       }
     }

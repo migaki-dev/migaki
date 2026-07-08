@@ -176,9 +176,13 @@ Desktop hook-emission problem. The report includes smoke-harness proof, the
 newest organic native-complete baseline, graph update timestamps, and ages, so
 mixed Desktop/manual evidence can be compared against known-good plumbing
 without mistaking a smoke harness for current-session signal. It also explains
-when advice selection chose older useful evidence instead of the latest organic
-turn, then prints a compact organic-turn verdict summary and matrix so native
-coverage regressions show up as a trend instead of a single latest-run verdict.
+one stable root-cause code with a next action for config mismatches, missing
+hook trust, missing or stale organic turns, mixed/manual evidence, missing tool
+or stop hooks, bridge-only readiness, and app-surface non-emission. It also
+explains when advice selection chose older useful evidence instead of the
+latest organic turn, then prints a compact organic-turn verdict summary and
+matrix so native coverage regressions show up as a trend instead of a single
+latest-run verdict.
 When the hook config is valid but the newest organic turn is stale or not
 native-complete, the doctor prints a Desktop verification checklist: review hook
 trust in `/hooks`, confirm the hook probe, run one fresh normal Desktop turn
