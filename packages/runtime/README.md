@@ -167,3 +167,19 @@ references, node identities, and the source fingerprint, never prompts, tool
 payloads, outputs, credentials, or local paths. Planning itself does not fetch
 values, skip tools, invoke providers, persist state, or perform user-visible
 work.
+
+`migaki.reuse-value-store.v0` is the provider-neutral, injected value boundary
+for a later executor to resolve an authorized reuse plan. The ephemeral
+implementation is created per run or session with an explicit creation time,
+expiry time, identifier, and entry limit; it has no process-global singleton.
+Typed codecs guard insertion and lookup, while exact decision version, previous
+run, node, and fingerprint provenance form the value identity. Missing values,
+provenance drift, stale freshness, incompatible request or value-schema
+versions, and corrupt values return deterministic misses or invalidations. A
+closed or expired store clears its entries.
+
+Only in-process lookup results expose the typed value. Store descriptions are
+metadata-only and include provenance fingerprints, freshness, schema version,
+and lifetime without reusable values, tool output, secrets, or local paths.
+Persistent disk, database, cloud, cross-user, and cross-process stores—and
+their retention policies—are explicitly deferred beyond v0.

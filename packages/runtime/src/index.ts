@@ -22,6 +22,7 @@ export * from "./pass.js";
 export * from "./promotion.js";
 export * from "./prompt-cache-layout.js";
 export * from "./retry-fallback-planning.js";
+export * from "./reuse-value-store.js";
 export * from "./runner.js";
 export * from "./stable-prefix.js";
 export * from "./static-routing.js";
