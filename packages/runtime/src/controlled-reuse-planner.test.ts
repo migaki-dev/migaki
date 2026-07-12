@@ -220,6 +220,52 @@ describe("planControlledReuse", () => {
     },
   );
 
+  it.each([
+    ["missing planner input", undefined, "planner-input"],
+    [
+      "missing candidates",
+      { ...createInput(), candidates: undefined },
+      "planner-input",
+    ],
+    [
+      "non-array candidates",
+      { ...createInput(), candidates: {} },
+      "planner-input",
+    ],
+    [
+      "a null candidate",
+      { ...createInput(), candidates: [null] },
+      "candidate-0",
+    ],
+    [
+      "a candidate without node identity",
+      { ...createInput(), candidates: [{}] },
+      "candidate-0",
+    ],
+  ] as const)("blocks %s without throwing", (_name, input, nodeId) => {
+    const result = planControlledReuse(
+      input as unknown as ControlledReusePlanningInput,
+      { now: NOW },
+    );
+
+    expect(result.nodes).toEqual([
+      {
+        action: "blocked",
+        nodeId,
+        previousNodeId: "unknown",
+        reasonCodes: ["incompatible_authorization_input"],
+      },
+    ]);
+    expect(result.warnings).toEqual([
+      {
+        code: "incompatible_authorization_input",
+        message:
+          "The authorization policy or decision artifact is malformed or incompatible.",
+        nodeId,
+      },
+    ]);
+  });
+
   it("is deterministic and does not mutate inputs or perform work", () => {
     const input = deepFreeze(createInput());
     const before = structuredClone(input);

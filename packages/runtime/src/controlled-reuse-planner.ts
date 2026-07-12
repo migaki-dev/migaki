@@ -82,19 +82,28 @@ export interface ControlledReusePlan {
  * tool, skips a node, persists state, or consults wall-clock time.
  */
 export function planControlledReuse(
-  input: ControlledReusePlanningInput,
+  input: unknown,
   options: { readonly now: string },
 ): ControlledReusePlan {
-  if (input.version !== CONTROLLED_REUSE_PLAN_VERSION) {
+  const planningInput = readPlanningInput(input);
+  if (planningInput === undefined) {
     return blockedPlan(
-      input.candidates,
-      "incompatible_plan_version",
-      `Expected ${CONTROLLED_REUSE_PLAN_VERSION}; received ${String(input.version)}.`,
+      invalidCandidateIdentities(input),
+      "incompatible_authorization_input",
+      reasonMessage("incompatible_authorization_input"),
     );
   }
 
-  const nodes = input.candidates.map((candidate) =>
-    planCandidate(input, candidate, options.now),
+  if (planningInput.version !== CONTROLLED_REUSE_PLAN_VERSION) {
+    return blockedPlan(
+      planningInput.candidates,
+      "incompatible_plan_version",
+      `Expected ${CONTROLLED_REUSE_PLAN_VERSION}; received ${String(planningInput.version)}.`,
+    );
+  }
+
+  const nodes = planningInput.candidates.map((candidate) =>
+    planCandidate(planningInput, candidate, options.now),
   );
 
   return {
@@ -202,7 +211,10 @@ function shouldExecuteNormally(
 }
 
 function blockedPlan(
-  candidates: readonly ControlledReusePlanningCandidate[],
+  candidates: readonly Pick<
+    ControlledReusePlanningCandidate,
+    "nodeId" | "previousNodeId"
+  >[],
   code: ControlledReusePlanReasonCode,
   message: string,
 ): ControlledReusePlan {
@@ -220,7 +232,10 @@ function blockedPlan(
 }
 
 function nodePlan(
-  candidate: ControlledReusePlanningCandidate,
+  candidate: Pick<
+    ControlledReusePlanningCandidate,
+    "nodeId" | "previousNodeId"
+  >,
   action: ControlledReusePlanAction,
   reasonCodes: readonly ControlledReusePlanReasonCode[],
 ): ControlledReuseNodePlan {
@@ -230,6 +245,60 @@ function nodePlan(
     previousNodeId: candidate.previousNodeId,
     reasonCodes,
   };
+}
+
+function readPlanningInput(
+  input: unknown,
+): ControlledReusePlanningInput | undefined {
+  if (
+    !isRecord(input) ||
+    typeof input.version !== "string" ||
+    !isRecord(input.policy) ||
+    typeof input.policy.authorizationVersion !== "string" ||
+    typeof input.policy.mode !== "string" ||
+    !isRecord(input.decisionArtifact) ||
+    !Array.isArray(input.candidates) ||
+    !input.candidates.every(
+      (candidate) =>
+        isRecord(candidate) &&
+        typeof candidate.nodeId === "string" &&
+        typeof candidate.previousNodeId === "string",
+    )
+  ) {
+    return undefined;
+  }
+
+  return input as unknown as ControlledReusePlanningInput;
+}
+
+function invalidCandidateIdentities(
+  input: unknown,
+): readonly Pick<
+  ControlledReusePlanningCandidate,
+  "nodeId" | "previousNodeId"
+>[] {
+  if (!isRecord(input) || !Array.isArray(input.candidates)) {
+    return [{ nodeId: "planner-input", previousNodeId: "unknown" }];
+  }
+
+  if (input.candidates.length === 0) {
+    return [{ nodeId: "planner-input", previousNodeId: "unknown" }];
+  }
+
+  return input.candidates.map((candidate, index) => ({
+    nodeId:
+      isRecord(candidate) && typeof candidate.nodeId === "string"
+        ? candidate.nodeId
+        : `candidate-${index}`,
+    previousNodeId:
+      isRecord(candidate) && typeof candidate.previousNodeId === "string"
+        ? candidate.previousNodeId
+        : "unknown",
+  }));
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function deduplicate(
