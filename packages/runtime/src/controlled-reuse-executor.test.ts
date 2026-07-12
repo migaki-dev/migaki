@@ -59,6 +59,26 @@ describe("executeControlledReuse", () => {
     ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
   });
 
+  it.each(["extraMetadata", "rawPrompt", "raw_tool_input", "apiKey"])(
+    "rejects unknown legacy evidence field %s",
+    (field) => {
+      const legacy = {
+        action: "execute_normally",
+        actualSkippedActions: 0,
+        nodeId: "tool-read",
+        previousNodeId: "previous-tool-read",
+        reasonCodes: ["opt_in_required"],
+        version: CONTROLLED_REUSE_EXECUTION_VERSION,
+      } as const;
+
+      expect(() =>
+        parseControlledReuseExecutionEvidence(
+          JSON.stringify({ ...legacy, [field]: "private value" }),
+        ),
+      ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    },
+  );
+
   it("returns one validated stored read and records exactly one skipped action", async () => {
     const current = createPlanningInput();
     const store = createStore();

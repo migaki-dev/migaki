@@ -22,6 +22,15 @@ import { REUSE_DECISION_ARTIFACT_VERSION } from "./observed-trajectory-compariso
 export const CONTROLLED_REUSE_EXECUTION_VERSION =
   "migaki.controlled-reuse-execution.v0";
 
+const LEGACY_CONTROLLED_REUSE_EXECUTION_FIELDS = new Set([
+  "action",
+  "actualSkippedActions",
+  "nodeId",
+  "previousNodeId",
+  "reasonCodes",
+  "version",
+]);
+
 export type ControlledReuseExecutionVersion =
   typeof CONTROLLED_REUSE_EXECUTION_VERSION;
 
@@ -680,7 +689,9 @@ function isControlledReuseExecutionEvidence(
     value.validatorOutcomes,
   ];
   if (richFields.every((field) => field === undefined)) {
-    return true;
+    return Object.keys(value).every((key) =>
+      LEGACY_CONTROLLED_REUSE_EXECUTION_FIELDS.has(key),
+    );
   }
 
   return (
