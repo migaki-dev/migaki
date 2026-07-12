@@ -32,6 +32,50 @@ const warning: PassWarning = {
 };
 
 describe("report command", () => {
+  it("preserves legacy controlled-reuse action and realized skips in human and JSON reports", async () => {
+    const legacyEvidence = {
+      action: "reuse",
+      actualSkippedActions: 1,
+      nodeId: "tool-read",
+      previousNodeId: "previous-tool-read",
+      reasonCodes: [],
+      version: CONTROLLED_REUSE_EXECUTION_VERSION,
+    } satisfies ControlledReuseExecutionEvidence;
+
+    const jsonResult = await runCli(
+      ["report", "--input", "legacy-reuse.json", "--format", "json"],
+      fakeIo({ "legacy-reuse.json": JSON.stringify(legacyEvidence) }),
+    );
+    const humanResult = await runCli(
+      ["report", "--input", "legacy-reuse.json", "--format", "human"],
+      fakeIo({ "legacy-reuse.json": JSON.stringify(legacyEvidence) }),
+    );
+
+    expect(JSON.parse(jsonResult.stdout)).toEqual({
+      action: "reuse",
+      artifactKind: "controlled_reuse_execution",
+      eligibilityChecks: [],
+      identity: { nodeId: "tool-read", previousNodeId: "previous-tool-read" },
+      realized: { actualSkippedActions: 1 },
+      reasons: [],
+      validators: [],
+      version: CLI_REPORT_VERSION,
+    });
+    expect(humanResult.stdout).toMatchInlineSnapshot(`
+      "Migaki Controlled Reuse Report
+      Node: previous-tool-read -> tool-read
+      Plan/execution: unknown -> reuse (unchanged)
+      Potential/planned: 0/0
+      Realized: 1 skipped, 0 normal, 0 invalidated
+      Estimated avoidable work: none (not realized)
+      Store: unknown (unknown)
+      Eligibility: none
+      Validators: none
+      Reasons: none
+      "
+    `);
+  });
+
   it("renders realized controlled-reuse and invalidation evidence as golden human and JSON reports", async () => {
     const reused = createControlledReuseEvidence("reuse");
     const invalidated = createControlledReuseEvidence("execute_normally");

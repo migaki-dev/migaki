@@ -279,6 +279,7 @@ interface ReuseDecisionReport {
 }
 
 interface ControlledReuseExecutionReport {
+  readonly action?: ControlledReuseExecutionEvidence["action"];
   readonly artifactKind: "controlled_reuse_execution";
   readonly decisionRef?: ControlledReuseExecutionEvidence["decisionRef"];
   readonly estimates?: ControlledReuseExecutionEvidence["estimatedAvoidableWork"];
@@ -292,7 +293,16 @@ interface ControlledReuseExecutionReport {
   };
   readonly planExecutionDiff?: ControlledReuseExecutionEvidence["planExecutionDiff"];
   readonly policyRef?: ControlledReuseExecutionEvidence["policyRef"];
-  readonly realized?: ControlledReuseExecutionEvidence["realizedMetrics"];
+  readonly realized?: Pick<
+    ControlledReuseExecutionEvidence,
+    "actualSkippedActions"
+  > &
+    Partial<
+      Omit<
+        NonNullable<ControlledReuseExecutionEvidence["realizedMetrics"]>,
+        "actualSkippedActions"
+      >
+    >;
   readonly reasons: ControlledReuseExecutionEvidence["reasonCodes"];
   readonly store?: Pick<
     NonNullable<ControlledReuseExecutionEvidence["storeRef"]>,
@@ -4092,7 +4102,12 @@ function createControlledReuseExecutionReport(
       ? {}
       : { policyRef: evidence.policyRef }),
     ...(evidence.realizedMetrics === undefined
-      ? {}
+      ? {
+          action: evidence.action,
+          realized: {
+            actualSkippedActions: evidence.actualSkippedActions,
+          },
+        }
       : { realized: evidence.realizedMetrics }),
     reasons: evidence.reasonCodes,
     ...(evidence.storeRef === undefined
@@ -4257,7 +4272,7 @@ function renderControlledReuseHumanReport(
     "Migaki Controlled Reuse Report",
     `Node: ${report.identity.previousNodeId} -> ${report.identity.nodeId}`,
     `Plan/execution: ${diff?.plannedAction ?? "unknown"} -> ${
-      diff?.executedAction ?? "unknown"
+      diff?.executedAction ?? report.action ?? "unknown"
     } (${diff?.changed === true ? "changed" : "unchanged"})`,
     `Potential/planned: ${realized?.potentialReuse ?? 0}/${
       realized?.plannedReuse ?? 0
