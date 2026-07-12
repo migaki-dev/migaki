@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { MIR_V0_VERSION, type MIRPlan } from "@migaki/mir";
 import {
   EVIDENCE_EVENT_VERSION,
+  CONTROLLED_REUSE_EXECUTION_VERSION,
   PASS_CONTRACT_VERSION,
   REUSE_DECISION_ARTIFACT_VERSION,
   createEvidenceBundle,
@@ -10,6 +11,7 @@ import {
   serializeEvidenceBundle,
   serializeMockExecutionTraceArtifact,
   type EvidenceEvent,
+  type ControlledReuseExecutionEvidence,
   type MockExecutionTraceArtifact,
   type PassWarning,
   type ReuseDecisionArtifact,
@@ -30,6 +32,124 @@ const warning: PassWarning = {
 };
 
 describe("report command", () => {
+  it("preserves legacy controlled-reuse action and realized skips in human and JSON reports", async () => {
+    const legacyEvidence = {
+      action: "reuse",
+      actualSkippedActions: 1,
+      nodeId: "tool-read",
+      previousNodeId: "previous-tool-read",
+      reasonCodes: [],
+      version: CONTROLLED_REUSE_EXECUTION_VERSION,
+    } satisfies ControlledReuseExecutionEvidence;
+
+    const jsonResult = await runCli(
+      ["report", "--input", "legacy-reuse.json", "--format", "json"],
+      fakeIo({ "legacy-reuse.json": JSON.stringify(legacyEvidence) }),
+    );
+    const humanResult = await runCli(
+      ["report", "--input", "legacy-reuse.json", "--format", "human"],
+      fakeIo({ "legacy-reuse.json": JSON.stringify(legacyEvidence) }),
+    );
+
+    expect(JSON.parse(jsonResult.stdout)).toEqual({
+      action: "reuse",
+      artifactKind: "controlled_reuse_execution",
+      eligibilityChecks: [],
+      identity: { nodeId: "tool-read", previousNodeId: "previous-tool-read" },
+      realized: { actualSkippedActions: 1 },
+      reasons: [],
+      validators: [],
+      version: CLI_REPORT_VERSION,
+    });
+    expect(humanResult.stdout).toMatchInlineSnapshot(`
+      "Migaki Controlled Reuse Report
+      Node: previous-tool-read -> tool-read
+      Plan/execution: unknown -> reuse (unchanged)
+      Potential/planned: 0/0
+      Realized: 1 skipped, 0 normal, 0 invalidated
+      Estimated avoidable work: none (not realized)
+      Store: unknown (unknown)
+      Eligibility: none
+      Validators: none
+      Reasons: none
+      "
+    `);
+  });
+
+  it("renders realized controlled-reuse and invalidation evidence as golden human and JSON reports", async () => {
+    const reused = createControlledReuseEvidence("reuse");
+    const invalidated = createControlledReuseEvidence("execute_normally");
+
+    const jsonResult = await runCli(
+      ["report", "--input", "reuse.json", "--format", "json"],
+      fakeIo({ "reuse.json": JSON.stringify(reused) }),
+    );
+    const humanResult = await runCli(
+      ["report", "--input", "invalidated.json", "--format", "human"],
+      fakeIo({ "invalidated.json": JSON.stringify(invalidated) }),
+    );
+
+    expect(JSON.parse(jsonResult.stdout)).toEqual({
+      artifactKind: "controlled_reuse_execution",
+      decisionRef: {
+        currentRunId: "current-run",
+        nodeId: "tool-read",
+        previousRunId: "previous-run",
+        version: REUSE_DECISION_ARTIFACT_VERSION,
+      },
+      estimates: { classification: "estimated", totalTokens: 120 },
+      eligibilityChecks: [
+        { name: "decision_status", status: "passed" },
+        { name: "exact_match", status: "passed" },
+        { name: "operation_kind", status: "passed" },
+        { name: "side_effect_class", status: "passed" },
+        { name: "source_equivalence", status: "passed" },
+        { name: "freshness", status: "passed" },
+        { name: "dependencies", status: "passed" },
+        { name: "policy", status: "passed" },
+      ],
+      executionOutcome: "reused",
+      identity: { nodeId: "tool-read", previousNodeId: "previous-tool-read" },
+      planExecutionDiff: {
+        changed: false,
+        executedAction: "reuse",
+        plannedAction: "reuse",
+      },
+      policyRef: {
+        authorizationVersion: "migaki.controlled-reuse-authorization.v0",
+        mode: "exact_read_only_tool_call",
+        plannerVersion: "migaki.controlled-reuse-plan.v0",
+      },
+      realized: {
+        actualSkippedActions: 1,
+        invalidations: 0,
+        normalExecutions: 0,
+        plannedReuse: 1,
+        potentialReuse: 1,
+      },
+      reasons: [],
+      store: { outcome: "hit", version: "migaki.reuse-value-store.v0" },
+      validators: [
+        { id: "source-exact", status: "passed" },
+        { id: "behavior_equivalence", status: "passed" },
+      ],
+      version: CLI_REPORT_VERSION,
+    });
+    expect(humanResult.stdout).toMatchInlineSnapshot(`
+      "Migaki Controlled Reuse Report
+      Node: previous-tool-read -> tool-read
+      Plan/execution: reuse -> execute_normally (changed)
+      Potential/planned: 1/1
+      Realized: 0 skipped, 1 normal, 1 invalidated
+      Estimated avoidable work: 120 tokens (not realized)
+      Store: invalidated (migaki.reuse-value-store.v0)
+      Eligibility: decision_status passed; exact_match passed; operation_kind passed; side_effect_class passed; source_equivalence passed; freshness passed; dependencies passed; policy passed
+      Validators: source-exact passed; behavior_equivalence failed
+      Reasons: behavior_equivalence_failed
+      "
+    `);
+  });
+
   it("renders evidence bundles as deterministic JSON", async () => {
     const bundle = createReportBundle();
     const result = await runCli(
@@ -266,6 +386,80 @@ describe("report command", () => {
     );
   });
 });
+
+function createControlledReuseEvidence(
+  action: "execute_normally" | "reuse",
+): ControlledReuseExecutionEvidence {
+  const reused = action === "reuse";
+  return {
+    action,
+    actualSkippedActions: reused ? 1 : 0,
+    decisionRef: {
+      currentRunId: "current-run",
+      nodeId: "tool-read",
+      previousRunId: "previous-run",
+      version: REUSE_DECISION_ARTIFACT_VERSION,
+    },
+    eligibilityChecks: [
+      { name: "decision_status", status: "passed" },
+      { name: "exact_match", status: "passed" },
+      { name: "operation_kind", status: "passed" },
+      { name: "side_effect_class", status: "passed" },
+      { name: "source_equivalence", status: "passed" },
+      { name: "freshness", status: "passed" },
+      { name: "dependencies", status: "passed" },
+      { name: "policy", status: "passed" },
+    ],
+    estimatedAvoidableWork: { classification: "estimated", totalTokens: 120 },
+    executionOutcome: reused ? "reused" : "executed_normally",
+    invalidation: {
+      count: reused ? 0 : 1,
+      reasonCodes: reused ? [] : ["behavior_equivalence_failed"],
+    },
+    nodeId: "tool-read",
+    planExecutionDiff: {
+      changed: !reused,
+      executedAction: action,
+      plannedAction: "reuse",
+    },
+    policyRef: {
+      authorizationVersion: "migaki.controlled-reuse-authorization.v0",
+      mode: "exact_read_only_tool_call",
+      plannerVersion: "migaki.controlled-reuse-plan.v0",
+    },
+    previousNodeId: "previous-tool-read",
+    privacyPolicy: {
+      exportMode: "metadata_only",
+      omittedFields: [
+        "prompt",
+        "tool_input",
+        "tool_output",
+        "provider_response",
+        "credential",
+        "local_machine_path",
+        "reusable_value",
+      ],
+      version: "migaki.evidence-privacy-policy.v0",
+    },
+    realizedMetrics: {
+      actualSkippedActions: reused ? 1 : 0,
+      invalidations: reused ? 0 : 1,
+      normalExecutions: reused ? 0 : 1,
+      plannedReuse: 1,
+      potentialReuse: 1,
+    },
+    reasonCodes: reused ? [] : ["behavior_equivalence_failed"],
+    storeRef: {
+      outcome: reused ? "hit" : "invalidated",
+      version: "migaki.reuse-value-store.v0",
+    },
+    validatorOutcomes: [
+      { id: "source-exact", status: "passed" },
+      { id: "behavior_equivalence", status: reused ? "passed" : "failed" },
+    ],
+    version: CONTROLLED_REUSE_EXECUTION_VERSION,
+  };
+}
 
 function fakeIo(files: Readonly<Record<string, string>>): {
   readonly readFile: (path: string) => Promise<string>;

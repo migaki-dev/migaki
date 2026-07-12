@@ -28,6 +28,7 @@ migaki task-suite mvp-gate [--output-dir dir] [--format human|json] [--strict-do
 - `migaki.evidence-bundle.v0`
 - `migaki.trace-artifact.v0`
 - `migaki.reuse-decision.v0`
+- `migaki.controlled-reuse-execution.v0`
 
 The default format is `human`. `--format json` returns stable JSON with
 `migaki.cli-report.v0`.
@@ -52,6 +53,12 @@ For reuse decision artifacts, the report includes comparison run ids, allowed /
 needs-review / blocked counts, per-node decision status, reason codes, and the
 observation-only invariant. Human output includes the full decision artifact
 rendering; JSON output returns a compact `migaki.cli-report.v0` summary.
+
+For controlled-reuse execution evidence, the report keeps potential and planned
+reuse separate from actual skipped actions, normal executions, and
+invalidations. It also reports the plan/execution diff, metadata-only decision
+and store references, validator outcomes, stable reason codes, and estimated
+avoidable work explicitly labeled as not realized.
 
 Unsupported artifact versions and invalid artifacts exit non-zero with stderr.
 

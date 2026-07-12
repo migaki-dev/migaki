@@ -10,7 +10,10 @@ import {
   REUSE_VALUE_STORE_VERSION,
   createEphemeralReuseValueStore,
   executeControlledReuse,
+  parseControlledReuseExecutionEvidence,
   planControlledReuse,
+  renderControlledReuseExecutionEvidence,
+  serializeControlledReuseExecutionEvidence,
   type ControlledReuseExecutionInput,
   type ControlledReusePlanningInput,
   type ReuseValueCodec,
@@ -23,6 +26,59 @@ const stringCodec: ReuseValueCodec<string> = {
 };
 
 describe("executeControlledReuse", () => {
+  it("parses legacy v0 evidence but rejects incompatible or privacy-unsafe serialized evidence", () => {
+    const legacy = {
+      action: "execute_normally",
+      actualSkippedActions: 0,
+      nodeId: "tool-read",
+      previousNodeId: "previous-tool-read",
+      reasonCodes: ["opt_in_required"],
+      version: CONTROLLED_REUSE_EXECUTION_VERSION,
+    } as const;
+
+    expect(
+      parseControlledReuseExecutionEvidence(JSON.stringify(legacy)),
+    ).toEqual(legacy);
+    expect(() =>
+      parseControlledReuseExecutionEvidence(
+        JSON.stringify({
+          ...legacy,
+          version: "migaki.controlled-reuse-execution.v99",
+        }),
+      ),
+    ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    expect(() =>
+      parseControlledReuseExecutionEvidence(
+        JSON.stringify({ ...legacy, tool_input: "private tool input" }),
+      ),
+    ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    expect(() =>
+      parseControlledReuseExecutionEvidence(
+        JSON.stringify({ ...legacy, localPath: "/Users/alice/private.txt" }),
+      ),
+    ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+  });
+
+  it.each(["extraMetadata", "rawPrompt", "raw_tool_input", "apiKey"])(
+    "rejects unknown legacy evidence field %s",
+    (field) => {
+      const legacy = {
+        action: "execute_normally",
+        actualSkippedActions: 0,
+        nodeId: "tool-read",
+        previousNodeId: "previous-tool-read",
+        reasonCodes: ["opt_in_required"],
+        version: CONTROLLED_REUSE_EXECUTION_VERSION,
+      } as const;
+
+      expect(() =>
+        parseControlledReuseExecutionEvidence(
+          JSON.stringify({ ...legacy, [field]: "private value" }),
+        ),
+      ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    },
+  );
+
   it("returns one validated stored read and records exactly one skipped action", async () => {
     const current = createPlanningInput();
     const store = createStore();
@@ -42,9 +98,54 @@ describe("executeControlledReuse", () => {
       evidence: {
         action: "reuse",
         actualSkippedActions: 1,
+        decisionRef: {
+          currentRunId: "current-run",
+          nodeId: "tool-read",
+          previousRunId: "previous-run",
+          version: REUSE_DECISION_ARTIFACT_VERSION,
+        },
+        eligibilityChecks: [
+          { name: "decision_status", status: "passed" },
+          { name: "exact_match", status: "passed" },
+          { name: "operation_kind", status: "passed" },
+          { name: "side_effect_class", status: "passed" },
+          { name: "source_equivalence", status: "passed" },
+          { name: "freshness", status: "passed" },
+          { name: "dependencies", status: "passed" },
+          { name: "policy", status: "passed" },
+        ],
+        executionOutcome: "reused",
+        invalidation: { count: 0, reasonCodes: [] },
         nodeId: "tool-read",
+        planExecutionDiff: {
+          changed: false,
+          executedAction: "reuse",
+          plannedAction: "reuse",
+        },
+        policyRef: {
+          authorizationVersion: CONTROLLED_REUSE_AUTHORIZATION_VERSION,
+          mode: "exact_read_only_tool_call",
+          plannerVersion: CONTROLLED_REUSE_PLAN_VERSION,
+        },
         previousNodeId: "previous-tool-read",
         reasonCodes: [],
+        realizedMetrics: {
+          actualSkippedActions: 1,
+          invalidations: 0,
+          normalExecutions: 0,
+          plannedReuse: 1,
+          potentialReuse: 1,
+        },
+        storeRef: {
+          id: "controlled-reuse-test",
+          outcome: "hit",
+          valueSchemaVersion: "repo-file-read.string.v1",
+          version: REUSE_VALUE_STORE_VERSION,
+        },
+        validatorOutcomes: [
+          { id: "source-exact", status: "passed" },
+          { id: "behavior_equivalence", status: "passed" },
+        ],
       },
       status: "reused",
       value: "private contents at /Users/alice/secret.txt",
@@ -53,6 +154,272 @@ describe("executeControlledReuse", () => {
     expect(validateBehaviorEquivalence).toHaveBeenCalledOnce();
     expect(JSON.stringify(result.evidence)).not.toContain("private contents");
     expect(JSON.stringify(result.evidence)).not.toContain("/Users/alice");
+    expect(
+      parseControlledReuseExecutionEvidence(
+        serializeControlledReuseExecutionEvidence(result.evidence),
+      ),
+    ).toEqual(result.evidence);
+    expect(renderControlledReuseExecutionEvidence(result.evidence, "human"))
+      .toMatchInlineSnapshot(`
+        "Migaki Controlled Reuse Execution
+        Node: previous-tool-read -> tool-read
+        Plan/execution: reuse -> reuse (unchanged)
+        Outcomes: 1 potential, 1 planned, 1 skipped, 0 normal, 0 invalidated
+        Store: hit (migaki.reuse-value-store.v0)
+        Validators: source-exact passed; behavior_equivalence passed
+        Estimates: none; realized metrics are reported separately
+        Reasons: none
+        "
+    `);
+  });
+
+  it("rejects unknown fields in rich evidence and its nested records", async () => {
+    const current = createPlanningInput();
+    const store = createStore();
+    insert(store, "stored contents");
+    const result = await executeControlledReuse(createExecutionInput(current), {
+      codec: stringCodec,
+      executeNormally: () => "fresh contents",
+      now: NOW,
+      store,
+      validateBehaviorEquivalence: () => true,
+    });
+    const evidence = result.evidence;
+    const unknownFieldVariants = [
+      { ...evidence, rawPrompt: "private prompt" },
+      { ...evidence, apiKey: "private credential" },
+      { ...evidence, extraMetadata: "unexpected" },
+      {
+        ...evidence,
+        decisionRef: { ...evidence.decisionRef, extraMetadata: "unexpected" },
+      },
+      {
+        ...evidence,
+        eligibilityChecks: evidence.eligibilityChecks?.map((check, index) =>
+          index === 0 ? { ...check, extraMetadata: "unexpected" } : check,
+        ),
+      },
+      {
+        ...evidence,
+        estimatedAvoidableWork: {
+          ...evidence.estimatedAvoidableWork,
+          extraMetadata: "unexpected",
+        },
+      },
+      {
+        ...evidence,
+        invalidation: { ...evidence.invalidation, extraMetadata: "unexpected" },
+      },
+      {
+        ...evidence,
+        planExecutionDiff: {
+          ...evidence.planExecutionDiff,
+          extraMetadata: "unexpected",
+        },
+      },
+      {
+        ...evidence,
+        policyRef: { ...evidence.policyRef, extraMetadata: "unexpected" },
+      },
+      {
+        ...evidence,
+        privacyPolicy: {
+          ...evidence.privacyPolicy,
+          extraMetadata: "unexpected",
+        },
+      },
+      {
+        ...evidence,
+        realizedMetrics: {
+          ...evidence.realizedMetrics,
+          extraMetadata: "unexpected",
+        },
+      },
+      {
+        ...evidence,
+        storeRef: { ...evidence.storeRef, extraMetadata: "unexpected" },
+      },
+      {
+        ...evidence,
+        validatorOutcomes: evidence.validatorOutcomes?.map((outcome, index) =>
+          index === 0 ? { ...outcome, extraMetadata: "unexpected" } : outcome,
+        ),
+      },
+    ];
+
+    for (const invalid of unknownFieldVariants) {
+      expect(() =>
+        parseControlledReuseExecutionEvidence(JSON.stringify(invalid)),
+      ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    }
+  });
+
+  it("rejects semantically contradictory rich execution evidence", async () => {
+    const current = createPlanningInput();
+    const store = createStore();
+    insert(store, "stored contents");
+    const result = await executeControlledReuse(createExecutionInput(current), {
+      codec: stringCodec,
+      executeNormally: () => "fresh contents",
+      now: NOW,
+      store,
+      validateBehaviorEquivalence: () => true,
+    });
+    const evidence = result.evidence;
+    const contradictoryVariants = [
+      { ...evidence, action: "execute_normally" },
+      { ...evidence, executionOutcome: "executed_normally" },
+      {
+        ...evidence,
+        planExecutionDiff: {
+          ...evidence.planExecutionDiff,
+          executedAction: "execute_normally",
+        },
+      },
+      {
+        ...evidence,
+        planExecutionDiff: { ...evidence.planExecutionDiff, changed: true },
+      },
+      { ...evidence, actualSkippedActions: 0 },
+      {
+        ...evidence,
+        realizedMetrics: {
+          ...evidence.realizedMetrics,
+          actualSkippedActions: 0,
+        },
+      },
+      {
+        ...evidence,
+        realizedMetrics: {
+          ...evidence.realizedMetrics,
+          normalExecutions: 1,
+        },
+      },
+      {
+        ...evidence,
+        invalidation: {
+          count: 1,
+          reasonCodes: ["behavior_equivalence_failed"],
+        },
+      },
+      {
+        ...evidence,
+        realizedMetrics: { ...evidence.realizedMetrics, invalidations: 1 },
+      },
+      {
+        ...evidence,
+        realizedMetrics: { ...evidence.realizedMetrics, plannedReuse: 0 },
+      },
+      {
+        ...evidence,
+        realizedMetrics: { ...evidence.realizedMetrics, potentialReuse: 0 },
+      },
+      {
+        ...evidence,
+        storeRef: { ...evidence.storeRef, outcome: "invalidated" },
+      },
+      {
+        ...evidence,
+        action: "execute_normally",
+        executionOutcome: "executed_normally",
+        invalidation: {
+          count: 1,
+          reasonCodes: ["behavior_equivalence_failed"],
+        },
+        planExecutionDiff: {
+          ...evidence.planExecutionDiff,
+          changed: true,
+          executedAction: "execute_normally",
+        },
+        realizedMetrics: {
+          ...evidence.realizedMetrics,
+          invalidations: 1,
+          normalExecutions: 1,
+        },
+        storeRef: { ...evidence.storeRef, outcome: "invalidated" },
+      },
+    ];
+
+    for (const invalid of contradictoryVariants) {
+      expect(() =>
+        parseControlledReuseExecutionEvidence(JSON.stringify(invalid)),
+      ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    }
+  });
+
+  it("rejects realized reuse without coherent passed validator evidence", async () => {
+    const current = createPlanningInput();
+    const store = createStore();
+    insert(store, "stored contents");
+    const result = await executeControlledReuse(createExecutionInput(current), {
+      codec: stringCodec,
+      executeNormally: () => "fresh contents",
+      now: NOW,
+      store,
+      validateBehaviorEquivalence: () => true,
+    });
+    const evidence = result.evidence;
+    const validators = evidence.validatorOutcomes ?? [];
+    const sourceValidator = validators.find(
+      (outcome) => outcome.id === "source-exact",
+    );
+    const behaviorValidator = validators.find(
+      (outcome) => outcome.id === "behavior_equivalence",
+    );
+    expect(sourceValidator).toBeDefined();
+    expect(behaviorValidator).toBeDefined();
+
+    const contradictoryVariants = [
+      { ...evidence, validatorOutcomes: [] },
+      { ...evidence, validatorOutcomes: [behaviorValidator] },
+      { ...evidence, validatorOutcomes: [sourceValidator] },
+      {
+        ...evidence,
+        validatorOutcomes: [
+          sourceValidator,
+          behaviorValidator,
+          sourceValidator,
+        ],
+      },
+      {
+        ...evidence,
+        validatorOutcomes: validators.map((outcome) =>
+          outcome.id === "behavior_equivalence"
+            ? { ...outcome, status: "failed" as const }
+            : outcome,
+        ),
+      },
+      {
+        ...evidence,
+        validatorOutcomes: validators.map((outcome) =>
+          outcome.id === "behavior_equivalence"
+            ? { ...outcome, status: "not_run" as const }
+            : outcome,
+        ),
+      },
+      {
+        ...evidence,
+        validatorOutcomes: validators.map((outcome) =>
+          outcome.id === "source-exact"
+            ? { ...outcome, status: "failed" as const }
+            : outcome,
+        ),
+      },
+      {
+        ...evidence,
+        validatorOutcomes: validators.map((outcome) =>
+          outcome.id === "source-exact"
+            ? { ...outcome, status: "not_run" as const }
+            : outcome,
+        ),
+      },
+    ];
+
+    for (const invalid of contradictoryVariants) {
+      expect(() =>
+        parseControlledReuseExecutionEvidence(JSON.stringify(invalid)),
+      ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    }
   });
 
   it("executes normally when controlled reuse is disabled, even with a prior reuse plan", async () => {
@@ -71,7 +438,7 @@ describe("executeControlledReuse", () => {
       validateBehaviorEquivalence: () => true,
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       evidence: {
         action: "execute_normally",
         actualSkippedActions: 0,
@@ -84,6 +451,11 @@ describe("executeControlledReuse", () => {
       value: "fresh contents",
     });
     expect(executeNormally).toHaveBeenCalledOnce();
+    expect(
+      parseControlledReuseExecutionEvidence(
+        serializeControlledReuseExecutionEvidence(result.evidence),
+      ),
+    ).toEqual(result.evidence);
   });
 
   it("falls back exactly once for mismatched store provenance or behavior-equivalence failure", async () => {
@@ -129,6 +501,19 @@ describe("executeControlledReuse", () => {
       evidence: {
         action: "execute_normally",
         actualSkippedActions: 0,
+        executionOutcome: "executed_normally",
+        invalidation: {
+          count: 1,
+          reasonCodes: ["behavior_equivalence_failed"],
+        },
+        realizedMetrics: {
+          actualSkippedActions: 0,
+          invalidations: 1,
+          normalExecutions: 1,
+          plannedReuse: 1,
+          potentialReuse: 1,
+        },
+        storeRef: { outcome: "invalidated" },
         reasonCodes: ["behavior_equivalence_failed"],
       },
       status: "executed_normally",
@@ -136,6 +521,11 @@ describe("executeControlledReuse", () => {
     });
     expect(executeOnInvalid).toHaveBeenCalledOnce();
     expect(store.size).toBe(0);
+    expect(
+      parseControlledReuseExecutionEvidence(
+        serializeControlledReuseExecutionEvidence(invalid.evidence),
+      ),
+    ).toEqual(invalid.evidence);
   });
 
   it("blocks changed operation identity before lookup or execution", async () => {
@@ -155,7 +545,7 @@ describe("executeControlledReuse", () => {
       validateBehaviorEquivalence: () => true,
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       evidence: {
         action: "blocked",
         actualSkippedActions: 0,
@@ -167,6 +557,11 @@ describe("executeControlledReuse", () => {
       status: "blocked",
     });
     expect(executeNormally).not.toHaveBeenCalled();
+    expect(
+      parseControlledReuseExecutionEvidence(
+        serializeControlledReuseExecutionEvidence(result.evidence),
+      ),
+    ).toEqual(result.evidence);
   });
 
   it.each([
