@@ -266,6 +266,53 @@ describe("planControlledReuse", () => {
     ]);
   });
 
+  it.each([
+    [
+      "a decision without required validators",
+      (input: MutableInput) => {
+        delete firstDecision(input).requiredValidators;
+      },
+    ],
+    [
+      "a decision with malformed required validators",
+      (input: MutableInput) => {
+        firstDecision(input).requiredValidators = ["source-exact", 1];
+      },
+    ],
+    [
+      "a decision without previous-node provenance",
+      (input: MutableInput) => {
+        delete firstDecision(input).previousNodeId;
+      },
+    ],
+    [
+      "an artifact without the current run identifier",
+      (input: MutableInput) => {
+        delete input.decisionArtifact.comparisonRef.currentRunId;
+      },
+    ],
+  ] as const)("blocks %s as malformed nested input", (_name, mutate) => {
+    const input = structuredClone(createInput()) as unknown as MutableInput;
+    mutate(input);
+
+    expect(planControlledReuse(input, { now: NOW })).toMatchObject({
+      nodes: [
+        {
+          action: "blocked",
+          nodeId: "tool-read",
+          previousNodeId: "previous-tool-read",
+          reasonCodes: ["incompatible_authorization_input"],
+        },
+      ],
+      warnings: [
+        {
+          code: "incompatible_authorization_input",
+          nodeId: "tool-read",
+        },
+      ],
+    });
+  });
+
   it("is deterministic and does not mutate inputs or perform work", () => {
     const input = deepFreeze(createInput());
     const before = structuredClone(input);
@@ -382,6 +429,7 @@ interface MutableInput {
     validators: { passed: string[]; required: string[] };
   }>;
   decisionArtifact: {
+    comparisonRef: Record<string, unknown>;
     decisions: Array<Record<string, unknown>>;
     version: string;
   };

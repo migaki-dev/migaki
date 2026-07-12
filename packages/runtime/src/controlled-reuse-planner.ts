@@ -257,6 +257,7 @@ function readPlanningInput(
     typeof input.policy.authorizationVersion !== "string" ||
     typeof input.policy.mode !== "string" ||
     !isRecord(input.decisionArtifact) ||
+    !hasPlannerArtifactFields(input.decisionArtifact) ||
     !Array.isArray(input.candidates) ||
     !input.candidates.every(
       (candidate) =>
@@ -269,6 +270,25 @@ function readPlanningInput(
   }
 
   return input as unknown as ControlledReusePlanningInput;
+}
+
+function hasPlannerArtifactFields(
+  artifact: Readonly<Record<string, unknown>>,
+): boolean {
+  return (
+    isRecord(artifact.comparisonRef) &&
+    typeof artifact.comparisonRef.currentRunId === "string" &&
+    Array.isArray(artifact.decisions) &&
+    artifact.decisions.every(
+      (decision) =>
+        isRecord(decision) &&
+        typeof decision.previousNodeId === "string" &&
+        Array.isArray(decision.requiredValidators) &&
+        decision.requiredValidators.every(
+          (validator) => typeof validator === "string",
+        ),
+    )
+  );
 }
 
 function invalidCandidateIdentities(
