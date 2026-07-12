@@ -6,6 +6,7 @@ export * from "./adaptive-policy.js";
 export * from "./cost-estimation.js";
 export * from "./context-ledger.js";
 export * from "./constraints.js";
+export * from "./controlled-reuse.js";
 export * from "./diff.js";
 export * from "./dogfood-doctor.js";
 export * from "./evidence-bundle.js";

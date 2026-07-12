@@ -1,0 +1,228 @@
+{
+  "decisionArtifact": {
+    "comparisonRef": {
+      "currentRunId": "current-run",
+      "previousRunId": "previous-run",
+      "version": "migaki.observed-trajectory-comparison.v0"
+    },
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "decisions": [
+      {
+        "cacheKey": "sha256:exact-read",
+        "dependencyEvidence": {
+          "message": "Dependencies match exactly.",
+          "status": "passed"
+        },
+        "estimates": {},
+        "freshnessEvidence": {
+          "message": "Freshness evidence passed.",
+          "status": "passed"
+        },
+        "nodeId": "tool-read",
+        "operationKind": "tool_call",
+        "policyConstraints": {
+          "message": "Policy evidence passed.",
+          "status": "passed"
+        },
+        "previousNodeId": "tool-read",
+        "reasons": [],
+        "requiredValidators": [],
+        "sideEffectClass": "read_only",
+        "status": "allowed"
+      }
+    ],
+    "invariant": "This artifact never skips work.",
+    "privacyPolicy": {
+      "exportMatrixVersion": "migaki.evidence-privacy-policy.v0",
+      "exportMode": "metadata_only",
+      "fullTraceOptIn": false
+    },
+    "redaction": {
+      "mode": "metadata_only",
+      "omittedFields": [
+        "prompt",
+        "tool_input",
+        "tool_output",
+        "provider_response",
+        "file_path",
+        "customer_data",
+        "credential",
+        "local_machine_path"
+      ],
+      "reason": "Fixture contains metadata only."
+    },
+    "summary": {
+      "allowed": 1,
+      "blocked": 0,
+      "needsReview": 0,
+      "totalCandidates": 1
+    },
+    "version": "migaki.reuse-decision.v0"
+  },
+  "now": {
+    "now": "2026-01-01T00:05:00.000Z"
+  },
+  "invalid": {
+    "authorizationVersion": "migaki.controlled-reuse-authorization.v99",
+    "decisionArtifactVersion": "migaki.reuse-decision.v99",
+    "malformedInput": "not-an-authorization-object"
+  },
+  "cases": {
+    "allowed": {
+      "decisionNodeId": "tool-read",
+      "eligibility": {
+        "decisionStatus": "allowed",
+        "match": "exact",
+        "operationKind": "tool_call",
+        "sideEffectClass": "read_only"
+      },
+      "evidence": {
+        "dependencies": { "status": "passed" },
+        "freshness": {
+          "maximumAgeMs": 600000,
+          "observedAt": "2026-01-01T00:00:00.001Z",
+          "status": "passed"
+        },
+        "policy": { "status": "passed" },
+        "source": {
+          "currentFingerprint": "sha256:exact-read",
+          "equivalence": "exact",
+          "previousFingerprint": "sha256:exact-read"
+        }
+      },
+      "mode": "exact_read_only_tool_call",
+      "reusableValue": {
+        "lifetime": {
+          "createdAt": "2026-01-01T00:00:00.001Z",
+          "expiresAt": "2026-01-01T00:10:00.001Z"
+        },
+        "provenance": {
+          "decisionArtifactVersion": "migaki.reuse-decision.v0",
+          "fingerprint": "sha256:exact-read",
+          "nodeId": "tool-read",
+          "previousRunId": "previous-run"
+        },
+        "storage": "memory_only"
+      },
+      "validators": {
+        "passed": [
+          "source-exact",
+          "freshness-current",
+          "dependencies-equal",
+          "policy-allows"
+        ],
+        "required": [
+          "source-exact",
+          "freshness-current",
+          "dependencies-equal",
+          "policy-allows"
+        ]
+      },
+      "version": "migaki.controlled-reuse-authorization.v0"
+    },
+    "blocked": {
+      "decisionNodeId": "tool-read",
+      "eligibility": {
+        "decisionStatus": "allowed",
+        "match": "exact",
+        "operationKind": "tool_call",
+        "sideEffectClass": "read_only"
+      },
+      "evidence": {
+        "dependencies": { "status": "passed" },
+        "freshness": {
+          "maximumAgeMs": 1000,
+          "observedAt": "2026-01-01T00:00:00.001Z",
+          "status": "passed"
+        },
+        "policy": { "status": "passed" },
+        "source": {
+          "currentFingerprint": "sha256:exact-read",
+          "equivalence": "exact",
+          "previousFingerprint": "sha256:exact-read"
+        }
+      },
+      "mode": "exact_read_only_tool_call",
+      "reusableValue": {
+        "lifetime": {
+          "createdAt": "2026-01-01T00:00:00.001Z",
+          "expiresAt": "2026-01-01T00:10:00.001Z"
+        },
+        "provenance": {
+          "decisionArtifactVersion": "migaki.reuse-decision.v0",
+          "fingerprint": "sha256:exact-read",
+          "nodeId": "tool-read",
+          "previousRunId": "previous-run"
+        },
+        "storage": "memory_only"
+      },
+      "validators": {
+        "passed": [
+          "source-exact",
+          "freshness-current",
+          "dependencies-equal",
+          "policy-allows"
+        ],
+        "required": [
+          "source-exact",
+          "freshness-current",
+          "dependencies-equal",
+          "policy-allows"
+        ]
+      },
+      "version": "migaki.controlled-reuse-authorization.v0"
+    },
+    "needsReview": {
+      "decisionNodeId": "tool-read",
+      "eligibility": {
+        "decisionStatus": "allowed",
+        "match": "exact",
+        "operationKind": "tool_call",
+        "sideEffectClass": "read_only"
+      },
+      "evidence": {
+        "dependencies": { "status": "passed" },
+        "freshness": {
+          "maximumAgeMs": 600000,
+          "observedAt": "2026-01-01T00:00:00.001Z",
+          "status": "passed"
+        },
+        "policy": { "status": "passed" },
+        "source": {
+          "currentFingerprint": "sha256:exact-read",
+          "equivalence": "unknown",
+          "previousFingerprint": "sha256:exact-read"
+        }
+      },
+      "mode": "exact_read_only_tool_call",
+      "reusableValue": {
+        "lifetime": {
+          "createdAt": "2026-01-01T00:00:00.001Z",
+          "expiresAt": "2026-01-01T00:10:00.001Z"
+        },
+        "provenance": {
+          "decisionArtifactVersion": "migaki.reuse-decision.v0",
+          "fingerprint": "sha256:exact-read",
+          "nodeId": "tool-read",
+          "previousRunId": "previous-run"
+        },
+        "storage": "memory_only"
+      },
+      "validators": {
+        "passed": [
+          "source-exact",
+          "freshness-current",
+          "dependencies-equal",
+          "policy-allows"
+        ],
+        "required": [
+          "source-exact",
+          "freshness-current",
+          "dependencies-equal",
+          "policy-allows"
+        ]
+      },
+      "version": "migaki.controlled-reuse-authorization.v0"
+    }
+  }
+}
