@@ -123,6 +123,29 @@ describe("ephemeral reuse value store", () => {
     ).toEqual({ reasonCodes: ["store_expired"], status: "invalidated" });
   });
 
+  it("rejects inserts and clears existing values at exact store expiry", () => {
+    const expiresAt = "2026-01-01T01:00:00.000Z";
+    const store = createStore();
+    insert(store, "value");
+
+    expect(
+      store.lookup(
+        { provenance, version: REUSE_VALUE_STORE_VERSION },
+        stringCodec,
+        { now: expiresAt },
+      ),
+    ).toEqual({ reasonCodes: ["store_expired"], status: "invalidated" });
+    expect(store.size).toBe(0);
+    expect(
+      insert(
+        store,
+        "replacement",
+        { maximumAgeMs: 60_000, observedAt: expiresAt },
+        expiresAt,
+      ),
+    ).toEqual({ reasonCodes: ["store_expired"], status: "rejected" });
+  });
+
   it("clears values at lifecycle end and never uses process-global state", () => {
     const first = createStore();
     const second = createStore();

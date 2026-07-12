@@ -146,7 +146,7 @@ export function createEphemeralReuseValueStore(options: {
     if (timestamp < Date.parse(lifetime.createdAt)) {
       return "store_not_yet_active";
     }
-    if (timestamp > Date.parse(lifetime.expiresAt)) {
+    if (timestamp >= Date.parse(lifetime.expiresAt)) {
       return invalidateAll("store_expired");
     }
     return undefined;
