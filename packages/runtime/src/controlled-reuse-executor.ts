@@ -778,7 +778,11 @@ function hasCoherentRichExecutionOutcome(
   }
 
   if (action === "reuse") {
-    return invalidations === 0 && value.storeRef.outcome === "hit";
+    return (
+      invalidations === 0 &&
+      value.storeRef.outcome === "hit" &&
+      hasCoherentReuseValidatorOutcomes(value.validatorOutcomes)
+    );
   }
   if (action === "blocked") {
     return invalidations === 0 && value.storeRef.outcome === "not_checked";
@@ -788,6 +792,28 @@ function hasCoherentRichExecutionOutcome(
     : invalidations === 0 &&
         (value.storeRef.outcome === "miss" ||
           value.storeRef.outcome === "not_checked");
+}
+
+function hasCoherentReuseValidatorOutcomes(value: unknown): boolean {
+  if (!Array.isArray(value) || !value.every(isValidatorOutcome)) {
+    return false;
+  }
+
+  const ids = value.map((outcome) => outcome.id);
+  const behaviorEquivalence = value.filter(
+    (outcome) => outcome.id === "behavior_equivalence",
+  );
+  const requiredOutcomes = value.filter(
+    (outcome) => outcome.id !== "behavior_equivalence",
+  );
+
+  return (
+    new Set(ids).size === ids.length &&
+    behaviorEquivalence.length === 1 &&
+    behaviorEquivalence[0]?.status === "passed" &&
+    requiredOutcomes.length > 0 &&
+    requiredOutcomes.every((outcome) => outcome.status === "passed")
+  );
 }
 
 function containsPrivacyUnsafeValue(value: unknown): boolean {
@@ -935,7 +961,9 @@ function isStoreRef(value: unknown): boolean {
   );
 }
 
-function isValidatorOutcome(value: unknown): boolean {
+function isValidatorOutcome(
+  value: unknown,
+): value is ControlledReuseValidatorOutcome {
   return (
     isRecord(value) &&
     hasOnlyFields(value, new Set(["id", "status"])) &&

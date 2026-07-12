@@ -347,6 +347,81 @@ describe("executeControlledReuse", () => {
     }
   });
 
+  it("rejects realized reuse without coherent passed validator evidence", async () => {
+    const current = createPlanningInput();
+    const store = createStore();
+    insert(store, "stored contents");
+    const result = await executeControlledReuse(createExecutionInput(current), {
+      codec: stringCodec,
+      executeNormally: () => "fresh contents",
+      now: NOW,
+      store,
+      validateBehaviorEquivalence: () => true,
+    });
+    const evidence = result.evidence;
+    const validators = evidence.validatorOutcomes ?? [];
+    const sourceValidator = validators.find(
+      (outcome) => outcome.id === "source-exact",
+    );
+    const behaviorValidator = validators.find(
+      (outcome) => outcome.id === "behavior_equivalence",
+    );
+    expect(sourceValidator).toBeDefined();
+    expect(behaviorValidator).toBeDefined();
+
+    const contradictoryVariants = [
+      { ...evidence, validatorOutcomes: [] },
+      { ...evidence, validatorOutcomes: [behaviorValidator] },
+      { ...evidence, validatorOutcomes: [sourceValidator] },
+      {
+        ...evidence,
+        validatorOutcomes: [
+          sourceValidator,
+          behaviorValidator,
+          sourceValidator,
+        ],
+      },
+      {
+        ...evidence,
+        validatorOutcomes: validators.map((outcome) =>
+          outcome.id === "behavior_equivalence"
+            ? { ...outcome, status: "failed" as const }
+            : outcome,
+        ),
+      },
+      {
+        ...evidence,
+        validatorOutcomes: validators.map((outcome) =>
+          outcome.id === "behavior_equivalence"
+            ? { ...outcome, status: "not_run" as const }
+            : outcome,
+        ),
+      },
+      {
+        ...evidence,
+        validatorOutcomes: validators.map((outcome) =>
+          outcome.id === "source-exact"
+            ? { ...outcome, status: "failed" as const }
+            : outcome,
+        ),
+      },
+      {
+        ...evidence,
+        validatorOutcomes: validators.map((outcome) =>
+          outcome.id === "source-exact"
+            ? { ...outcome, status: "not_run" as const }
+            : outcome,
+        ),
+      },
+    ];
+
+    for (const invalid of contradictoryVariants) {
+      expect(() =>
+        parseControlledReuseExecutionEvidence(JSON.stringify(invalid)),
+      ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    }
+  });
+
   it("executes normally when controlled reuse is disabled, even with a prior reuse plan", async () => {
     const current = createPlanningInput();
     const input = createExecutionInput(current);
