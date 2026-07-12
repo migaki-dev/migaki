@@ -8,18 +8,21 @@ import { join } from "node:path";
 import {
   EXECUTION_EVENT_VERSION,
   EXECUTION_GRAPH_VERSION,
+  CONTROLLED_REUSE_EXECUTION_VERSION,
   EVIDENCE_BUNDLE_VERSION,
   MOCK_TRACE_ARTIFACT_VERSION,
   REUSE_DECISION_ARTIFACT_VERSION,
   compareObservedExecutionGraphs,
   createReuseDecisionArtifact,
   parseEvidenceBundle,
+  parseControlledReuseExecutionEvidence,
   parseMockExecutionTraceArtifact,
   renderExecutionReport,
   renderReuseDecisionArtifact,
   replayMockExecutionTrace,
   stableExecutionHash,
   type EvidenceBundle,
+  type ControlledReuseExecutionEvidence,
   type ExecutionGraph,
   type ExecutionNode,
   type EstimateEvidenceEvent,
@@ -272,6 +275,32 @@ interface ReuseDecisionReport {
   };
   readonly decisions: readonly ReuseDecisionSummaryReport[];
   readonly needsReview: number;
+  readonly version: CliReportVersion;
+}
+
+interface ControlledReuseExecutionReport {
+  readonly artifactKind: "controlled_reuse_execution";
+  readonly decisionRef?: ControlledReuseExecutionEvidence["decisionRef"];
+  readonly estimates?: ControlledReuseExecutionEvidence["estimatedAvoidableWork"];
+  readonly eligibilityChecks: NonNullable<
+    ControlledReuseExecutionEvidence["eligibilityChecks"]
+  >;
+  readonly executionOutcome?: ControlledReuseExecutionEvidence["executionOutcome"];
+  readonly identity: {
+    readonly nodeId: string;
+    readonly previousNodeId: string;
+  };
+  readonly planExecutionDiff?: ControlledReuseExecutionEvidence["planExecutionDiff"];
+  readonly policyRef?: ControlledReuseExecutionEvidence["policyRef"];
+  readonly realized?: ControlledReuseExecutionEvidence["realizedMetrics"];
+  readonly reasons: ControlledReuseExecutionEvidence["reasonCodes"];
+  readonly store?: Pick<
+    NonNullable<ControlledReuseExecutionEvidence["storeRef"]>,
+    "outcome" | "version"
+  >;
+  readonly validators: NonNullable<
+    ControlledReuseExecutionEvidence["validatorOutcomes"]
+  >;
   readonly version: CliReportVersion;
 }
 
@@ -533,6 +562,16 @@ async function runReportCommand(
 
         return succeed(
           `${stableStringify(createReuseDecisionReport(artifact))}\n`,
+        );
+      }
+
+      if (version === CONTROLLED_REUSE_EXECUTION_VERSION) {
+        const evidence = parseControlledReuseExecutionEvidence(artifactText);
+        return succeed(
+          renderReport(
+            createControlledReuseExecutionReport(evidence),
+            args.format,
+          ),
         );
       }
     } catch (error) {
@@ -4027,6 +4066,48 @@ function createReuseDecisionReport(
   };
 }
 
+function createControlledReuseExecutionReport(
+  evidence: ControlledReuseExecutionEvidence,
+): ControlledReuseExecutionReport {
+  return {
+    artifactKind: "controlled_reuse_execution",
+    ...(evidence.decisionRef === undefined
+      ? {}
+      : { decisionRef: evidence.decisionRef }),
+    ...(evidence.estimatedAvoidableWork === undefined
+      ? {}
+      : { estimates: evidence.estimatedAvoidableWork }),
+    eligibilityChecks: evidence.eligibilityChecks ?? [],
+    ...(evidence.executionOutcome === undefined
+      ? {}
+      : { executionOutcome: evidence.executionOutcome }),
+    identity: {
+      nodeId: evidence.nodeId,
+      previousNodeId: evidence.previousNodeId,
+    },
+    ...(evidence.planExecutionDiff === undefined
+      ? {}
+      : { planExecutionDiff: evidence.planExecutionDiff }),
+    ...(evidence.policyRef === undefined
+      ? {}
+      : { policyRef: evidence.policyRef }),
+    ...(evidence.realizedMetrics === undefined
+      ? {}
+      : { realized: evidence.realizedMetrics }),
+    reasons: evidence.reasonCodes,
+    ...(evidence.storeRef === undefined
+      ? {}
+      : {
+          store: {
+            outcome: evidence.storeRef.outcome,
+            version: evidence.storeRef.version,
+          },
+        }),
+    validators: evidence.validatorOutcomes ?? [],
+    version: CLI_REPORT_VERSION,
+  };
+}
+
 function createReplayReport(
   trace: MockExecutionTraceArtifact,
   replay: MockExecutionTraceReplayResult,
@@ -4139,7 +4220,7 @@ function missingEvidenceSections(input: {
 }
 
 function renderReport(
-  report: EvidenceReport | MockTraceReport,
+  report: ControlledReuseExecutionReport | EvidenceReport | MockTraceReport,
   format: CliReportFormat,
 ): string {
   if (format === "json") {
@@ -4150,7 +4231,63 @@ function renderReport(
     return renderEvidenceHumanReport(report);
   }
 
+  if (report.artifactKind === "controlled_reuse_execution") {
+    return renderControlledReuseHumanReport(report);
+  }
+
   return renderMockTraceHumanReport(report);
+}
+
+function renderControlledReuseHumanReport(
+  report: ControlledReuseExecutionReport,
+): string {
+  const diff = report.planExecutionDiff;
+  const realized = report.realized;
+  const estimates = report.estimates;
+  const estimateParts = [
+    ...(estimates?.totalTokens === undefined
+      ? []
+      : [`${estimates.totalTokens} tokens`]),
+    ...(estimates?.costUsd === undefined ? [] : [`${estimates.costUsd} usd`]),
+    ...(estimates?.latencyMs === undefined
+      ? []
+      : [`${estimates.latencyMs} ms`]),
+  ];
+  return [
+    "Migaki Controlled Reuse Report",
+    `Node: ${report.identity.previousNodeId} -> ${report.identity.nodeId}`,
+    `Plan/execution: ${diff?.plannedAction ?? "unknown"} -> ${
+      diff?.executedAction ?? "unknown"
+    } (${diff?.changed === true ? "changed" : "unchanged"})`,
+    `Potential/planned: ${realized?.potentialReuse ?? 0}/${
+      realized?.plannedReuse ?? 0
+    }`,
+    `Realized: ${realized?.actualSkippedActions ?? 0} skipped, ${
+      realized?.normalExecutions ?? 0
+    } normal, ${realized?.invalidations ?? 0} invalidated`,
+    `Estimated avoidable work: ${
+      estimateParts.length === 0 ? "none" : estimateParts.join(", ")
+    } (not realized)`,
+    `Store: ${report.store?.outcome ?? "unknown"} (${report.store?.version ?? "unknown"})`,
+    `Eligibility: ${
+      report.eligibilityChecks.length === 0
+        ? "none"
+        : report.eligibilityChecks
+            .map((check) => `${check.name} ${check.status}`)
+            .join("; ")
+    }`,
+    `Validators: ${
+      report.validators.length === 0
+        ? "none"
+        : report.validators
+            .map((validator) => `${validator.id} ${validator.status}`)
+            .join("; ")
+    }`,
+    `Reasons: ${
+      report.reasons.length === 0 ? "none" : report.reasons.join(", ")
+    }`,
+    "",
+  ].join("\n");
 }
 
 function renderReplayReport(

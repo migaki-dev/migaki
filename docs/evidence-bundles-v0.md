@@ -293,11 +293,19 @@ into one. Persistent disk, database, cloud, cross-process, or cross-user stores
 and retention policy are deferred to a later milestone.
 
 Controlled-reuse execution evidence follows the same privacy boundary. It may
-record the execution contract version, node references, action, stable reason
-codes, and `actualSkippedActions`, which is exactly `1` for a validated hit and
-`0` otherwise. It never contains the reused value. This bounded counter proves
-one realized skipped read; it does not establish a broader latency, token, or
-cost optimization claim.
+record the execution contract version, current and prior node references,
+decision and ephemeral-store references, exact eligibility checks, validator
+outcomes, store outcome, stable reason codes, and a plan/execution diff.
+Potential reuse, planned reuse, normal execution, invalidation, and
+`actualSkippedActions` are separate counters; only a validated hit increments
+the last counter. Estimated avoidable tokens, cost, and latency remain in a
+separate `estimated` section and are never reported as realized savings.
+
+The v0 parser accepts legacy minimal execution evidence for compatibility while
+validating rich records at the boundary. It rejects incompatible versions and
+privacy-unsafe raw prompt, tool payload, provider response, reusable value,
+credential, or local-path data. Invalidated and failed attempts remain visible
+with stable reason codes and cannot increment realized skipped actions.
 
 ## Compatibility
 

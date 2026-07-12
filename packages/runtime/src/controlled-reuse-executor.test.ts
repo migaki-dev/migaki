@@ -10,7 +10,10 @@ import {
   REUSE_VALUE_STORE_VERSION,
   createEphemeralReuseValueStore,
   executeControlledReuse,
+  parseControlledReuseExecutionEvidence,
   planControlledReuse,
+  renderControlledReuseExecutionEvidence,
+  serializeControlledReuseExecutionEvidence,
   type ControlledReuseExecutionInput,
   type ControlledReusePlanningInput,
   type ReuseValueCodec,
@@ -23,6 +26,39 @@ const stringCodec: ReuseValueCodec<string> = {
 };
 
 describe("executeControlledReuse", () => {
+  it("parses legacy v0 evidence but rejects incompatible or privacy-unsafe serialized evidence", () => {
+    const legacy = {
+      action: "execute_normally",
+      actualSkippedActions: 0,
+      nodeId: "tool-read",
+      previousNodeId: "previous-tool-read",
+      reasonCodes: ["opt_in_required"],
+      version: CONTROLLED_REUSE_EXECUTION_VERSION,
+    } as const;
+
+    expect(
+      parseControlledReuseExecutionEvidence(JSON.stringify(legacy)),
+    ).toEqual(legacy);
+    expect(() =>
+      parseControlledReuseExecutionEvidence(
+        JSON.stringify({
+          ...legacy,
+          version: "migaki.controlled-reuse-execution.v99",
+        }),
+      ),
+    ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    expect(() =>
+      parseControlledReuseExecutionEvidence(
+        JSON.stringify({ ...legacy, tool_input: "private tool input" }),
+      ),
+    ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    expect(() =>
+      parseControlledReuseExecutionEvidence(
+        JSON.stringify({ ...legacy, localPath: "/Users/alice/private.txt" }),
+      ),
+    ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+  });
+
   it("returns one validated stored read and records exactly one skipped action", async () => {
     const current = createPlanningInput();
     const store = createStore();
@@ -42,9 +78,54 @@ describe("executeControlledReuse", () => {
       evidence: {
         action: "reuse",
         actualSkippedActions: 1,
+        decisionRef: {
+          currentRunId: "current-run",
+          nodeId: "tool-read",
+          previousRunId: "previous-run",
+          version: REUSE_DECISION_ARTIFACT_VERSION,
+        },
+        eligibilityChecks: [
+          { name: "decision_status", status: "passed" },
+          { name: "exact_match", status: "passed" },
+          { name: "operation_kind", status: "passed" },
+          { name: "side_effect_class", status: "passed" },
+          { name: "source_equivalence", status: "passed" },
+          { name: "freshness", status: "passed" },
+          { name: "dependencies", status: "passed" },
+          { name: "policy", status: "passed" },
+        ],
+        executionOutcome: "reused",
+        invalidation: { count: 0, reasonCodes: [] },
         nodeId: "tool-read",
+        planExecutionDiff: {
+          changed: false,
+          executedAction: "reuse",
+          plannedAction: "reuse",
+        },
+        policyRef: {
+          authorizationVersion: CONTROLLED_REUSE_AUTHORIZATION_VERSION,
+          mode: "exact_read_only_tool_call",
+          plannerVersion: CONTROLLED_REUSE_PLAN_VERSION,
+        },
         previousNodeId: "previous-tool-read",
         reasonCodes: [],
+        realizedMetrics: {
+          actualSkippedActions: 1,
+          invalidations: 0,
+          normalExecutions: 0,
+          plannedReuse: 1,
+          potentialReuse: 1,
+        },
+        storeRef: {
+          id: "controlled-reuse-test",
+          outcome: "hit",
+          valueSchemaVersion: "repo-file-read.string.v1",
+          version: REUSE_VALUE_STORE_VERSION,
+        },
+        validatorOutcomes: [
+          { id: "source-exact", status: "passed" },
+          { id: "behavior_equivalence", status: "passed" },
+        ],
       },
       status: "reused",
       value: "private contents at /Users/alice/secret.txt",
@@ -53,6 +134,23 @@ describe("executeControlledReuse", () => {
     expect(validateBehaviorEquivalence).toHaveBeenCalledOnce();
     expect(JSON.stringify(result.evidence)).not.toContain("private contents");
     expect(JSON.stringify(result.evidence)).not.toContain("/Users/alice");
+    expect(
+      parseControlledReuseExecutionEvidence(
+        serializeControlledReuseExecutionEvidence(result.evidence),
+      ),
+    ).toEqual(result.evidence);
+    expect(renderControlledReuseExecutionEvidence(result.evidence, "human"))
+      .toMatchInlineSnapshot(`
+        "Migaki Controlled Reuse Execution
+        Node: previous-tool-read -> tool-read
+        Plan/execution: reuse -> reuse (unchanged)
+        Outcomes: 1 potential, 1 planned, 1 skipped, 0 normal, 0 invalidated
+        Store: hit (migaki.reuse-value-store.v0)
+        Validators: source-exact passed; behavior_equivalence passed
+        Estimates: none; realized metrics are reported separately
+        Reasons: none
+        "
+      `);
   });
 
   it("executes normally when controlled reuse is disabled, even with a prior reuse plan", async () => {
@@ -71,7 +169,7 @@ describe("executeControlledReuse", () => {
       validateBehaviorEquivalence: () => true,
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       evidence: {
         action: "execute_normally",
         actualSkippedActions: 0,
@@ -129,6 +227,19 @@ describe("executeControlledReuse", () => {
       evidence: {
         action: "execute_normally",
         actualSkippedActions: 0,
+        executionOutcome: "executed_normally",
+        invalidation: {
+          count: 1,
+          reasonCodes: ["behavior_equivalence_failed"],
+        },
+        realizedMetrics: {
+          actualSkippedActions: 0,
+          invalidations: 1,
+          normalExecutions: 1,
+          plannedReuse: 1,
+          potentialReuse: 1,
+        },
+        storeRef: { outcome: "invalidated" },
         reasonCodes: ["behavior_equivalence_failed"],
       },
       status: "executed_normally",
@@ -155,7 +266,7 @@ describe("executeControlledReuse", () => {
       validateBehaviorEquivalence: () => true,
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       evidence: {
         action: "blocked",
         actualSkippedActions: 0,

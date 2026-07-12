@@ -198,4 +198,8 @@ cannot enter the reuse path.
 Execution evidence is metadata-only and reports `actualSkippedActions: 1` only
 for a validated hit. The typed value remains solely on the in-process result;
 it is never copied into evidence with prompts, tool inputs or outputs, provider
-responses, secrets, or local paths.
+responses, secrets, or local paths. Optional v0 fields record exact eligibility
+checks, validator outcomes, decision/store references, the planned-versus-
+executed action, invalidations, and separate estimated and realized counters.
+The parser continues to accept legacy minimal v0 evidence, rejects incompatible
+versions, and fails closed on raw sensitive fields or local paths.
