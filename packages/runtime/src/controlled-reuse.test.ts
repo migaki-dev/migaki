@@ -184,6 +184,13 @@ describe("controlled reuse authorization", () => {
       },
       "reusable_value_expired",
     ],
+    [
+      "future-created reusable values",
+      (input: MutableInput) => {
+        input.reusableValue.lifetime.createdAt = "2026-01-01T00:05:00.001Z";
+      },
+      "reusable_value_not_yet_valid",
+    ],
   ])("does not authorize %s", async (_name, mutate, expectedCode) => {
     const fixture = await loadFixture();
     const input = structuredClone(

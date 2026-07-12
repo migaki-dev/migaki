@@ -88,6 +88,7 @@ export type ControlledReuseAuthorizationReasonCode =
   | "policy_evidence_needs_review"
   | "provenance_mismatch"
   | "reusable_value_expired"
+  | "reusable_value_not_yet_valid"
   | "side_effect_unsupported"
   | "source_equivalence_needs_review"
   | "source_fingerprint_mismatch"
@@ -663,6 +664,14 @@ function reviewReusableValue(
   const createdAt = timestamp(input.reusableValue.lifetime.createdAt);
   const expiresAt = timestamp(input.reusableValue.lifetime.expiresAt);
   const now = timestamp(nowInput);
+  if (createdAt !== undefined && now !== undefined && now < createdAt) {
+    reasons.push(
+      reason(
+        "reusable_value_not_yet_valid",
+        "Reusable values cannot be used before their declared creation time.",
+      ),
+    );
+  }
   if (
     createdAt === undefined ||
     expiresAt === undefined ||
