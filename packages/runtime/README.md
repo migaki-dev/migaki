@@ -156,3 +156,14 @@ declared validators, and a process-memory value policy with provenance and
 expiry. It authorizes only already-allowed read-only tool calls. The validator
 performs no replay, cache lookup, persistence, tool skipping, provider call,
 mutation, or user-visible action.
+
+`migaki.controlled-reuse-plan.v0` turns those authorization checks into an
+explicit metadata-only per-node plan. It selects `reuse` only when the bounded
+authorization succeeds and current/previous node identity plus required
+validator outcomes still match. Disabled, absent, or review-required reuse
+candidates execute normally; explicit safety failures and incompatible inputs
+are blocked with stable reason codes. Plan provenance contains contract and run
+references, node identities, and the source fingerprint, never prompts, tool
+payloads, outputs, credentials, or local paths. Planning itself does not fetch
+values, skip tools, invoke providers, persist state, or perform user-visible
+work.

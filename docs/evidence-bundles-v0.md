@@ -255,7 +255,19 @@ validator never reads wall-clock time itself.
 This v0 contract defines authorization metadata only. Validation performs no
 replay, cache lookup, persistent storage, tool skipping, provider call,
 mutation, or user-visible action, and it makes no claim of realized savings.
-Downstream execution behavior requires a separate contract and implementation.
+The separate `migaki.controlled-reuse-plan.v0` contract consumes the policy,
+decision artifact, current evidence, validator outcomes, and node identities to
+produce deterministic `execute_normally`, `reuse`, or `blocked` choices. Only a
+fully authorized exact read-only tool call becomes `reuse`. Missing opt-in,
+missing decisions, and review-required evidence fall back to normal execution;
+explicit safety failures, stale or mismatched provenance, and incompatible
+versions are blocked with stable reason codes. Its metadata-only provenance is
+sufficient for a later plan diff or evidence event without carrying prompts,
+tool payloads, outputs, credentials, provider responses, or local paths.
+
+This planning contract still performs no execution. Fetching a stored value or
+causing an executor to skip a tool remains outside the v0 controlled-reuse
+boundary.
 
 ## Compatibility
 
