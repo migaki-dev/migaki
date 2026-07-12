@@ -269,6 +269,23 @@ This planning contract still performs no execution. Fetching a stored value or
 causing an executor to skip a tool remains outside the v0 controlled-reuse
 boundary.
 
+The separate `migaki.reuse-value-store.v0` runtime contract provides an
+injected, ephemeral process-memory implementation for resolving a typed value
+under the plan's exact decision version, source run, node, and fingerprint
+provenance. Each instance has an explicit run/session lifetime and capacity;
+expiry, provenance mismatch, unknown request or value-schema versions, and
+corrupt values fail closed as deterministic misses or invalidations. Closing or
+expiring the instance clears its values, and separate instances never share
+state through a hidden global cache.
+
+Evidence and serialized descriptions may carry only the store version,
+lifetime metadata, freshness, value-schema version, and redacted provenance
+references or fingerprints. Raw reusable values, prompts, tool inputs or
+outputs, provider responses, secrets, and local paths remain prohibited. The
+typed runtime hit result is not an evidence artifact and must not be serialized
+into one. Persistent disk, database, cloud, cross-process, or cross-user stores
+and retention policy are deferred to a later milestone.
+
 ## Compatibility
 
 Changing event kinds, required event fields, bundle section names, redaction
