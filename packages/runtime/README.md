@@ -169,7 +169,7 @@ values, skip tools, invoke providers, persist state, or perform user-visible
 work.
 
 `migaki.reuse-value-store.v0` is the provider-neutral, injected value boundary
-for a later executor to resolve an authorized reuse plan. The ephemeral
+used to resolve an authorized reuse plan. The ephemeral
 implementation is created per run or session with an explicit creation time,
 expiry time, identifier, and entry limit; it has no process-global singleton.
 Typed codecs guard insertion and lookup, while exact decision version, previous
@@ -183,3 +183,19 @@ metadata-only and include provenance fingerprints, freshness, schema version,
 and lifetime without reusable values, tool output, secrets, or local paths.
 Persistent disk, database, cloud, cross-user, and cross-process stores—and
 their retention policies—are explicitly deferred beyond v0.
+
+`migaki.controlled-reuse-execution.v0` resolves exactly one supplied plan node.
+For a proposed reuse, it recomputes the node plan from current source,
+freshness, dependency, policy, side-effect, provenance, and validator evidence
+at the execution boundary, then requires an exact match with the supplied plan.
+A typed store hit is returned only after an injected behavior-equivalence
+validator passes. Misses and validation failures execute the injected normal
+operation exactly once; explicit safety failures block without lookup or
+execution. Disabled mode always executes normally, and model calls, provider
+requests, mutations, approval-required operations, and unknown side effects
+cannot enter the reuse path.
+
+Execution evidence is metadata-only and reports `actualSkippedActions: 1` only
+for a validated hit. The typed value remains solely on the in-process result;
+it is never copied into evidence with prompts, tool inputs or outputs, provider
+responses, secrets, or local paths.

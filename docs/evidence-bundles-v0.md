@@ -265,9 +265,15 @@ versions are blocked with stable reason codes. Its metadata-only provenance is
 sufficient for a later plan diff or evidence event without carrying prompts,
 tool payloads, outputs, credentials, provider responses, or local paths.
 
-This planning contract still performs no execution. Fetching a stored value or
-causing an executor to skip a tool remains outside the v0 controlled-reuse
-boundary.
+This planning contract still performs no execution. The separate
+`migaki.controlled-reuse-execution.v0` contract resolves one supplied node only
+after recomputing its plan from current operation identity, source fingerprint,
+freshness, dependencies, policy, side-effect class, store provenance, and
+required validator evidence. A typed store hit must also pass an injected
+behavior-equivalence validator. Misses or failed value validation execute the
+normal operation once; explicit safety failures block. Disabled mode does not
+reuse, and model calls, provider requests, mutations, permissioned operations,
+and user-visible side effects cannot enter this path.
 
 The separate `migaki.reuse-value-store.v0` runtime contract provides an
 injected, ephemeral process-memory implementation for resolving a typed value
@@ -285,6 +291,13 @@ outputs, provider responses, secrets, and local paths remain prohibited. The
 typed runtime hit result is not an evidence artifact and must not be serialized
 into one. Persistent disk, database, cloud, cross-process, or cross-user stores
 and retention policy are deferred to a later milestone.
+
+Controlled-reuse execution evidence follows the same privacy boundary. It may
+record the execution contract version, node references, action, stable reason
+codes, and `actualSkippedActions`, which is exactly `1` for a validated hit and
+`0` otherwise. It never contains the reused value. This bounded counter proves
+one realized skipped read; it does not establish a broader latency, token, or
+cost optimization claim.
 
 ## Compatibility
 
