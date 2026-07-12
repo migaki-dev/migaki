@@ -147,3 +147,12 @@ through allowed/denied provider constraints.
 decisions for explicitly eligible classification and ranking nodes. It honors
 required validators plus allowed and denied provider constraints, emitting
 evidence for routed nodes and warnings when routing is skipped.
+
+`migaki.controlled-reuse-authorization.v0` is the public, fail-closed boundary
+for the bounded controlled-reuse proof. It consumes an existing reuse-decision
+artifact and requires explicit `exact_read_only_tool_call` opt-in, exact source
+fingerprints, current freshness, passed dependency and policy evidence,
+declared validators, and a process-memory value policy with provenance and
+expiry. It authorizes only already-allowed read-only tool calls. The validator
+performs no replay, cache lookup, persistence, tool skipping, provider call,
+mutation, or user-visible action.

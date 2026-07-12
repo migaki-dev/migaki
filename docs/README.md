@@ -18,7 +18,8 @@ downstream integrators.
   capability fixtures, backend lowering contracts, execution results, and
   adapter responsibilities.
 - [Evidence Bundles v0](./evidence-bundles-v0.md) describes evidence events,
-  evidence bundles, redaction behavior, and mock trace replay artifacts.
+  evidence bundles, redaction behavior, mock trace replay artifacts, reuse
+  decisions, and bounded controlled-reuse authorization.
 - [Gateway and Durable Replay Boundaries v0](./gateway-durable-boundaries-v0.md)
   describes which routing, fallback, budget, retry, cache, observability, and
   replay decisions belong to Migaki versus gateways and durable workflow

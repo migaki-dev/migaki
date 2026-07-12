@@ -223,6 +223,40 @@ classes. They are sequence-only dependency-review prompts, remain `blocked`, and
 require a reviewer or later pass to prove data independence, side-effect class,
 and user-visible ordering before any parallel execution is allowed.
 
+## Controlled Reuse Authorization
+
+The `migaki.controlled-reuse-authorization.v0` contract is a separate,
+explicit opt-in boundary over an existing `migaki.reuse-decision.v0` artifact.
+Controlled reuse is disabled unless the caller supplies the
+`exact_read_only_tool_call` mode. The only eligible candidate is an exact
+`tool_call` decision already classified `allowed` with `read_only` side
+effects. Model calls, provider requests, mutations, semantic matches, unknown
+side effects, and blocked or review-required decisions are not authorized.
+
+An authorization input must bind all of the following metadata to one decision:
+
+- exact current, previous, decision, and reusable-value fingerprints
+- passed freshness evidence within a declared maximum age
+- passed dependency and policy evidence in both the decision artifact and the
+  authorization request
+- a non-empty set of required validator identifiers, all present in the passed
+  validator set
+- a reusable-value policy limited to process memory, with provenance naming the
+  source run, node, decision-artifact version, and fingerprint
+- an explicit creation and expiry interval that is still live when validated
+
+The runtime validator accepts `unknown`, checks contract and artifact versions,
+and fails closed on malformed input, missing opt-in, incomplete evidence,
+unsupported operation classes, stale evidence, missing validators, provenance
+drift, or expired values. Uncertain evidence can return `needs_review`, but it
+never returns authorization. The caller supplies the evaluation timestamp; the
+validator never reads wall-clock time itself.
+
+This v0 contract defines authorization metadata only. Validation performs no
+replay, cache lookup, persistent storage, tool skipping, provider call,
+mutation, or user-visible action, and it makes no claim of realized savings.
+Downstream execution behavior requires a separate contract and implementation.
+
 ## Compatibility
 
 Changing event kinds, required event fields, bundle section names, redaction
