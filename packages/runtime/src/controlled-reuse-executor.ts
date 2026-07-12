@@ -733,8 +733,61 @@ function isControlledReuseExecutionEvidence(
     Array.isArray(value.validatorOutcomes) &&
     value.validatorOutcomes.every(isValidatorOutcome) &&
     (value.estimatedAvoidableWork === undefined ||
-      isEstimatedWork(value.estimatedAvoidableWork))
+      isEstimatedWork(value.estimatedAvoidableWork)) &&
+    hasCoherentRichExecutionOutcome(value)
   );
+}
+
+function hasCoherentRichExecutionOutcome(
+  value: Readonly<Record<string, unknown>>,
+): boolean {
+  if (
+    !isRecord(value.invalidation) ||
+    !isRecord(value.planExecutionDiff) ||
+    !isRecord(value.realizedMetrics) ||
+    !isRecord(value.storeRef)
+  ) {
+    return false;
+  }
+
+  const action = value.action;
+  const invalidations = value.realizedMetrics.invalidations;
+  const plannedAction = value.planExecutionDiff.plannedAction;
+  const expectedOutcome =
+    action === "reuse"
+      ? "reused"
+      : action === "execute_normally"
+        ? "executed_normally"
+        : "blocked";
+  const expectedSkippedActions = action === "reuse" ? 1 : 0;
+  const expectedNormalExecutions = action === "execute_normally" ? 1 : 0;
+  const expectedPlannedReuse = plannedAction === "reuse" ? 1 : 0;
+
+  if (
+    value.executionOutcome !== expectedOutcome ||
+    value.planExecutionDiff.executedAction !== action ||
+    value.planExecutionDiff.changed !== (plannedAction !== action) ||
+    value.actualSkippedActions !== expectedSkippedActions ||
+    value.realizedMetrics.actualSkippedActions !== expectedSkippedActions ||
+    value.realizedMetrics.normalExecutions !== expectedNormalExecutions ||
+    invalidations !== value.invalidation.count ||
+    value.realizedMetrics.plannedReuse !== expectedPlannedReuse ||
+    (expectedPlannedReuse === 1 && value.realizedMetrics.potentialReuse !== 1)
+  ) {
+    return false;
+  }
+
+  if (action === "reuse") {
+    return invalidations === 0 && value.storeRef.outcome === "hit";
+  }
+  if (action === "blocked") {
+    return invalidations === 0 && value.storeRef.outcome === "not_checked";
+  }
+  return value.storeRef.outcome === "invalidated"
+    ? invalidations === 1
+    : invalidations === 0 &&
+        (value.storeRef.outcome === "miss" ||
+          value.storeRef.outcome === "not_checked");
 }
 
 function containsPrivacyUnsafeValue(value: unknown): boolean {

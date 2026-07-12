@@ -254,6 +254,99 @@ describe("executeControlledReuse", () => {
     }
   });
 
+  it("rejects semantically contradictory rich execution evidence", async () => {
+    const current = createPlanningInput();
+    const store = createStore();
+    insert(store, "stored contents");
+    const result = await executeControlledReuse(createExecutionInput(current), {
+      codec: stringCodec,
+      executeNormally: () => "fresh contents",
+      now: NOW,
+      store,
+      validateBehaviorEquivalence: () => true,
+    });
+    const evidence = result.evidence;
+    const contradictoryVariants = [
+      { ...evidence, action: "execute_normally" },
+      { ...evidence, executionOutcome: "executed_normally" },
+      {
+        ...evidence,
+        planExecutionDiff: {
+          ...evidence.planExecutionDiff,
+          executedAction: "execute_normally",
+        },
+      },
+      {
+        ...evidence,
+        planExecutionDiff: { ...evidence.planExecutionDiff, changed: true },
+      },
+      { ...evidence, actualSkippedActions: 0 },
+      {
+        ...evidence,
+        realizedMetrics: {
+          ...evidence.realizedMetrics,
+          actualSkippedActions: 0,
+        },
+      },
+      {
+        ...evidence,
+        realizedMetrics: {
+          ...evidence.realizedMetrics,
+          normalExecutions: 1,
+        },
+      },
+      {
+        ...evidence,
+        invalidation: {
+          count: 1,
+          reasonCodes: ["behavior_equivalence_failed"],
+        },
+      },
+      {
+        ...evidence,
+        realizedMetrics: { ...evidence.realizedMetrics, invalidations: 1 },
+      },
+      {
+        ...evidence,
+        realizedMetrics: { ...evidence.realizedMetrics, plannedReuse: 0 },
+      },
+      {
+        ...evidence,
+        realizedMetrics: { ...evidence.realizedMetrics, potentialReuse: 0 },
+      },
+      {
+        ...evidence,
+        storeRef: { ...evidence.storeRef, outcome: "invalidated" },
+      },
+      {
+        ...evidence,
+        action: "execute_normally",
+        executionOutcome: "executed_normally",
+        invalidation: {
+          count: 1,
+          reasonCodes: ["behavior_equivalence_failed"],
+        },
+        planExecutionDiff: {
+          ...evidence.planExecutionDiff,
+          changed: true,
+          executedAction: "execute_normally",
+        },
+        realizedMetrics: {
+          ...evidence.realizedMetrics,
+          invalidations: 1,
+          normalExecutions: 1,
+        },
+        storeRef: { ...evidence.storeRef, outcome: "invalidated" },
+      },
+    ];
+
+    for (const invalid of contradictoryVariants) {
+      expect(() =>
+        parseControlledReuseExecutionEvidence(JSON.stringify(invalid)),
+      ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    }
+  });
+
   it("executes normally when controlled reuse is disabled, even with a prior reuse plan", async () => {
     const current = createPlanningInput();
     const input = createExecutionInput(current);
@@ -283,6 +376,11 @@ describe("executeControlledReuse", () => {
       value: "fresh contents",
     });
     expect(executeNormally).toHaveBeenCalledOnce();
+    expect(
+      parseControlledReuseExecutionEvidence(
+        serializeControlledReuseExecutionEvidence(result.evidence),
+      ),
+    ).toEqual(result.evidence);
   });
 
   it("falls back exactly once for mismatched store provenance or behavior-equivalence failure", async () => {
@@ -348,6 +446,11 @@ describe("executeControlledReuse", () => {
     });
     expect(executeOnInvalid).toHaveBeenCalledOnce();
     expect(store.size).toBe(0);
+    expect(
+      parseControlledReuseExecutionEvidence(
+        serializeControlledReuseExecutionEvidence(invalid.evidence),
+      ),
+    ).toEqual(invalid.evidence);
   });
 
   it("blocks changed operation identity before lookup or execution", async () => {
@@ -379,6 +482,11 @@ describe("executeControlledReuse", () => {
       status: "blocked",
     });
     expect(executeNormally).not.toHaveBeenCalled();
+    expect(
+      parseControlledReuseExecutionEvidence(
+        serializeControlledReuseExecutionEvidence(result.evidence),
+      ),
+    ).toEqual(result.evidence);
   });
 
   it.each([
