@@ -99,15 +99,9 @@ export async function executeControlledReuse<T>(
     return blocked(identity, ["incompatible_execution_input"]);
   }
 
-  if (input.plan.action === "blocked") {
-    return blocked(identity, input.plan.reasonCodes);
-  }
-  if (input.plan.action === "execute_normally") {
-    return executeNormally(identity, input.plan.reasonCodes, dependencies);
-  }
-
   // Re-run all authorization, source, freshness, dependency, policy,
-  // side-effect, provenance, and validator checks at the execution boundary.
+  // side-effect, provenance, and validator checks before any execution path.
+  // The recomputed plan is also the sole source of actions and reason codes.
   const currentPlan = planControlledReuse(input.current, {
     now: dependencies.now,
   }).nodes.find((node) => node.nodeId === input.nodeId);

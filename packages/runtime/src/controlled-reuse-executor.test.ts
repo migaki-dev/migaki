@@ -295,6 +295,50 @@ describe("executeControlledReuse", () => {
     });
     expect(JSON.stringify(unsafeResult.evidence)).not.toContain("/Users/alice");
   });
+
+  it("blocks malformed non-reuse input without executing or echoing caller reasons", async () => {
+    const executeNormally = vi.fn(async () => "must not run");
+    const secretReason = "secret_reason_payload";
+
+    const result = await executeControlledReuse(
+      {
+        current: {
+          candidates: [
+            {
+              nodeId: "tool-read",
+              previousNodeId: "previous-tool-read",
+            },
+          ],
+        },
+        nodeId: "tool-read",
+        plan: {
+          action: "execute_normally",
+          nodeId: "tool-read",
+          previousNodeId: "previous-tool-read",
+          reasonCodes: [secretReason],
+        },
+        version: CONTROLLED_REUSE_EXECUTION_VERSION,
+      },
+      {
+        codec: stringCodec,
+        executeNormally,
+        now: NOW,
+        store: createStore(),
+        validateBehaviorEquivalence: () => true,
+      },
+    );
+
+    expect(result).toMatchObject({
+      evidence: {
+        action: "blocked",
+        actualSkippedActions: 0,
+        reasonCodes: ["incompatible_authorization_input"],
+      },
+      status: "blocked",
+    });
+    expect(executeNormally).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.evidence)).not.toContain(secretReason);
+  });
 });
 
 function createExecutionInput(
