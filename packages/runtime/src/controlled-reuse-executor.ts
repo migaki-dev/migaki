@@ -31,6 +31,21 @@ const LEGACY_CONTROLLED_REUSE_EXECUTION_FIELDS = new Set([
   "version",
 ]);
 
+const RICH_CONTROLLED_REUSE_EXECUTION_FIELDS = new Set([
+  ...LEGACY_CONTROLLED_REUSE_EXECUTION_FIELDS,
+  "decisionRef",
+  "eligibilityChecks",
+  "estimatedAvoidableWork",
+  "executionOutcome",
+  "invalidation",
+  "planExecutionDiff",
+  "policyRef",
+  "privacyPolicy",
+  "realizedMetrics",
+  "storeRef",
+  "validatorOutcomes",
+]);
+
 export type ControlledReuseExecutionVersion =
   typeof CONTROLLED_REUSE_EXECUTION_VERSION;
 
@@ -316,6 +331,13 @@ function readExecutionInput(
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasOnlyFields(
+  value: Readonly<Record<string, unknown>>,
+  fields: ReadonlySet<string>,
+): boolean {
+  return Object.keys(value).every((key) => fields.has(key));
 }
 
 function safeReference(value: unknown): value is string {
@@ -695,6 +717,7 @@ function isControlledReuseExecutionEvidence(
   }
 
   return (
+    hasOnlyFields(value, RICH_CONTROLLED_REUSE_EXECUTION_FIELDS) &&
     isDecisionRef(value.decisionRef) &&
     Array.isArray(value.eligibilityChecks) &&
     value.eligibilityChecks.every(isEligibilityCheck) &&
@@ -748,6 +771,10 @@ function containsPrivacyUnsafeValue(value: unknown): boolean {
 function isDecisionRef(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOnlyFields(
+      value,
+      new Set(["currentRunId", "nodeId", "previousRunId", "version"]),
+    ) &&
     safeReference(value.currentRunId) &&
     safeReference(value.previousRunId) &&
     safeReference(value.nodeId) &&
@@ -758,6 +785,7 @@ function isDecisionRef(value: unknown): boolean {
 function isEligibilityCheck(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOnlyFields(value, new Set(["name", "status"])) &&
     safeReference(value.name) &&
     ["failed", "passed", "unknown"].includes(String(value.status))
   );
@@ -766,6 +794,7 @@ function isEligibilityCheck(value: unknown): boolean {
 function isInvalidation(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOnlyFields(value, new Set(["count", "reasonCodes"])) &&
     (value.count === 0 || value.count === 1) &&
     Array.isArray(value.reasonCodes) &&
     value.reasonCodes.every((code) => safeReference(code))
@@ -775,6 +804,10 @@ function isInvalidation(value: unknown): boolean {
 function isPlanExecutionDiff(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOnlyFields(
+      value,
+      new Set(["changed", "executedAction", "plannedAction"]),
+    ) &&
     typeof value.changed === "boolean" &&
     ["blocked", "execute_normally", "reuse"].includes(
       String(value.executedAction),
@@ -788,6 +821,10 @@ function isPlanExecutionDiff(value: unknown): boolean {
 function isPolicyRef(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOnlyFields(
+      value,
+      new Set(["authorizationVersion", "mode", "plannerVersion"]),
+    ) &&
     value.authorizationVersion === CONTROLLED_REUSE_AUTHORIZATION_VERSION &&
     (value.mode === "disabled" || value.mode === "exact_read_only_tool_call") &&
     value.plannerVersion === CONTROLLED_REUSE_PLAN_VERSION
@@ -797,6 +834,7 @@ function isPolicyRef(value: unknown): boolean {
 function isPrivacyPolicy(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOnlyFields(value, new Set(["exportMode", "omittedFields", "version"])) &&
     value.exportMode === "metadata_only" &&
     value.version === EVIDENCE_PRIVACY_POLICY_VERSION &&
     Array.isArray(value.omittedFields) &&
@@ -807,6 +845,16 @@ function isPrivacyPolicy(value: unknown): boolean {
 function isRealizedMetrics(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOnlyFields(
+      value,
+      new Set([
+        "actualSkippedActions",
+        "invalidations",
+        "normalExecutions",
+        "plannedReuse",
+        "potentialReuse",
+      ]),
+    ) &&
     [
       value.actualSkippedActions,
       value.invalidations,
@@ -820,6 +868,10 @@ function isRealizedMetrics(value: unknown): boolean {
 function isStoreRef(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOnlyFields(
+      value,
+      new Set(["id", "outcome", "valueSchemaVersion", "version"]),
+    ) &&
     value.version === REUSE_VALUE_STORE_VERSION &&
     ["hit", "invalidated", "miss", "not_checked"].includes(
       String(value.outcome),
@@ -833,6 +885,7 @@ function isStoreRef(value: unknown): boolean {
 function isValidatorOutcome(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOnlyFields(value, new Set(["id", "status"])) &&
     safeReference(value.id) &&
     ["failed", "not_run", "passed"].includes(String(value.status))
   );
@@ -841,6 +894,10 @@ function isValidatorOutcome(value: unknown): boolean {
 function isEstimatedWork(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOnlyFields(
+      value,
+      new Set(["classification", "costUsd", "latencyMs", "totalTokens"]),
+    ) &&
     value.classification === "estimated" &&
     [value.costUsd, value.latencyMs, value.totalTokens].every(
       (metric) => metric === undefined || finiteNonNegative(metric),

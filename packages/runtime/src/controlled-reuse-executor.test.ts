@@ -170,7 +170,88 @@ describe("executeControlledReuse", () => {
         Estimates: none; realized metrics are reported separately
         Reasons: none
         "
-      `);
+    `);
+  });
+
+  it("rejects unknown fields in rich evidence and its nested records", async () => {
+    const current = createPlanningInput();
+    const store = createStore();
+    insert(store, "stored contents");
+    const result = await executeControlledReuse(createExecutionInput(current), {
+      codec: stringCodec,
+      executeNormally: () => "fresh contents",
+      now: NOW,
+      store,
+      validateBehaviorEquivalence: () => true,
+    });
+    const evidence = result.evidence;
+    const unknownFieldVariants = [
+      { ...evidence, rawPrompt: "private prompt" },
+      { ...evidence, apiKey: "private credential" },
+      { ...evidence, extraMetadata: "unexpected" },
+      {
+        ...evidence,
+        decisionRef: { ...evidence.decisionRef, extraMetadata: "unexpected" },
+      },
+      {
+        ...evidence,
+        eligibilityChecks: evidence.eligibilityChecks?.map((check, index) =>
+          index === 0 ? { ...check, extraMetadata: "unexpected" } : check,
+        ),
+      },
+      {
+        ...evidence,
+        estimatedAvoidableWork: {
+          ...evidence.estimatedAvoidableWork,
+          extraMetadata: "unexpected",
+        },
+      },
+      {
+        ...evidence,
+        invalidation: { ...evidence.invalidation, extraMetadata: "unexpected" },
+      },
+      {
+        ...evidence,
+        planExecutionDiff: {
+          ...evidence.planExecutionDiff,
+          extraMetadata: "unexpected",
+        },
+      },
+      {
+        ...evidence,
+        policyRef: { ...evidence.policyRef, extraMetadata: "unexpected" },
+      },
+      {
+        ...evidence,
+        privacyPolicy: {
+          ...evidence.privacyPolicy,
+          extraMetadata: "unexpected",
+        },
+      },
+      {
+        ...evidence,
+        realizedMetrics: {
+          ...evidence.realizedMetrics,
+          extraMetadata: "unexpected",
+        },
+      },
+      {
+        ...evidence,
+        storeRef: { ...evidence.storeRef, extraMetadata: "unexpected" },
+      },
+      {
+        ...evidence,
+        validatorOutcomes: evidence.validatorOutcomes?.map((outcome, index) =>
+          index === 0 ? { ...outcome, extraMetadata: "unexpected" } : outcome,
+        ),
+      },
+    ];
+
+    for (const invalid of unknownFieldVariants) {
+      expect(() =>
+        parseControlledReuseExecutionEvidence(JSON.stringify(invalid)),
+      ).toThrow(/Expected migaki\.controlled-reuse-execution\.v0 evidence/u);
+    }
   });
 
   it("executes normally when controlled reuse is disabled, even with a prior reuse plan", async () => {
